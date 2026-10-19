@@ -8,6 +8,7 @@ import { Store } from './store';
 import { PaseoRuntime } from './runtime';
 import { providerProfiles, workflowModes } from './providers';
 import { DEFAULT_MODEL } from '../shared/provider-selection';
+import { repositoryPreflight } from './git';
 
 export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
@@ -36,7 +37,7 @@ export function contributeServer(server: PluginServerContext) {
       models: e.models?.length ? e.models.map(m => ({ id: m.id, label: m.label ?? m.id, isDefault: m.isDefault ?? false })) : [{ id: DEFAULT_MODEL, label: 'Modèle par défaut du harnais (non annoncé)', isDefault: true }],
       modes: workflowModes(profiles.families[e.provider] ?? e.provider, ((await paseo.providers.listModes(e.provider, { cwd })).modes ?? []).map(m => ({ id: m.id, label: m.label }))),
     })));
-    return { cwd, providers };
+    return { cwd, providers, ...await repositoryPreflight(cwd) };
   });
   server.handle(historyRpc, async ({ id }) => (await store.get(id)).events);
   server.on('agent.permission_requested', (event, { paseo }) => bind(paseo).permission(event.agent.id));

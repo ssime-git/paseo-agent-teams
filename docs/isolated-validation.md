@@ -66,6 +66,12 @@ The isolated plugin catalog was checked against the real daemon provider invento
 
 Commit `1696271` was installed from Git into the isolated daemon and reached `running`, then installed into the primary daemon after confirming there were no unfinished plugin workflows and backing up its configuration. The primary plugin health check reported the expected revision, a compiled client bundle and no imported isolated workflows; supervisor and worker PIDs were unchanged. CI passed for that code revision. A compact browser test on the Git installation selected Codex review with its read-only permission and confirmed the start button enabled, then selected Pi with its explicit instruction-only permissions; there were no page errors or horizontal overflow.
 
+## Workspace and desktop compatibility correction
+
+A native screenshot exposed a launch attempt from `/home/razer/Projects/paseo`, which is a non-Git parent of the plugin repository. The catalog now runs a Git preflight, explains this requirement and suggests accessible immediate child repositories without initializing or cleaning any directory. The panel blocks launch until preflight completes. Its repository button uses the public workspace API and opens Agent Teams in the selected repository. An actual desktop-width browser test confirmed the parent was blocked, the button opened the child repository, and launch became available after entering a task, without page errors or any agent execution.
+
+The previous `<0.12.0` manifest ceiling excluded the connected desktop version. The official 0.11.2 and 0.12.0 SDK client contracts, button contracts and server contracts used here were compared and were identical. The manifest now permits `>=0.11.2 <0.13.0`; a regression test runs Paseo's official compatibility checker against daemon 0.11.2, mobile 0.11.4 and desktop 0.12.0. Typechecking and all 43 tests passed. The physical desktop's rendering still requires confirmation after this update.
+
 ## Remaining limits
 
 Native iOS panel visibility was confirmed by the user; complete workflows on native devices and every model/account combination have not been tested. Codex does not advertise a `read-only` mode on this daemon; the plugin now supports its native read-only sandbox options instead. A subsequent real Codex review completed with a passing JSON verdict, and the daemon trace confirmed `sandboxPolicyType: read-only`. Ambiguous operations still require intervention by design; a missing completion receipt is never treated as permission to resend.

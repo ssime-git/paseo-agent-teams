@@ -66,6 +66,12 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   await act(async () => { builderHarness.props.onValueChange('opencode'); });
   await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress(); });
   assert.deepEqual((launched as { config: { roles: { builder: unknown } } }).config.roles.builder, { provider: 'opencode/zen/free-example', modeId: 'build' });
+  let chosenRepository = '';
+  Object.assign(registry.catalog, { launchIssue: 'Ce dossier n’est pas un dépôt Git accessible.', repositories: ['/repo/project'] });
+  await act(async () => { renderer.update(React.createElement(TeamsPanel, { ...props, onChooseRepository: async (path: string) => { chosenRepository = path; } })); });
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, true);
+  await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Ouvrir Agent Teams dans /repo/project' }).props.onPress(); });
+  assert.equal(chosenRepository, '/repo/project');
   registry.workflows = [{ id: 'workflow', revision: 2, task: 'OAuth2', phase: 'building', status: 'awaiting_plan', cycle: 0, config: { maxCorrections: 2, mode: 'auto' }, agents: { planner: 'native-planner' }, plan: { summary: 'Plan', tests: [] }, tests: [], events: [] }];
   await act(async () => { renderer.update(React.createElement(TeamsPanel, props)); });
   assert.ok(renderer.root.findByProps({ accessibilityLabel: 'Approuver le plan et les tests' }));

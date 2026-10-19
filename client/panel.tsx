@@ -16,7 +16,7 @@ export function ProgressCard({ item, theme, layout }: PluginTimelineItemProps<{ 
     <Text selectable style={{ color: theme.colors.foregroundMuted }}>{item.data.detail}</Text>
   </View>;
 }
-export function TeamsPanel(props: PluginWorkspacePanelProps) {
+export function TeamsPanel(props: PluginWorkspacePanelProps & { onChooseRepository?: (path: string) => Promise<void> }) {
   const { workspaceId, theme, layout, navigation } = props;
   const catalogCall = useRpc(catalogRpc), listCall = useRpc(listRpc), createCall = useRpc(createRpc), actionCall = useRpc(actionRpc);
   const catalog = useQuery({ queryKey: ['agent-teams-catalog', props.host.id, workspaceId], queryFn: () => catalogCall({ workspaceId }), refetchInterval: 30_000 });
@@ -42,7 +42,7 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
     });
   }, [catalog.data]);
   const text = { color: theme.colors.foreground };
-  const startIssue = configurationIssue(config, catalog.data?.providers) ?? (!task.trim() ? 'Décrivez la tâche pour démarrer.' : undefined);
+  const startIssue = !catalog.data ? 'Vérification du workspace…' : catalog.data.launchIssue ?? configurationIssue(config, catalog.data.providers) ?? (!task.trim() ? 'Décrivez la tâche pour démarrer.' : undefined);
   const input = { color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, padding: 10, minHeight: 44 };
   const run = async (job: () => Promise<unknown>) => { setBusy(true); setError(''); try { await job(); await workflows.refetch(); } catch (e) { setError(String(e)); } finally { setBusy(false); } };
   const act = (action: Action['action'], extra: Partial<Action> = {}) => workflow && run(async () => {
@@ -58,6 +58,10 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
     <Text accessibilityRole="header" style={{ ...text, fontSize: 24 }}>Agent Teams</Text>
     {error || catalog.error || workflows.error ? <Text accessibilityRole="alert" style={{ color: theme.colors.statusDanger }}>{error || String(catalog.error ?? workflows.error)}</Text> : null}
     <Text style={text}>{catalog.data?.cwd ?? 'Chargement des providers…'}</Text>
+    {catalog.data?.launchIssue ? <View style={{ gap: 8 }}>
+      <Text accessibilityRole="alert" style={{ color: theme.colors.statusDanger }}>{catalog.data.launchIssue}</Text>
+      {props.onChooseRepository ? catalog.data.repositories.map(path => button(`Ouvrir Agent Teams dans ${path}`, () => { void run(() => props.onChooseRepository!(path)); })) : null}
+    </View> : null}
     <SettingsSelect label="Mode" value={config.mode} options={[{ label: 'Auto Workflow', value: 'auto' }, { label: 'Manual Switch', value: 'manual' }]} onValueChange={mode => setConfig(c => ({ ...c, mode: mode as Config['mode'] }))} />
     {roles.map(role => {
       const selection = config.roles[role], separator = selection.provider.indexOf('/'), harness = selection.provider.slice(0, separator), model = selection.provider.slice(separator + 1);

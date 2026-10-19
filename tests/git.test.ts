@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { git, snapshot, changes, repository } from '../server/git';
+import { git, snapshot, changes, repository, repositoryPreflight } from '../server/git';
 import { runCommand } from '../server/commands';
 test('snapshots distinguish pre-existing staged, unstaged, untracked and subsequent edits without changing the index', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'teams-git-')); t.after(() => rm(dir, { recursive: true, force: true }));
@@ -23,4 +23,13 @@ test('command runner records streams, exit code and timeout', async t => {
   const result = await runCommand(dir, { command: 'echo ok; echo error >&2; exit 3', timeoutMs: 1000 });
   assert.equal(result.exitCode, 3); assert.match(result.stdout, /ok/); assert.match(result.stderr, /error/);
   const timeout = await runCommand(dir, { command: 'sleep 5', timeoutMs: 100 }); assert.equal(timeout.timedOut, true); assert.ok(timeout.durationMs < 3000);
+});
+test('a non-Git parent explains the launch requirement and suggests its actual child repositories without initializing it', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'teams-parent-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const child = join(dir, 'project'); await mkdir(child); await git(child, ['init']);
+  const parentBefore = await readdir(dir);
+  const result = await repositoryPreflight(dir);
+  assert.equal(result.gitRoot, null); assert.match(result.launchIssue!, /n’est pas un dépôt Git accessible/); assert.deepEqual(result.repositories, [child]);
+  assert.deepEqual(await readdir(dir), parentBefore); assert.equal((await repositoryPreflight(child)).gitRoot, child);
+  await assert.rejects(repository(dir), /Ouvrez le workspace du dépôt/);
 });

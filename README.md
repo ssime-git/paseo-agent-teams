@@ -8,7 +8,7 @@ A standalone Paseo plugin for persistent workflows across **all available harnes
 
 ## Requirements
 
-- Paseo daemon and connected clients **0.11.2** (`>=0.11.2 <0.12.0`).
+- Paseo daemon **0.11.2** and compatible connected clients (`>=0.11.2 <0.13.0`), including mobile 0.11.4 and desktop 0.12.0.
 - Node.js 22.15 or later for development.
 - At least one available, authenticated harness on the daemon host. Model IDs and modes are discovered from that host; no subscription or model availability is assumed.
 - A Git workspace on a Linux/macOS daemon host. The test runner uses `/bin/sh` and POSIX process groups.
@@ -68,6 +68,8 @@ After completing login, add an entry under `agents.providers` in the daemon's `c
 ```
 
 Reload the daemon configuration, then select this provider for the Reviewer. Provider inheritance determines the available read-only modes; its distinct ID is preserved when launching agents. Credentials and launch environments stay on the server and are excluded from exported workflow configurations. Model discovery alone does not confirm that the selected account has credits. See Paseo's [custom provider documentation](https://paseo.sh/docs/custom-providers).
+
+The workspace must point to an accessible Git repository. If it points to a non-Git parent directory, the panel explains the requirement before launch and offers buttons to open detected immediate child repositories. It never initializes a repository or silently changes the target.
 
 All three roles work **in the selected workspace directory**. There is no automatic branch, worktree, commit, merge, reset or cleanup. Existing staged, unstaged and non-ignored untracked files are captured before the first agent runs. A lock prevents other workflows of this plugin from starting in the same Git repository, including sibling worktrees. It cannot lock out tools or agents started outside the plugin.
 

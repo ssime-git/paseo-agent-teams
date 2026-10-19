@@ -1,14 +1,28 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
+import { lstat, readFile, readlink, realpath, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 const exec = promisify(execFile);
 const LIMIT = 20 * 1024 * 1024;
 export async function git(cwd: string, args: string[]) { return (await exec('git', ['-C', cwd, ...args], { maxBuffer: LIMIT, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })).stdout; }
 export async function repository(cwd: string) {
-  const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  let root: string;
+  try { root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim(); }
+  catch (cause) { throw new Error(`Ce dossier n’est pas un dépôt Git accessible : ${cwd}. Ouvrez le workspace du dépôt à traiter.`, { cause }); }
   const common = (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim();
   return { root: await realpath(root), lock: await realpath(common) };
+}
+export async function repositoryPreflight(cwd: string) {
+  try { return { gitRoot: (await repository(cwd)).root, repositories: [] as string[] }; }
+  catch (error) {
+    const entries = await readdir(cwd, { withFileTypes: true }).catch(() => []);
+    const candidates = entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).slice(0, 50);
+    const found = await Promise.all(candidates.map(async e => {
+      const path = join(cwd, e.name);
+      try { await lstat(join(path, '.git')); return (await repository(path)).root; } catch { return undefined; }
+    }));
+    return { gitRoot: null, launchIssue: (error as Error).message, repositories: [...new Set(found.filter((p): p is string => !!p))] };
+  }
 }
 export interface Snapshot { head: string; status: string; staged: string; unstaged: string; files: Record<string, { kind: string; content: string; mode: number }>; }
 export async function snapshot(cwd: string): Promise<Snapshot> {
