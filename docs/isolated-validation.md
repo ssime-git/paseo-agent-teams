@@ -46,7 +46,7 @@ The panel also rendered at **390 × 844**, with discovered models, no page JavaS
 - **Shutdown race:** an old engine could persist `Daemon client closed` during plugin teardown, preventing recovery. A closed engine now leaves its accepted operation intact. Both a regression test and the repeated live recovery scenario passed.
 - **Fresh Git installs:** the manifest prepares the pinned production SDK dependency when it is absent. Existing developer dependencies are not pruned by a reload.
 
-Every code finding has automated coverage. Typechecking and 33 automated tests passed after these corrections. Installation from a fresh Git checkout is verified separately before deployment to the primary installation.
+Every code finding has automated coverage. Typechecking and 33 automated tests passed after these corrections. A fresh Git installation of revision `4171e0d` also reached `running`, compiled both entries with only its production SDK dependency installed, and served the catalog RPC successfully. The same pinned revision was then installed into the primary daemon by reloading configuration; its supervisor and worker PIDs were unchanged. The installation health check confirmed that the client bundle and RPC were available and that isolated workflow data had not been imported.
 
 ## Remaining limits
 
