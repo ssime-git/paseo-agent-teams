@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Engine, type Outcome, type Runtime } from '../server/engine';
 import { Store } from '../server/store';
-import { configSchema, type Config, type Role, type Workflow } from '../shared/contracts';
+import { configSchema, type Action, type Config, type Role, type Workflow } from '../shared/contracts';
 import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 const plan = {
   summary: 'Add OAuth2',
@@ -46,6 +46,7 @@ class Fake implements Runtime {
     return 'initial dirty state + current changes';
   }
   async publish() {}
+  async validateSelection() {}
   async canClose() {
     return true;
   }
@@ -101,11 +102,7 @@ async function setup(t: TestContext, overrides: Partial<Config> = {}) {
       await engine.settle();
       return store.get(w.id);
     },
-    async action(
-      w: Workflow,
-      action: 'approve' | 'pause' | 'resume' | 'handoff' | 'message' | 'finish' | 'permission',
-      extra = {},
-    ) {
+    async action(w: Workflow, action: Action['action'], extra = {}) {
       await engine.action({
         id: w.id,
         expectedRevision: w.revision,
@@ -681,4 +678,91 @@ test('permission hook auto-accepts Builder tools but never does so for a paused 
   await h.engine.permission(w.agents.builder!);
   assert.equal(approvals, 1);
   assert.equal((await h.store.get(w.id)).status, 'paused');
+});
+
+test('exhausted workflows can extend their budget repeatedly while preserving evidence and sessions', async (t) => {
+  const h = await setup(t, { maxCorrections: 1 });
+  h.fake.responses.reviewer = Array(8).fill(JSON.stringify(fail));
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'attention');
+  assert.equal(w.cycle, 1);
+  const original = { ...w.agents },
+    baseline = w.baseline;
+  for (let n = 0; n < 2; n++) {
+    const prior: number = w.cycle;
+    w = await h.action(w, 'continue', { role: 'builder', extraCorrections: 2 });
+    assert.equal(w.status, 'attention');
+    assert.equal(w.cycle, prior + 2);
+    assert.equal(w.config.maxCorrections, prior + 2);
+    assert.deepEqual(w.agents, original);
+    assert.equal(w.baseline, baseline);
+  }
+  assert.equal(w.events.filter((e) => e.kind === 'continued').length, 2);
+});
+
+test('returning to Planner retains failed review context and requires approval of its new plan', async (t) => {
+  const h = await setup(t, { maxCorrections: 0 });
+  h.fake.responses.reviewer = [JSON.stringify(fail)];
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const before = h.fake.calls.length;
+  w = await h.action(w, 'continue', { role: 'planner', extraCorrections: 3, message: 'Revise the approach' });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.testsApproved, false);
+  assert.equal(w.config.maxCorrections, 3);
+  assert.equal(h.fake.calls.length, before + 1);
+  assert.match(h.fake.calls.at(-1)!.prompt, /Missing state verification/);
+  assert.match(h.fake.calls.at(-1)!.prompt, /Revise the approach/);
+});
+
+test('hot reconfiguration replaces only the chosen session, persists generation and does not dispatch until continued', async (t) => {
+  const h = await setup(t, { maxCorrections: 0 });
+  h.fake.responses.reviewer = [JSON.stringify(fail)];
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const before = h.fake.calls.length,
+    previous = { ...w.agents };
+  const input = {
+    id: w.id,
+    workspaceId: w.workspaceId,
+    expectedRevision: w.revision,
+    requestId: 'change-reviewer',
+    action: 'reconfigure' as const,
+    role: 'reviewer' as const,
+    selection: { provider: 'codex/another-detected-model', modeId: 'read-only' },
+  };
+  await h.engine.action(input);
+  await h.engine.action(input);
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'attention');
+  assert.equal(h.fake.calls.length, before);
+  assert.equal(w.agentGenerations?.reviewer, 1);
+  assert.equal(w.agents.reviewer, undefined);
+  assert.equal(w.agents.builder, previous.builder);
+  assert.equal(w.agents.planner, previous.planner);
+  assert.match(w.events.find((e) => e.kind === 'reconfigured')!.text, new RegExp(previous.reviewer!));
+  assert.equal((await new Store(h.store.directory).get(w.id)).agentGenerations?.reviewer, 1);
+  w = await h.action(w, 'continue', { role: 'reviewer', extraCorrections: 1 });
+  assert.equal(w.status, 'completed');
+  assert.equal(h.fake.calls.at(-1)!.role, 'reviewer');
+  assert.equal(h.fake.creationCount, 4);
+});
+
+test('continuation cannot bypass checkpoints or abandon an ambiguous accepted operation', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  await assert.rejects(h.action(w, 'continue', { role: 'builder' }), /Pause and wait/);
+  await assert.rejects(
+    h.action(w, 'reconfigure', { role: 'builder', selection: h.config.roles.builder }),
+    /Pause and wait/,
+  );
+  w = await h.action(w, 'pause');
+  await assert.rejects(h.action(w, 'continue', { role: 'builder' }), /Approve the plan/);
+  h.fake.lost = true;
+  w = await h.action(w, 'continue', { role: 'planner' });
+  assert.equal(w.status, 'attention');
+  assert.ok(w.operation);
+  await assert.rejects(h.action(w, 'continue', { role: 'planner' }), /Reconcile any retained operation/);
 });

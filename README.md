@@ -150,6 +150,12 @@ Pause prevents subsequent steps; an agent turn already dispatched is allowed to 
 
 Pending permissions appear in **Agent Teams**, with the native approval/rejection actions and tool details. Plan and final workflow approvals also remain in Team. Questions requiring free-text input must be answered in the native session. If the native turn has already finished, **Reprendre après résolution des permissions** reconciles its saved completion receipt without sending another prompt. A completed failed review returns to the Builder within the configured correction limit. External account permissions (for example a denied GitHub label change) still require intervention from someone with access. A timeout is an observation deadline, not a cancellation or a reason to send the task again.
 
+### Continue after the correction limit or change a phase model
+
+When a workflow stops for intervention, or is paused with no turn in flight, **Continuer le workflow** offers **Repasser par le Planner** and **Continuer depuis cette phase** (Planner, Builder or Reviewer). Choose 1–10 additional correction cycles and optional instructions. The total cycle count and prior results remain recorded; the limit can be extended again at a later checkpoint. Replanning observes the configured human approval policy.
+
+Select a discovered harness, model and permission mode, then **Appliquer le harnais et le modèle** to change a phase before continuing. This saves the configuration without launching a turn. Only that role receives a new native session, with the saved plan, review, test results and repository context in its next briefing. The previous native session remains in Paseo history, and its ID is saved in the reconfiguration event. Planner and Reviewer remain read-only. Pause and wait for an active turn to finish first; uncertain accepted operations must be reconciled before replacement.
+
 ### Restart recovery
 
 Both explicit and automatic restart recovery are supported. Explicit recovery is the default. Automatic recovery connects through the public SDK and only resumes workflows configured for it. Paused workflows and pending human checkpoints stay paused.

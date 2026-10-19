@@ -406,3 +406,61 @@ test('auto-accept preserves harness defaults when no model, mode or feature cata
   assert.equal(captured.config.modeId, undefined);
   assert.equal(captured.config.featureValues, undefined);
 });
+
+test('replacement sessions use a persisted generation key without changing other role identities', async () => {
+  const created: { idempotencyKey: string }[] = [];
+  const api = {
+    config: { get: async () => ({ config: { providers: {} } }) },
+    workspaces: {
+      ref: () => ({
+        agents: {
+          create: async (input: unknown) => {
+            created.push(input as (typeof created)[number]);
+            return { id: 'agent' };
+          },
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  const runtime = new PaseoRuntime(api, '/unused');
+  const w = {
+    id: 'workflow',
+    workspaceId: 'workspace',
+    cycle: 4,
+    config: {
+      roles: {
+        builder: { provider: 'codex/model', modeId: 'auto' },
+        planner: { provider: 'claude/model', modeId: 'plan' },
+      },
+    },
+    agentGenerations: { builder: 2 },
+  } as unknown as Workflow;
+  await runtime.agent(w, 'builder');
+  await runtime.agent(w, 'builder');
+  await runtime.agent(w, 'planner');
+  assert.deepEqual(
+    created.map((c) => c.idempotencyKey),
+    ['workflow-builder-g2', 'workflow-builder-g2', 'workflow-planner'],
+  );
+});
+
+test('hot selections must use a discovered model and retain read-only permissions for planning and review', async () => {
+  const api = {
+    config: { get: async () => ({ config: { providers: {} } }) },
+    providers: {
+      waitForReady: async () => ({ entries: [{ provider: 'codex', status: 'ready', models: [{ id: 'detected' }] }] }),
+      listModes: async () => ({ modes: [{ id: 'auto' }, { id: 'full-access' }] }),
+    },
+  } as unknown as PaseoApi;
+  const runtime = new PaseoRuntime(api, '/unused'),
+    w = { cwd: '/repo' } as Workflow;
+  await runtime.validateSelection(w, 'reviewer', { provider: 'codex/detected', modeId: 'read-only' });
+  await assert.rejects(
+    runtime.validateSelection(w, 'reviewer', { provider: 'codex/detected', modeId: 'full-access' }),
+    /read-only permission/,
+  );
+  await assert.rejects(
+    runtime.validateSelection(w, 'builder', { provider: 'codex/invented', modeId: 'auto' }),
+    /Unavailable provider/,
+  );
+});

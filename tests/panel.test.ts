@@ -321,6 +321,43 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.root.findByProps({ accessibilityLabel: 'Reprendre après résolution des permissions' }).props.onPress();
   });
   assert.equal((registry.actions.at(-1) as { action: string }).action, 'resume');
+  Object.assign(registry.workflows[0] as object, {
+    status: 'attention',
+    operation: undefined,
+    config: {
+      mode: 'auto',
+      maxCorrections: 4,
+      roles: {
+        planner: { provider: 'claude/model-from-daemon', modeId: 'plan' },
+        builder: { provider: 'codex/org/codex-from-daemon', modeId: 'auto' },
+        reviewer: { provider: 'claude/model-from-daemon', modeId: 'plan' },
+      },
+    },
+  });
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  assert.match(JSON.stringify(renderer.toJSON()), /Continuer le workflow/);
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Repasser par le Planner' }).props.onPress();
+  });
+  assert.equal((registry.actions.at(-1) as { action: string }).action, 'continue');
+  assert.equal((registry.actions.at(-1) as { role: string }).role, 'planner');
+  const recoveryHarness = renderer.root
+    .findAll((n) => String(n.type) === 'SettingsSelect')
+    .find((n) => n.props.label === 'Reprise · harnais')!;
+  await act(async () => {
+    recoveryHarness.props.onValueChange('opencode');
+  });
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Continuer depuis cette phase' }).props.disabled, true);
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Appliquer le harnais et le modèle' }).props.onPress();
+  });
+  assert.deepEqual((registry.actions.at(-1) as { selection: unknown }).selection, {
+    provider: 'opencode/zen/free-example',
+    modeId: 'build',
+  });
+  assert.equal((registry.actions.at(-1) as { action: string }).action, 'reconfigure');
   let card!: ReturnType<typeof create>;
   await act(async () => {
     card = create(

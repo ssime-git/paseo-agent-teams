@@ -18,6 +18,18 @@ export class PaseoRuntime implements Runtime {
     private directory: string,
     private nativeApi: () => PaseoApi | undefined = () => api,
   ) {}
+  async validateSelection(w: Workflow, role: Role, selection: Config['roles'][Role]) {
+    const profiles = await providerProfiles(this.api);
+    const { harness, model } = parseProvider(selection.provider);
+    const family = profiles.families[harness] ?? harness;
+    const discovered = await this.api.providers.waitForReady({ cwd: w.cwd });
+    const entry = discovered.entries.find((e) => e.provider === harness && e.status === 'ready');
+    if (!entry || !(entry.models?.some((m) => m.id === model) || (!entry.models?.length && model === DEFAULT_MODEL)))
+      throw new TeamError('PROVIDER_UNAVAILABLE', `Unavailable provider/model: ${selection.provider}`);
+    nativeMode(family, selection.modeId, (await this.api.providers.listModes(harness, { cwd: w.cwd })).modes ?? []);
+    if (role !== 'builder' && !readOnlyMode(family, selection.modeId))
+      throw new TeamError('READ_ONLY_REQUIRED', `${role} requires a read-only permission choice`);
+  }
   async prepare(workspaceId: string, config: Config) {
     const workspace = await this.api.workspaces.ref(workspaceId).refresh();
     if (!workspace) throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace no longer exists');
@@ -76,7 +88,7 @@ export class PaseoRuntime implements Runtime {
       if (features?.some((f) => f.id === 'auto_accept' && f.type === 'toggle')) featureValues = { auto_accept: true };
     }
     const agent = await this.api.workspaces.ref(w.workspaceId).agents.create({
-      idempotencyKey: `${w.id}-${role}${w.config.freshSessionPerCycle && w.cycle ? `-c${w.cycle}` : ''}`,
+      idempotencyKey: `${w.id}-${role}${w.config.freshSessionPerCycle && w.cycle ? `-c${w.cycle}` : ''}${w.agentGenerations?.[role] ? `-g${w.agentGenerations[role]}` : ''}`,
       config: {
         ...selection,
         provider: model === DEFAULT_MODEL ? harness : selection.provider,

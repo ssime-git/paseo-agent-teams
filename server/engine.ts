@@ -43,6 +43,7 @@ export interface Runtime {
   permissions?(w: Workflow): Promise<Permission[]>;
   respondPermission?(w: Workflow, id: string, behavior: 'allow' | 'deny', selectedActionId?: string): Promise<void>;
   autoApprove?(w: Workflow): Promise<boolean>;
+  validateSelection?(w: Workflow, role: Role, selection: Config['roles'][Role]): Promise<void>;
 }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const schemaFor = (role: Role) => (role === 'planner' ? planSchema : role === 'builder' ? buildSchema : reviewSchema);
@@ -184,6 +185,50 @@ export class Engine {
         throw new TeamError('REVISION_CONFLICT', 'Workflow changed. Refresh before retrying.');
       if (w.status === 'completed') throw new TeamError('WORKFLOW_COMPLETED', 'Workflow already completed');
       switch (input.action) {
+        case 'reconfigure':
+        case 'continue': {
+          if (!['paused', 'attention'].includes(w.status) || w.operation || this.jobs.has(w.id))
+            throw new TeamError(
+              'CHECKPOINT_REQUIRED',
+              'Pause and wait for the current turn before changing or restarting a phase. Reconcile any retained operation first.',
+            );
+          if (!(await this.runtime.canClose(w)))
+            throw new TeamError('ACTIVE_STEP', 'A native agent is still active or has pending permissions.');
+          if (!input.role) throw new TeamError('ROLE_REQUIRED', 'Choose a phase');
+          const role = input.role;
+          if (input.action === 'reconfigure') {
+            if (!input.selection || !this.runtime.validateSelection)
+              throw new TeamError('SELECTION_REQUIRED', 'Choose a discovered harness, model and permission mode');
+            await this.runtime.validateSelection(w, role, input.selection);
+            if (JSON.stringify(w.config.roles[role]) !== JSON.stringify(input.selection)) {
+              const previousAgent = w.agents[role];
+              w.config.roles[role] = input.selection;
+              w.agentGenerations = { ...w.agentGenerations, [role]: (w.agentGenerations?.[role] ?? 0) + 1 };
+              w.agents = Object.fromEntries(Object.entries(w.agents).filter(([key]) => key !== role));
+              w.cursors = Object.fromEntries(Object.entries(w.cursors).filter(([key]) => key !== role));
+              this.event(w, 'reconfigured', JSON.stringify({ role, selection: input.selection, previousAgent }), role);
+            }
+            break;
+          }
+          if (w.config.mode === 'auto' && role !== 'planner' && (!w.plan || !w.testsApproved))
+            throw new TeamError('APPROVAL_REQUIRED', 'Approve the plan and tests before restarting this phase');
+          w.config.maxCorrections = Math.max(w.config.maxCorrections, w.cycle + (input.extraCorrections ?? 2));
+          if (input.message?.trim()) this.event(w, 'user', input.message.trim());
+          if (w.config.mode === 'manual') {
+            w.phase = 'manual';
+            w.activeRole = role;
+          } else {
+            w.phase = role === 'planner' ? 'planning' : role === 'builder' ? 'building' : 'reviewing';
+            if (role === 'planner') w.testsApproved = false;
+            if (role === 'builder' && w.build) w.cycle++;
+          }
+          delete w.pendingRole;
+          delete w.resumeStatus;
+          delete w.error;
+          w.status = 'ready';
+          this.event(w, 'continued', `Restart ${role}; correction limit extended to ${w.config.maxCorrections}`, role);
+          break;
+        }
         case 'permission':
           if (!w.operation || !input.permissionId || !input.behavior || !this.runtime.respondPermission)
             throw new TeamError('PERMISSION_UNAVAILABLE', 'Permission is no longer available');
@@ -270,7 +315,7 @@ export class Engine {
       await this.save(w);
       return w;
     });
-    this.kick(w.id);
+    if (input.action !== 'reconfigure') this.kick(w.id);
     return w;
   }
   async recoverAutomatic() {

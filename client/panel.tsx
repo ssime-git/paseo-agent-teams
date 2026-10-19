@@ -6,6 +6,7 @@ import { HANDOFF_BUDGET } from '../shared/context';
 import { useTeamDraft } from './drafts';
 import { LockNotice } from './lock-notice';
 import { TeamPermissions } from './permissions';
+import { WorkflowRecovery } from './recovery';
 import { TestLog } from './test-log';
 import type { z } from 'zod';
 import { cardSchema } from '../shared/contracts';
@@ -929,6 +930,16 @@ export function TeamsPanel(
               : null}
             {workflow.status === 'permission' ? (
               <TeamPermissions {...props} workflow={workflow} busy={busy} onAction={act} />
+            ) : null}
+            {['attention', 'paused'].includes(workflow.status) && !workflow.operation ? (
+              <WorkflowRecovery
+                key={workflow.id}
+                workflow={workflow}
+                providers={catalog.data?.providers ?? []}
+                colors={c}
+                busy={busy}
+                onAction={act}
+              />
             ) : null}
             <View
               onLayout={(event) => {
