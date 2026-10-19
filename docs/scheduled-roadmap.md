@@ -15,6 +15,14 @@ Demande utilisateur : implémenter et tester les quatre axes ci-dessous, avec un
 - Garder les messages, récapitulatifs et le journal en français. Limiter chaque passage à un incrément testable, environ 60–90 minutes ; enregistrer un point de reprise si le travail reste incomplet.
 - Lorsque les quatre axes et leur intégration sont validés, mettre cette tâche planifiée en pause, puis produire un bilan final. Ne pas laisser tourner une maintenance indéfinie sur une tâche terminée.
 
+## Si l’utilisateur est absent
+
+- Pour cette tâche de développement planifiée, ne pas attendre une réponse interactive à chaque passage. Prendre les décisions techniques courantes, réversibles et déjà dans le périmètre autorisé, puis les documenter avec leurs raisons.
+- Si une décision exige réellement l’utilisateur (objectif incompatible, accès manquant ou action hors autorisation), enregistrer une question avec 2–3 propositions et une recommandation dans le journal et le bilan. Ne pas inventer sa réponse.
+- Suspendre uniquement le travail dépendant de cette réponse et avancer sur les autres critères indépendants. Ne pas reposer la même question à chaque passage : conserver un registre des questions en attente et le mettre à jour.
+- Si tous les travaux restants sont bloqués, terminer proprement le passage avec un bilan clair. Ne pas laisser un agent attendre une saisie indéfiniment et ne pas consommer des boucles de modèles pour attendre.
+- Pour le futur Planner du produit, conserver la question et le contexte, afficher « En attente de réponse » et permettre de répondre plus tard dans Team ou la session native puis de reprendre. Un timeout, une nouvelle échéance ou l’absence de réponse ne valent jamais approbation. Les choix automatiques ne sont permis que pour des défauts explicitement autorisés par la configuration.
+
 ## 1. Itérer sur le plan depuis le thread du Reviewer
 
 - [ ] Permettre la discussion et la proposition de révisions du plan dans la session du Reviewer, depuis Team et depuis le thread natif.
@@ -31,6 +39,7 @@ Demande utilisateur : implémenter et tester les quatre axes ci-dessous, avec un
 - [ ] Persister les réponses et décisions dans le contexte partagé. Ne pas lancer le Builder avant résolution d’une clarification bloquante.
 - [ ] Définir explicitement le comportement des trois politiques de validation : une absence de réponse ne vaut jamais approbation.
 - [ ] Tester les réponses partielles, doublons, refus, reprise, permissions natives et conservation du contexte.
+- [ ] Tester l’utilisateur absent : question persistante et reprise ultérieure, sans réponse supposée, sans double envoi ni démarrage prématuré du Builder.
 
 ## 3. Workflows personnalisés et boucles configurables
 
