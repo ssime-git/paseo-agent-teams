@@ -1,0 +1,50 @@
+{
+  "name": "paseo-agent-teams",
+  "private": true,
+  "version": "0.1.0",
+  "files": [
+    "paseo-plugin.json",
+    "OVERVIEW.md",
+    "index.client.ts",
+    "index.client.tsx",
+    "index.server.ts",
+    "index.server.tsx",
+    "client/",
+    "server/",
+    "shared/"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test --experimental-test-isolation=none tests/*.test.ts",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
+    "lint": "eslint client server shared tests index.client.tsx index.server.ts",
+    "format": "prettier --write \"{client,server,shared,tests}/**/*.{ts,tsx}\" index.client.tsx index.server.ts",
+    "format:check": "prettier --check \"{client,server,shared,tests}/**/*.{ts,tsx}\" index.client.tsx index.server.ts",
+    "coverage": "node --import tsx --test --experimental-test-isolation=none --experimental-test-coverage --test-coverage-lines=65 tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@getpaseo/plugin": "0.11.2",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^26.6.5",
+    "@types/react": "~19.2.0",
+    "@types/react-test-renderer": "^19.3.0",
+    "esbuild": "0.28.2",
+    "eslint": "^10.13.0",
+    "prettier": "^3.9.10",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-test-renderer": "^19.1.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "zod": "^4.4.3"
+  },
+  "dependencies": {
+    "@getpaseo/client": "0.11.2"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  }
+}

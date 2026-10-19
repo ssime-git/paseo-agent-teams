@@ -1,0 +1,236 @@
+import { TeamError } from '../shared/errors';
+import type { PaseoApi, PaseoAgentHandle } from '@getpaseo/client';
+import { readFile, writeFile, realpath } from 'node:fs/promises';
+import { join, sep, isAbsolute } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { roles, type Config, type Role, type Workflow } from '../shared/contracts';
+import { repository, snapshot, changes, type Snapshot } from './git';
+import { runCommand } from './commands';
+import { providerProfiles, nativeMode } from './providers';
+import { DEFAULT_MODEL, INSTRUCTION_READ_ONLY, readOnlyMode, parseProvider } from '../shared/provider-selection';
+import type { Outcome, Runtime } from './engine';
+
+export { readOnlyMode } from '../shared/provider-selection';
+export class PaseoRuntime implements Runtime {
+  constructor(
+    private api: PaseoApi,
+    private directory: string,
+    private nativeApi: () => PaseoApi | undefined = () => api,
+  ) {}
+  async prepare(workspaceId: string, config: Config) {
+    const workspace = await this.api.workspaces.ref(workspaceId).refresh();
+    if (!workspace) throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace no longer exists');
+    const actualCwd = workspace.workspaceDirectory;
+    if (!actualCwd) throw new TeamError('WORKSPACE_DIRECTORY_MISSING', 'Workspace has no directory');
+    const profiles = await providerProfiles(this.api);
+    const discovered = await this.api.providers.waitForReady({ cwd: actualCwd });
+    for (const role of roles) {
+      const selection = config.roles[role];
+      const { harness, model } = parseProvider(selection.provider);
+      const family = profiles.families[harness] ?? harness;
+      const entry = discovered.entries.find((e) => e.provider === harness && e.status === 'ready');
+      if (!entry || !(entry.models?.some((m) => m.id === model) || (!entry.models?.length && model === DEFAULT_MODEL)))
+        throw new TeamError('PROVIDER_UNAVAILABLE', `Unavailable provider/model: ${selection.provider}`);
+      const modes = await this.api.providers.listModes(harness, { cwd: actualCwd });
+      nativeMode(family, selection.modeId, modes.modes ?? []);
+      if (role !== 'builder' && !readOnlyMode(family, selection.modeId))
+        throw new TeamError('READ_ONLY_REQUIRED', `${role} requires a read-only permission choice`);
+    }
+    const repo = await repository(actualCwd);
+    if (!isAbsolute(this.directory))
+      throw new TeamError('DATA_DIRECTORY_RELATIVE', 'The data directory must be absolute');
+    const dataPath = await realpath(this.directory);
+    if (dataPath === repo.root || dataPath.startsWith(repo.root + sep))
+      throw new TeamError(
+        'DATA_DIRECTORY_IN_REPOSITORY',
+        'The data directory must be outside the workspace repository',
+      );
+    const baseline = join(this.directory, `baseline-${randomUUID()}.snapshot`);
+    await writeFile(baseline, JSON.stringify(await snapshot(repo.root)), { mode: 0o600, flush: true });
+    return { cwd: actualCwd, repo: repo.lock, baseline };
+  }
+  async agent(w: Workflow, role: Role) {
+    const profiles = await providerProfiles(this.api);
+    const selection = w.config.roles[role];
+    const { harness, model } = parseProvider(selection.provider);
+    const family = profiles.families[harness] ?? harness;
+    const codexReadOnly = family === 'codex' && selection.modeId === 'read-only';
+    const modeId =
+      codexReadOnly || !['claude', 'codex'].includes(family)
+        ? nativeMode(
+            family,
+            selection.modeId,
+            (await this.api.providers.listModes(harness, { cwd: w.cwd })).modes ?? [],
+          )
+        : selection.modeId;
+    const agent = await this.api.workspaces.ref(w.workspaceId).agents.create({
+      idempotencyKey: `${w.id}-${role}`,
+      config: {
+        ...selection,
+        provider: model === DEFAULT_MODEL ? harness : selection.provider,
+        modeId,
+        ...(codexReadOnly ? { options: { sandbox_mode: 'read-only', approval_policy: 'never' } } : {}),
+        ...(role !== 'builder' && family === 'claude'
+          ? { options: { disallowedTools: ['ExitPlanMode', 'EnterPlanMode', 'Edit', 'Write', 'NotebookEdit'] } }
+          : {}),
+        systemPrompt:
+          role === 'builder' && selection.modeId !== INSTRUCTION_READ_ONLY
+            ? 'Preserve existing user changes. Only edit files required for the task.'
+            : 'Read-only pipeline role: analyze and report. Never edit files. Do not call EnterPlanMode or ExitPlanMode or request native plan approval. Return your result directly; human checkpoints are managed by the Agent Teams plugin.',
+      },
+      env: { GIT_OPTIONAL_LOCKS: '0' },
+      title: `Agent Teams · ${role}`,
+      labels: { 'agent-teams-workflow': w.id, 'agent-teams-role': role },
+    });
+    return agent.id;
+  }
+  async run(w: Workflow, role: Role, prompt: string, operationId: string): Promise<Outcome> {
+    const agent = this.api.agents.ref(w.agents[role]!);
+    await agent.refresh();
+    if (agent.status === 'running' || agent.pendingPermissions?.length)
+      return { status: 'uncertain', error: 'Agent is already busy. Open its native session before resuming.' };
+    const result = await agent.run(`[agent-teams-operation:${operationId}]\n${prompt}`, {
+      messageId: operationId,
+      activeTurnBehavior: 'steer',
+      timeoutMs: 60_000,
+    });
+    // Claude may report authentication/entitlement failures as assistant replies with an idle turn.
+    if (
+      result.status === 'idle' &&
+      (/^Failed to authenticate:/i.test(result.lastMessage ?? '') ||
+        /^.{1,120} requires usage credits\./.test(result.lastMessage ?? ''))
+    )
+      return { status: 'error', error: result.lastMessage! };
+    return { status: result.status, text: result.lastMessage ?? undefined, error: result.error ?? undefined };
+  }
+  async reconcile(w: Workflow): Promise<Outcome> {
+    const op = w.operation!;
+    const agent = this.api.agents.ref(w.agents[op.role]!);
+    if (!(await agent.refresh()))
+      return { status: 'uncertain', error: 'Saved agent is missing; operation will not be resent' };
+    if (agent.pendingPermissions?.length) return { status: 'permission' };
+    const history = await this.history(agent);
+    const index = history.entries.findIndex(
+      (e) =>
+        e.item.type === 'user_message' &&
+        (e.item.messageId === op.id ||
+          e.item.clientMessageId === op.id ||
+          e.item.text.includes(`[agent-teams-operation:${op.id}]`)),
+    );
+    if (index < 0)
+      return {
+        status: 'uncertain',
+        error: 'Cannot prove that the saved prompt was accepted; inspect the native session',
+      };
+    if (history.entries.slice(index + 1).some((e) => e.item.type === 'user_message'))
+      return { status: 'uncertain', error: 'Another prompt was sent to this session; review it before continuing' };
+    const cursor = history.cursor;
+    if (agent.status === 'running' && agent.activeTurn) {
+      const result = await agent.waitForFinish(60_000);
+      return { status: result.status, text: result.lastMessage ?? undefined, error: result.error ?? undefined, cursor };
+    }
+    // A stored hook receipt proves completion; idle alone does not.
+    const receipt = w.receipts?.[op.id] ?? w.events.find((e) => e.kind === `receipt:${op.id}`)?.text;
+    if (receipt) {
+      const result = JSON.parse(receipt) as Outcome;
+      return { ...result, cursor };
+    }
+    return {
+      status: 'uncertain',
+      error: 'No durable completion receipt. The operation is retained and will not be replayed.',
+      cursor,
+    };
+  }
+  private async history(agent: PaseoAgentHandle) {
+    let page = await agent.timeline.refetch({ direction: 'before', limit: 100, projection: 'canonical' });
+    let entries = [...page.entries];
+    const cursor = page.endCursor ?? undefined;
+    while (page.hasOlder && page.startCursor) {
+      page = await agent.timeline.refetch({
+        direction: 'before',
+        cursor: page.startCursor,
+        limit: 100,
+        projection: 'canonical',
+      });
+      if (page.reset || page.gap || page.staleCursor)
+        throw new TeamError('TIMELINE_CHANGED', 'Timeline history changed while reconciling');
+      entries = [...page.entries, ...entries];
+    }
+    return { entries, cursor };
+  }
+  async tests(w: Workflow, signal: AbortSignal) {
+    if (!w.testsApproved || !w.plan) throw new TeamError('TESTS_NOT_APPROVED', 'Test commands are not approved');
+    const results = [];
+    for (const command of w.plan.tests) {
+      if (signal.aborted) break;
+      results.push(await runCommand(w.cwd, command, signal, w.config.testEnvironmentKeys));
+    }
+    return results;
+  }
+  async context(w: Workflow) {
+    const root = (await repository(w.cwd)).root;
+    const before = JSON.parse(await readFile(w.baseline, 'utf8')) as Snapshot,
+      after = await snapshot(root);
+    // Old v1 baselines stored file bytes; normalize them before projecting context.
+    for (const file of Object.values(before.files)) {
+      if (file.kind === 'file' && !/^[a-f0-9]{64}$/.test(file.content)) {
+        file.content = createHash('sha256').update(Buffer.from(file.content, 'base64')).digest('hex');
+      }
+    }
+    return boundedContext(
+      JSON.stringify({
+        encoding: 'File contents are SHA-256 digests; symlink contents are link targets.',
+        initialHead: before.head,
+        initialStatus: before.status,
+        initialStagedDiff: before.staged,
+        initialUnstagedDiff: before.unstaged,
+        currentHead: after.head,
+        currentStagedDiff: after.staged,
+        currentUnstagedDiff: after.unstaged,
+        changesSinceStart: changes(before, after),
+      }),
+    );
+  }
+  async fingerprint(w: Workflow) {
+    return createHash('sha256')
+      .update(JSON.stringify(await snapshot((await repository(w.cwd)).root)))
+      .digest('hex');
+  }
+  async canClose(w: Workflow) {
+    for (const id of Object.values(w.agents)) {
+      if (!id) continue;
+      const handle = this.api.agents.ref(id);
+      if (
+        !(await handle.refresh()) ||
+        handle.status === 'running' ||
+        handle.status === 'initializing' ||
+        handle.pendingPermissions?.length
+      )
+        return false;
+    }
+    return true;
+  }
+  async publish(w: Workflow) {
+    const api = this.nativeApi();
+    if (!api || !w.agents.planner) return;
+    await api.agents.ref(w.agents.planner).timeline.append({
+      type: 'plugin',
+      id: `${w.id}-${w.phase}-${w.cycle}`,
+      kind: 'agent-teams-progress',
+      version: 1,
+      data: {
+        workflowId: w.id,
+        status: `${w.phase} · ${w.status}`,
+        cycle: w.cycle,
+        detail: (w.error ?? w.review?.summary ?? w.build?.summary ?? w.plan?.summary ?? w.task).slice(0, 8000),
+      },
+    });
+  }
+}
+
+function boundedContext(context: string) {
+  const limit = 256 * 1024;
+  return Buffer.byteLength(context) <= limit
+    ? context
+    : Buffer.from(context).subarray(0, limit).toString('utf8') + '\n[Repository context truncated]';
+}
