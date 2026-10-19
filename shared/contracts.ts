@@ -24,6 +24,7 @@ export const configSchema = z
     roles: z.object({ planner: selectionSchema, builder: selectionSchema, reviewer: selectionSchema }).strict(),
     validation: z.enum(['plan', 'final', 'autonomous']).default('plan'),
     autoFix: z.boolean().default(true),
+    builderAutoAccept: z.boolean().default(false),
     freshSessionPerCycle: z.boolean().default(false),
     maxCorrections: z.number().int().min(0).max(10).default(2),
     recovery: z.enum(['explicit', 'automatic']).default('explicit'),
@@ -140,13 +141,32 @@ export const actionInput = z.object({
   workspaceId: z.string().optional(),
   requestId: z.string().min(1),
   expectedRevision: z.number().int(),
-  action: z.enum(['approve', 'pause', 'resume', 'handoff', 'message', 'finish']),
+  action: z.enum(['approve', 'pause', 'resume', 'handoff', 'message', 'finish', 'permission']),
+  permissionId: z.string().optional(),
+  behavior: z.enum(['allow', 'deny']).optional(),
+  selectedActionId: z.string().optional(),
   role: roleSchema.optional(),
   message: z.string().optional(),
   tests: z.array(commandSchema).optional(),
   allowNoTests: z.boolean().optional(),
 });
 export type Action = z.infer<typeof actionInput>;
+export const permissionSchema = z.object({
+  id: z.string(),
+  role: roleSchema,
+  title: z.string(),
+  description: z.string(),
+  details: z.string(),
+  kind: z.enum(['tool', 'plan', 'question', 'mode', 'other']),
+  actions: z.array(z.object({ id: z.string(), label: z.string(), behavior: z.enum(['allow', 'deny']) })),
+  canAllow: z.boolean(),
+});
+export type Permission = z.infer<typeof permissionSchema>;
+export const permissionsRpc = defineRpc({
+  name: 'teams.permissions',
+  input: z.object({ id: z.string(), workspaceId: z.string() }),
+  output: z.array(permissionSchema),
+});
 export const createRpc = defineRpc({ name: 'teams.create', input: createInput, output: workflowSchema });
 export const actionRpc = defineRpc({ name: 'teams.action', input: actionInput, output: workflowSchema });
 export const listRpc = defineRpc({

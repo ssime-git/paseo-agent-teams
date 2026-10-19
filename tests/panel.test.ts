@@ -68,11 +68,14 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   const registry = {
     catalog: { cwd: '/repo', providers },
     workflows: [] as unknown[],
+    permissions: [] as unknown[],
+    actions: [] as unknown[],
     rpc: (name: string) => async (value: unknown) => {
       if (name === 'teams.create') {
         launched = value;
         return { id: 'workflow' };
       }
+      if (name === 'teams.action') registry.actions.push(value);
       return undefined;
     },
   };
@@ -107,7 +110,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
                 : args.path.endsWith('/ui')
                   ? `export const CompactSelect='SettingsSelect', CompactSwitch='SettingsSwitch';`
                   : args.path === '@tanstack/react-query'
-                    ? `export function useQuery({queryKey}) { const r=globalThis.__teamsTest; return {data:queryKey[0].includes('catalog')?r.catalog:r.workflows,refetch:async()=>{}}; }`
+                    ? `export function useQuery({queryKey}) { const r=globalThis.__teamsTest; return {data:queryKey[0]==='team-permissions'?r.permissions:queryKey[0].includes('catalog')?r.catalog:r.workflows,refetch:async()=>{}}; }`
                     : `export function useRpc(contract){return globalThis.__teamsTest.rpc(contract.name);}`,
           }));
         },
@@ -277,6 +280,47 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.update(React.createElement(TeamsPanel, props));
   });
   assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Phase Review' }).props.disabled, true);
+  Object.assign(registry.workflows[0] as object, { status: 'permission', workspaceId: 'workspace' });
+  registry.permissions = [
+    {
+      id: 'native-request',
+      role: 'builder',
+      title: 'Run tests',
+      description: 'npm test',
+      kind: 'tool',
+      details: '{}',
+      actions: [],
+      canAllow: true,
+    },
+  ];
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  for (const [label, behavior] of [
+    ['Autoriser', 'allow'],
+    ['Refuser', 'deny'],
+  ]) {
+    await act(async () => {
+      renderer.root.findByProps({ accessibilityLabel: `${label} · Run tests` }).props.onPress();
+    });
+    assert.deepEqual(registry.actions.at(-1), {
+      id: 'workflow',
+      expectedRevision: 2,
+      requestId: (registry.actions.at(-1) as { requestId: string }).requestId,
+      action: 'permission',
+      permissionId: 'native-request',
+      behavior,
+      workspaceId: 'workspace',
+    });
+  }
+  registry.permissions = [];
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Reprendre après résolution des permissions' }).props.onPress();
+  });
+  assert.equal((registry.actions.at(-1) as { action: string }).action, 'resume');
   let card!: ReturnType<typeof create>;
   await act(async () => {
     card = create(

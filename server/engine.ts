@@ -11,6 +11,7 @@ import {
   type Role,
   type TestResult,
   type Workflow,
+  type Permission,
 } from '../shared/contracts';
 import {
   HUMAN_CHECKPOINTS,
@@ -39,6 +40,9 @@ export interface Runtime {
   publish(w: Workflow): Promise<void>;
   canClose(w: Workflow): Promise<boolean>;
   fingerprint(w: Workflow): Promise<string>;
+  permissions?(w: Workflow): Promise<Permission[]>;
+  respondPermission?(w: Workflow, id: string, behavior: 'allow' | 'deny', selectedActionId?: string): Promise<void>;
+  autoApprove?(w: Workflow): Promise<boolean>;
 }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const schemaFor = (role: Role) => (role === 'planner' ? planSchema : role === 'builder' ? buildSchema : reviewSchema);
@@ -59,6 +63,7 @@ export class Engine {
   private jobs = new Map<string, Promise<void>>();
   private controllers = new Map<string, AbortController>();
   private closed = false;
+  private observed = new Set<string>();
   constructor(
     readonly store: Store,
     private runtime: Runtime,
@@ -179,6 +184,19 @@ export class Engine {
         throw new TeamError('REVISION_CONFLICT', 'Workflow changed. Refresh before retrying.');
       if (w.status === 'completed') throw new TeamError('WORKFLOW_COMPLETED', 'Workflow already completed');
       switch (input.action) {
+        case 'permission':
+          if (!w.operation || !input.permissionId || !input.behavior || !this.runtime.respondPermission)
+            throw new TeamError('PERMISSION_UNAVAILABLE', 'Permission is no longer available');
+          await this.runtime.respondPermission(w, input.permissionId, input.behavior, input.selectedActionId);
+          if (w.status !== 'paused') w.status = 'running';
+          delete w.error;
+          this.event(
+            w,
+            'permission_resolved',
+            `Permission ${input.behavior === 'allow' ? 'approved' : 'rejected'} in Agent Teams`,
+            w.operation.role,
+          );
+          break;
         case 'pause':
           w.resumeStatus = HUMAN_CHECKPOINTS.includes(w.status)
             ? (w.status as 'awaiting_plan' | 'awaiting_final' | 'attention')
@@ -270,14 +288,25 @@ export class Engine {
     }
   }
   async permission(agentId: string) {
+    const wake: string[] = [];
     await this.forAgent(agentId, async (w) => {
-      if (w.status === 'paused' || w.status === 'permission') return;
+      if (w.status === 'paused') return;
+      if (await this.runtime.autoApprove?.(w)) {
+        w.status = 'running';
+        this.event(w, 'permission_auto', 'Builder tool permission auto-approved', 'builder');
+        await this.save(w);
+        wake.push(w.id);
+        return;
+      }
+      if (w.status === 'permission') return;
       w.status = 'permission';
-      this.event(w, 'permission', 'Answer the permission request in the native session');
+      this.event(w, 'permission', 'Permission requise : répondez depuis Agent Teams.', w.operation!.role);
       await this.save(w);
     });
+    for (const id of wake) this.kick(id);
   }
   async receipt(agentId: string, outcome: Outcome, timeline: readonly { type: string; text?: string }[]) {
+    const wake: string[] = [];
     await this.forAgent(agentId, async (w) => {
       const op = w.operation!;
       if (
@@ -292,8 +321,14 @@ export class Engine {
         ...Object.entries(w.receipts ?? {}).slice(-99),
         [op.id, JSON.stringify({ ...outcome, text })],
       ]);
+      if (w.status === 'permission' && this.observed.has(w.id)) {
+        w.status = 'running';
+        delete w.error;
+        wake.push(w.id);
+      }
       await this.save(w);
     });
+    for (const id of wake) this.kick(id);
   }
   async resolvePermission(agentId: string) {
     const ids: string[] = [];
@@ -306,6 +341,7 @@ export class Engine {
     for (const id of ids) this.kick(id);
   }
   private kick(id: string) {
+    this.observed.add(id);
     if (this.closed || this.jobs.has(id)) return;
     const job = this.drive(id)
       .catch(async (e) => {
@@ -339,9 +375,17 @@ export class Engine {
         await this.runTests(job);
         continue;
       }
-      const outcome = job.reconcile
+      let outcome = job.reconcile
         ? await this.runtime.reconcile(job.w)
         : await this.runtime.run(job.w, job.role!, job.prompt!, op.id);
+      if (outcome.status === 'permission') {
+        const current = await this.store.get(id);
+        if (current.operation?.id === op.id && current.status !== 'paused') {
+          await this.runtime.autoApprove?.(current);
+          job.w = current;
+          outcome = await this.runtime.reconcile(current);
+        }
+      }
       if (this.closed || !(await this.applyOutcome(job, outcome))) return;
       if (outcome.status === 'timeout') await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -439,6 +483,14 @@ export class Engine {
     return this.serial(job.w.id, async () => {
       const w = await this.store.get(job.w.id);
       if (w.operation?.id !== op.id) return true;
+      // A completion hook can arrive while the SDK is still returning a permission outcome.
+      // Observe the newly saved receipt once instead of overwriting its wake-up with a stale pause.
+      if (outcome.status === 'permission' && w.receipts?.[op.id] && !job.w.receipts?.[op.id]) {
+        if (w.status === 'paused') return false;
+        w.status = 'running';
+        await this.save(w);
+        return true;
+      }
       if (outcome.cursor) w.cursors[op.role] = outcome.cursor;
       if (outcome.status !== 'idle') return this.applyPendingOutcome(w, outcome);
       await this.applyIdleOutcome(w, op, outcome.text ?? '', fingerprint);
@@ -463,7 +515,12 @@ export class Engine {
       (w.status === 'attention' && outcome.status === 'timeout'
         ? 'Timeout limit reached; inspect the retained operation before resuming'
         : outcome.status);
-    this.event(w, outcome.status, w.error);
+    if (outcome.status !== 'permission' || w.events.at(-1)?.kind !== 'permission')
+      this.event(
+        w,
+        outcome.status,
+        outcome.status === 'permission' ? 'Permission requise : répondez depuis Agent Teams.' : w.error,
+      );
     await this.save(w);
     return outcome.status === 'timeout' && w.status === 'running';
   }
@@ -569,6 +626,12 @@ export class Engine {
       w.cycle++;
       w.phase = STAGE_TRANSITIONS.planner;
       w.status = 'ready';
+      this.event(
+        w,
+        'correction',
+        `Correction ${w.cycle}/${w.config.maxCorrections} : ${w.review.verdict === 'fail' ? 'review refusée' : 'tests non validés'}. Retour au Builder.`,
+        'builder',
+      );
     } else {
       w.status = 'attention';
       w.error = 'Correction limit reached, or automatic correction disabled';

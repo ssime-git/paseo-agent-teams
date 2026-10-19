@@ -5,6 +5,7 @@ import { CompactSelect as SettingsSelect, CompactSwitch as SettingsSwitch } from
 import { HANDOFF_BUDGET } from '../shared/context';
 import { useTeamDraft } from './drafts';
 import { LockNotice } from './lock-notice';
+import { TeamPermissions } from './permissions';
 import { TestLog } from './test-log';
 import type { z } from 'zod';
 import { cardSchema } from '../shared/contracts';
@@ -380,6 +381,16 @@ export function TeamsPanel(
         ]}
         onValueChange={(v) => setConfig((cur) => ({ ...cur, validation: v as Config['validation'] }))}
       />
+      <SettingsSwitch
+        colors={c}
+        label="Auto-accept du Builder"
+        value={config.builderAutoAccept}
+        onValueChange={(builderAutoAccept) => setConfig((cur) => ({ ...cur, builderAutoAccept }))}
+      />
+      <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
+        Active le mode autonome natif du Builder lorsqu’il est disponible. Désactivez pour valider ses demandes dans
+        Team.
+      </Text>
       <SettingsSwitch
         colors={c}
         label="Corrections automatiques"
@@ -916,15 +927,9 @@ export function TeamsPanel(
                   c.statusWarning,
                 )
               : null}
-            {workflow.status === 'permission'
-              ? card(
-                  <Text style={{ color: c.foreground }}>
-                    Un agent demande une permission. Répondez-y dans sa session native.
-                  </Text>,
-                  'permission',
-                  c.statusWarning,
-                )
-              : null}
+            {workflow.status === 'permission' ? (
+              <TeamPermissions {...props} workflow={workflow} busy={busy} onAction={act} />
+            ) : null}
             <View
               onLayout={(event) => {
                 testsPosition.current = event.nativeEvent.layout.y;

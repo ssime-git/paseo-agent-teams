@@ -52,3 +52,16 @@ test('all validation policies allow launch without predefined test commands so t
   config.mode = 'manual';
   assert.equal(configReady(config), true);
 });
+
+test('new teams enable Builder auto-accept while imported legacy configurations retain manual native permissions', () => {
+  const current = initialConfig();
+  current.roles = {
+    planner: { provider: 'claude/model', modeId: 'plan' },
+    builder: { provider: 'codex/model', modeId: 'auto' },
+    reviewer: { provider: 'claude/model', modeId: 'plan' },
+  };
+  assert.equal(current.builderAutoAccept, true);
+  const legacy = { ...current } as Partial<typeof current>;
+  delete legacy.builderAutoAccept;
+  assert.equal(importConfig(JSON.stringify(legacy)).builderAutoAccept, false);
+});

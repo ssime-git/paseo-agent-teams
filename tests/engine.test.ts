@@ -101,7 +101,11 @@ async function setup(t: TestContext, overrides: Partial<Config> = {}) {
       await engine.settle();
       return store.get(w.id);
     },
-    async action(w: Workflow, action: 'approve' | 'pause' | 'resume' | 'handoff' | 'message' | 'finish', extra = {}) {
+    async action(
+      w: Workflow,
+      action: 'approve' | 'pause' | 'resume' | 'handoff' | 'message' | 'finish' | 'permission',
+      extra = {},
+    ) {
       await engine.action({
         id: w.id,
         expectedRevision: w.revision,
@@ -258,6 +262,7 @@ test('manual handoff includes prior response and uses a persistent target sessio
 });
 test('permission suspends until resolved, then reconciles without resending', async (t) => {
   const h = await setup(t);
+  h.fake.nextRecovery = { status: 'permission' };
   h.fake.run = async (_w, role, prompt, id) => {
     h.fake.calls.push({ role, prompt, id });
     return { status: 'permission' };
@@ -518,4 +523,162 @@ test('completion deletes the baseline and request retention preserves creation i
   assert.ok(Object.keys(w.requests).length <= 200);
   const duplicate = await h.engine.create('workspace', 'Implement OAuth2', h.config, 'create-1');
   assert.equal(duplicate.id, w.id);
+});
+
+test('late permission observation reconciles a finished failed review and runs a correction', async (t) => {
+  const h = await setup(t);
+  const run = h.fake.run.bind(h.fake);
+  let firstReview = true;
+  h.fake.run = async (w, role, prompt, id) => {
+    if (role !== 'reviewer' || !firstReview) return run(w, role, prompt, id);
+    firstReview = false;
+    h.fake.calls.push({ role, prompt, id });
+    h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(fail) };
+    return { status: 'permission' };
+  };
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.cycle, 1);
+  assert.equal(h.fake.testCount, 2);
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'builder', 'reviewer', 'builder', 'reviewer'],
+  );
+  assert.equal(w.events.filter((e) => e.kind === 'correction').length, 1);
+});
+
+test('Team permission mutations are idempotent and reconcile without sending another prompt', async (t) => {
+  const h = await setup(t);
+  h.fake.nextRecovery = { status: 'permission' };
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'permission' };
+  };
+  const w = await h.create();
+  const replies: unknown[] = [];
+  Object.assign(h.fake, {
+    respondPermission: async (_w: Workflow, id: string, behavior: string) => {
+      replies.push({ id, behavior });
+      h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
+    },
+  });
+  const input = {
+    id: w.id,
+    workspaceId: w.workspaceId,
+    expectedRevision: w.revision,
+    requestId: 'permission-answer',
+    action: 'permission' as const,
+    permissionId: 'native-id',
+    behavior: 'allow' as const,
+  };
+  await assert.rejects(h.engine.action({ ...input, workspaceId: 'foreign' }), /Workspace access denied/);
+  await h.engine.action(input);
+  await h.engine.settle();
+  await h.engine.action(input);
+  await h.engine.settle();
+  assert.deepEqual(replies, [{ id: 'native-id', behavior: 'allow' }]);
+  assert.equal((await h.store.get(w.id)).status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 1);
+});
+
+test('completion receipt preserves explicit restart recovery until Resume', async (t) => {
+  const h = await setup(t);
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'permission' };
+  };
+  h.fake.nextRecovery = { status: 'permission' };
+  const w = await h.create();
+  const timeline = [
+    { type: 'user_message', text: `[agent-teams-operation:${w.operation!.id}]` },
+    { type: 'assistant_message', text: JSON.stringify(plan) },
+  ];
+  const restarted = new Engine(h.store, h.fake);
+  t.after(() => restarted.close());
+  await restarted.receipt(w.agents.planner!, { status: 'idle' }, timeline);
+  await restarted.settle();
+  assert.equal((await h.store.get(w.id)).status, 'permission');
+  // The explicit Resume is still required after a restart, even when a receipt exists.
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
+  const resumed = await h.action(await h.store.get(w.id), 'resume');
+  assert.equal(resumed.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 1);
+});
+
+test('completion receipt wakes a permission-blocked workflow observed by this engine', async (t) => {
+  const h = await setup(t);
+  h.fake.nextRecovery = { status: 'permission' };
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'permission' };
+  };
+  const w = await h.create();
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
+  await h.engine.receipt(w.agents.planner!, { status: 'idle' }, [
+    { type: 'user_message', text: `[agent-teams-operation:${w.operation!.id}]` },
+    { type: 'assistant_message', text: JSON.stringify(plan) },
+  ]);
+  await h.engine.settle();
+  assert.equal((await h.store.get(w.id)).status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 1);
+});
+
+test('completion arriving during permission reconciliation cannot be overwritten by a stale permission outcome', async (t) => {
+  const h = await setup(t);
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'permission' };
+  };
+  let first = true;
+  h.fake.reconcile = async (w?: Workflow) => {
+    if (!first) return { status: 'idle', text: JSON.stringify(plan) };
+    first = false;
+    await h.engine.receipt(w!.agents.planner!, { status: 'idle' }, [
+      { type: 'user_message', text: `[agent-teams-operation:${w!.operation!.id}]` },
+      { type: 'assistant_message', text: JSON.stringify(plan) },
+    ]);
+    return { status: 'permission' };
+  };
+  // Fake normally takes no arguments, but the Runtime contract supplies the saved workflow.
+  const w = await h.create();
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 1);
+});
+
+test('permission hook auto-accepts Builder tools but never does so for a paused workflow', async (t) => {
+  const h = await setup(t, { mode: 'manual', builderAutoAccept: true });
+  let w = await h.create();
+  h.fake.nextRecovery = { status: 'permission' };
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'permission' };
+  };
+  w = await h.action(w, 'handoff', { role: 'builder' });
+  assert.equal(w.status, 'permission');
+  let approvals = 0;
+  Object.assign(h.fake, {
+    autoApprove: async () => {
+      approvals++;
+      h.fake.nextRecovery = { status: 'idle', text: 'Built' };
+      return true;
+    },
+  });
+  await h.engine.permission(w.agents.builder!);
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(approvals, 1);
+  assert.equal(w.status, 'paused');
+  // Keep an attached turn while explicitly paused to exercise late native hooks.
+  w.operation = {
+    id: 'paused-operation',
+    role: 'builder',
+    phase: 'manual',
+    state: 'prepared',
+    startedAt: new Date().toISOString(),
+  };
+  await h.store.put(w);
+  await h.engine.permission(w.agents.builder!);
+  assert.equal(approvals, 1);
+  assert.equal((await h.store.get(w.id)).status, 'paused');
 });

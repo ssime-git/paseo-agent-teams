@@ -12,6 +12,7 @@ import {
   testOutputRpc,
   workflowIndexRpc,
   workflowRecordRpc,
+  permissionsRpc,
 } from '../shared/contracts';
 import { TERMINAL_OR_WAITING } from '../shared/state-machine';
 import { Engine } from './engine';
@@ -136,6 +137,10 @@ export function contributeServer(server: PluginServerContext) {
   });
   server.handle(historyRpc, async ({ id, workspaceId }) => (await store.authorize(id, workspaceId)).events);
   server.handle(testOutputRpc, async ({ id, workspaceId }) => (await store.authorize(id, workspaceId)).tests);
+  server.handle(permissionsRpc, async ({ id, workspaceId }, { paseo }) => {
+    const w = await store.authorize(id, workspaceId);
+    return new PaseoRuntime(paseo, directory).permissions(w);
+  });
   const forAgent = async (agentId: string, handle: (engine: Engine) => Promise<void>) => {
     if (!(await store.forAgent(agentId)).length) return;
     await handle(await bind());

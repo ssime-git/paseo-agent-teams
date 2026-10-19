@@ -191,6 +191,16 @@ export function QuickStart({
         />
         <CompactSwitch
           colors={c}
+          label="Auto-accept du Builder"
+          value={config.builderAutoAccept}
+          onValueChange={(builderAutoAccept) => setConfig((cur) => ({ ...cur, builderAutoAccept }))}
+        />
+        <Text style={{ color: c.foregroundMuted, fontSize: 11 }}>
+          Mode autonome natif du Builder ; les autres rôles restent en lecture seule. Désactivez pour valider ses
+          demandes dans Team.
+        </Text>
+        <CompactSwitch
+          colors={c}
           label="Corrections automatiques"
           value={config.autoFix}
           onValueChange={(v) => setConfig((cur) => ({ ...cur, autoFix: v }))}

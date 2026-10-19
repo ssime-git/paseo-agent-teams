@@ -11,6 +11,7 @@ export function initialConfig(): Config {
     },
     validation: 'plan',
     autoFix: true,
+    builderAutoAccept: true,
     freshSessionPerCycle: false,
     maxCorrections: 2,
     recovery: 'explicit',

@@ -278,3 +278,131 @@ test('generic harnesses preserve discovered model IDs and omit workflow-only def
   assert.match(created[2].config.systemPrompt, /Never edit files/);
   assert.doesNotMatch(JSON.stringify(created), /__paseo_|__agent_teams/);
 });
+
+test('Builder auto-accept resolves discovered native modes and features without changing Reviewer', async () => {
+  for (const [harness, family, selected, expected] of [
+    ['codex', 'codex', 'auto', 'full-access'],
+    ['credit-account', 'claude', 'default', 'bypassPermissions'],
+    ['opencode', 'opencode', 'build', 'build'],
+    ['pi', 'pi', 'native-default', 'native-default'],
+  ]) {
+    const created: { config: { modeId: string; featureValues?: unknown; options?: unknown } }[] = [];
+    const api = {
+      config: { get: async () => ({ config: { providers: { [harness]: { extends: family } } } }) },
+      providers: {
+        listModes: async () => ({ modes: [{ id: selected }, { id: expected }, { id: 'plan' }] }),
+        listFeatures: async () => ({ features: family === 'opencode' ? [{ id: 'auto_accept', type: 'toggle' }] : [] }),
+      },
+      workspaces: {
+        ref: () => ({
+          agents: {
+            create: async (input: unknown) => {
+              created.push(input as (typeof created)[number]);
+              return { id: 'agent' };
+            },
+          },
+        }),
+      },
+    } as unknown as PaseoApi;
+    const w = {
+      id: 'workflow',
+      workspaceId: 'workspace',
+      cwd: '/repo',
+      config: {
+        builderAutoAccept: true,
+        roles: {
+          builder: { provider: `${harness}/detected-model`, modeId: selected },
+          reviewer: { provider: `${harness}/detected-model`, modeId: 'plan' },
+        },
+      },
+    } as unknown as Workflow;
+    const runtime = new PaseoRuntime(api, '/unused');
+    await runtime.agent(w, 'builder');
+    await runtime.agent(w, 'reviewer');
+    assert.equal(created[0].config.modeId, expected);
+    assert.deepEqual(created[0].config.featureValues, family === 'opencode' ? { auto_accept: true } : undefined);
+    assert.equal(created[1].config.modeId, 'plan');
+    assert.equal(created[1].config.featureValues, undefined);
+  }
+});
+
+test('auto-accept answers only Builder tool requests and deduplicates concurrent answers', async () => {
+  const replies: unknown[] = [];
+  const pendingPermissions = [
+    { id: 'tool', name: 'Bash', kind: 'tool', actions: [{ id: 'once', label: 'Allow once', behavior: 'allow' }] },
+    { id: 'question', name: 'Question', kind: 'question' },
+    { id: 'plan', name: 'ExitPlanMode', kind: 'plan' },
+    { id: 'deny-only', name: 'Blocked', kind: 'tool', actions: [{ id: 'deny', label: 'Deny', behavior: 'deny' }] },
+  ];
+  const h = adapter({
+    pendingPermissions,
+    respondToPermission: async (input: unknown) => {
+      replies.push(input);
+    },
+  });
+  const w = savedWorkflow();
+  w.config = { builderAutoAccept: true } as Workflow['config'];
+  await Promise.all([h.runtime.autoApprove(w), h.runtime.autoApprove(w)]);
+  assert.deepEqual(replies, [{ requestId: 'tool', response: { behavior: 'allow', selectedActionId: 'once' } }]);
+  w.operation!.role = 'reviewer';
+  assert.equal(await h.runtime.autoApprove(w), false);
+  w.operation!.role = 'builder';
+  w.config.builderAutoAccept = false;
+  assert.equal(await h.runtime.autoApprove(w), false);
+});
+
+test('manual permissions retain read-only roles and never answer a different request on retry', async () => {
+  const replies: unknown[] = [];
+  const h = adapter({
+    pendingPermissions: [{ id: 'plan', name: 'ExitPlanMode', kind: 'plan' }],
+    respondToPermission: async (input: unknown) => {
+      replies.push(input);
+    },
+  });
+  const w = savedWorkflow();
+  w.operation!.role = 'reviewer';
+  w.agents.reviewer = 'reviewer';
+  assert.equal((await h.runtime.permissions(w))[0].canAllow, false);
+  await assert.rejects(h.runtime.respondPermission(w, 'plan', 'allow'), /remain read-only/);
+  await h.runtime.respondPermission(w, 'stale', 'allow');
+  assert.equal(replies.length, 0);
+  await h.runtime.respondPermission(w, 'plan', 'deny');
+  assert.deepEqual(replies, [
+    { requestId: 'plan', response: { behavior: 'deny', selectedActionId: undefined, interrupt: true } },
+  ]);
+});
+
+test('auto-accept preserves harness defaults when no model, mode or feature catalog is advertised', async () => {
+  let captured!: { config: { provider: string; modeId?: string; featureValues?: unknown } };
+  const api = {
+    config: { get: async () => ({ config: { providers: {} } }) },
+    providers: {
+      listModes: async () => ({ modes: [] }),
+      listFeatures: async (input: { provider: string; modeId?: string }) => {
+        assert.equal(input.provider, 'pi');
+        assert.equal(input.modeId, undefined);
+        return {};
+      },
+    },
+    workspaces: {
+      ref: () => ({
+        agents: {
+          create: async (input: unknown) => {
+            captured = input as typeof captured;
+            return { id: 'agent' };
+          },
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  const w = {
+    id: 'workflow',
+    workspaceId: 'workspace',
+    cwd: '/repo',
+    config: { builderAutoAccept: true, roles: { builder: { provider: `pi/${DEFAULT_MODEL}`, modeId: DEFAULT_MODE } } },
+  } as unknown as Workflow;
+  await new PaseoRuntime(api, '/unused').agent(w, 'builder');
+  assert.equal(captured.config.provider, 'pi');
+  assert.equal(captured.config.modeId, undefined);
+  assert.equal(captured.config.featureValues, undefined);
+});

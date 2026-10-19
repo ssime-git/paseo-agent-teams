@@ -2,6 +2,11 @@ import { TeamError } from '../shared/errors';
 import type { PaseoApi } from '@getpaseo/client';
 import { DEFAULT_MODE, INSTRUCTION_READ_ONLY, readOnlyMode } from '../shared/provider-selection';
 export type ProviderFamily = string;
+export function builderMode(family: string, modes: { id: string }[], selected: string | undefined, automatic: boolean) {
+  if (!automatic) return selected;
+  const unattended = family === 'claude' ? 'bypassPermissions' : family === 'codex' ? 'full-access' : undefined;
+  return modes.find((m) => m.id === unattended)?.id ?? selected;
+}
 
 export function workflowModes(family: ProviderFamily, modes: { id: string; label: string }[]) {
   if (family === 'codex' && modes.some((m) => m.id === 'auto') && !modes.some((m) => m.id === 'read-only')) {

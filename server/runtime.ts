@@ -3,15 +3,16 @@ import type { PaseoApi, PaseoAgentHandle } from '@getpaseo/client';
 import { readFile, writeFile, realpath } from 'node:fs/promises';
 import { join, sep, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { roles, type Config, type Role, type Workflow } from '../shared/contracts';
+import { roles, type Config, type Role, type Workflow, type Permission } from '../shared/contracts';
 import { repository, snapshot, changes, workingDiff, type Snapshot } from './git';
 import { runCommand } from './commands';
-import { providerProfiles, nativeMode } from './providers';
+import { providerProfiles, nativeMode, builderMode } from './providers';
 import { DEFAULT_MODEL, INSTRUCTION_READ_ONLY, readOnlyMode, parseProvider } from '../shared/provider-selection';
 import type { Outcome, Runtime } from './engine';
 
 export { readOnlyMode } from '../shared/provider-selection';
 export class PaseoRuntime implements Runtime {
+  private permissionReplies = new Map<string, Promise<void>>();
   constructor(
     private api: PaseoApi,
     private directory: string,
@@ -55,7 +56,7 @@ export class PaseoRuntime implements Runtime {
     const { harness, model } = parseProvider(selection.provider);
     const family = profiles.families[harness] ?? harness;
     const codexReadOnly = family === 'codex' && selection.modeId === 'read-only';
-    const modeId =
+    let modeId =
       codexReadOnly || !['claude', 'codex'].includes(family)
         ? nativeMode(
             family,
@@ -63,13 +64,27 @@ export class PaseoRuntime implements Runtime {
             (await this.api.providers.listModes(harness, { cwd: w.cwd })).modes ?? [],
           )
         : selection.modeId;
+    let featureValues: Record<string, unknown> | undefined;
+    if (role === 'builder' && w.config.builderAutoAccept) {
+      const modes = (await this.api.providers.listModes(harness, { cwd: w.cwd })).modes ?? [];
+      modeId = builderMode(family, modes, modeId, true);
+      const { features } = await this.api.providers.listFeatures({
+        provider: model === DEFAULT_MODEL ? harness : selection.provider,
+        cwd: w.cwd,
+        modeId,
+      });
+      if (features?.some((f) => f.id === 'auto_accept' && f.type === 'toggle')) featureValues = { auto_accept: true };
+    }
     const agent = await this.api.workspaces.ref(w.workspaceId).agents.create({
       idempotencyKey: `${w.id}-${role}${w.config.freshSessionPerCycle && w.cycle ? `-c${w.cycle}` : ''}`,
       config: {
         ...selection,
         provider: model === DEFAULT_MODEL ? harness : selection.provider,
         modeId,
-        ...(codexReadOnly ? { options: { sandbox_mode: 'read-only', approval_policy: 'never' } } : {}),
+        ...(featureValues ? { featureValues } : {}),
+        ...(codexReadOnly && modeId !== 'full-access'
+          ? { options: { sandbox_mode: 'read-only', approval_policy: 'never' } }
+          : {}),
         ...(role !== 'builder' && family === 'claude'
           ? { options: { disallowedTools: ['ExitPlanMode', 'EnterPlanMode', 'Edit', 'Write', 'NotebookEdit'] } }
           : {}),
@@ -102,6 +117,63 @@ export class PaseoRuntime implements Runtime {
     )
       return { status: 'error', error: result.lastMessage! };
     return { status: result.status, text: result.lastMessage ?? undefined, error: result.error ?? undefined };
+  }
+  async permissions(w: Workflow): Promise<Permission[]> {
+    if (!w.operation) return [];
+    const role = w.operation.role,
+      agent = this.api.agents.ref(w.agents[role]!);
+    if (!(await agent.refresh())) throw new TeamError('AGENT_UNAVAILABLE', 'Agent unavailable');
+    return (agent.pendingPermissions ?? []).map((p) => ({
+      id: p.id,
+      role,
+      title: p.title ?? p.name,
+      description: p.description ?? '',
+      kind: p.kind,
+      details: JSON.stringify(p.input ?? p.detail ?? {}, null, 2).slice(0, 16000),
+      actions: (p.actions ?? []).map((a) => ({ id: a.id, label: a.label, behavior: a.behavior })),
+      canAllow:
+        role === 'builder' || (!['plan', 'mode'].includes(p.kind) && !/^(EnterPlanMode|ExitPlanMode)$/.test(p.name)),
+    }));
+  }
+  async respondPermission(w: Workflow, permissionId: string, behavior: 'allow' | 'deny', selectedActionId?: string) {
+    const key = `${w.id}:${permissionId}`;
+    const existing = this.permissionReplies.get(key);
+    if (existing) return existing;
+    const reply = this.replyPermission(w, permissionId, behavior, selectedActionId);
+    this.permissionReplies.set(key, reply);
+    try {
+      await reply;
+    } finally {
+      this.permissionReplies.delete(key);
+    }
+  }
+  private async replyPermission(
+    w: Workflow,
+    permissionId: string,
+    behavior: 'allow' | 'deny',
+    selectedActionId?: string,
+  ) {
+    const permissions = await this.permissions(w),
+      request = permissions.find((p) => p.id === permissionId);
+    // A retry can find an already resolved unique permission. Never answer a different request.
+    if (!request) return;
+    if (behavior === 'allow' && !request.canAllow)
+      throw new TeamError('READ_ONLY_REQUIRED', 'This role must remain read-only. Reject the native mode change.');
+    if (selectedActionId && !request.actions.some((a) => a.id === selectedActionId && a.behavior === behavior))
+      throw new TeamError('INVALID_PERMISSION_ACTION', 'Permission action is no longer available');
+    await this.api.agents.ref(w.agents[request.role]!).respondToPermission({
+      requestId: permissionId,
+      response: behavior === 'allow' ? { behavior, selectedActionId } : { behavior, selectedActionId, interrupt: true },
+    });
+  }
+  async autoApprove(w: Workflow) {
+    if (!w.config.builderAutoAccept || w.operation?.role !== 'builder') return false;
+    const requests = (await this.permissions(w)).filter(
+      (p) => p.kind === 'tool' && (!p.actions.length || p.actions.some((a) => a.behavior === 'allow')),
+    );
+    for (const request of requests)
+      await this.respondPermission(w, request.id, 'allow', request.actions.find((a) => a.behavior === 'allow')?.id);
+    return requests.length > 0;
   }
   async reconcile(w: Workflow): Promise<Outcome> {
     const op = w.operation!;
