@@ -3,7 +3,28 @@ import { TeamsPanel, ProgressCard } from './client/panel';
 import { cardSchema } from './shared/contracts';
 import { addThreadAccess } from './client/thread-access';
 import { QuickStart } from './client/quick-start';
+import { NEW_TEAM_SCREEN, NewTeamSidebar, NewTeamWorkspace } from './client/new-workspace';
 export default function contribute(client: PluginClientContext) {
+  client.addScreen({
+    id: NEW_TEAM_SCREEN,
+    title: 'Nouveau workspace agent',
+    Component: (props) => (
+      <NewTeamWorkspace {...props} onOpen={(workspaceId) => client.openPanel('agent-teams', { workspaceId })} />
+    ),
+  });
+  client.addSidebarHeaderItem({
+    id: 'new-agent-workspace',
+    title: 'Nouveau workspace agent',
+    Component: NewTeamSidebar,
+  });
+  client.addCommandCenterItem({
+    id: 'new-agent-workspace',
+    title: 'Nouveau workspace agent',
+    icon: 'Workflow',
+    keywords: ['mode agent', 'Agent Teams', 'new workspace', 'équipe', 'workflow'],
+    context: 'global',
+    onSelect: ({ openScreen }) => openScreen({ screenId: NEW_TEAM_SCREEN }),
+  });
   client.addWorkspacePanel({
     id: 'agent-teams',
     title: 'Agent Teams',

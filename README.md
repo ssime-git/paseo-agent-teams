@@ -6,6 +6,33 @@ A standalone Paseo plugin for persistent workflows across **all available harnes
 - **Auto Workflow:** Plan → Build → Tests → Review → Fix, with a configurable correction limit.
 - **One logical thread:** a workspace panel with responses, decisions, test logs, approvals and links to each persistent agent session. Progress cards also appear in the planner's native timeline.
 
+## Screenshots
+
+Real captures from an isolated Paseo installation and a demo repository. The mobile capture uses a compact 390 × 844 viewport.
+
+**Available before the first chat:** choose **Nouveau workspace agent** in the sidebar, select your project and configure the team.
+
+![Agent mode available next to New workspace](docs/screenshots/new-workspace.png)
+
+**Unified conversation:** phase navigation, role models, shared context and structured planning results.
+
+![Agent Teams workflow panel](docs/screenshots/team-workflow.png)
+
+**Quick start from a thread:** choose the discovered harness and model for each role.
+
+![Team quick-start configuration](docs/screenshots/team-quick-start.png)
+
+**Test output:** inspect each command, its result and captured logs.
+
+![Expanded test logs in the Team workflow](docs/screenshots/team-test-logs.png)
+
+<details>
+<summary>Mobile team configuration</summary>
+
+<img src="docs/screenshots/team-mobile.png" alt="Compact mobile team configuration" width="390" />
+
+</details>
+
 ## Requirements
 
 - Paseo daemon **0.11.2** and compatible connected clients (`>=0.11.2 <0.13.0`), including mobile 0.11.4 and desktop 0.12.0.
@@ -34,7 +61,11 @@ paseo plugin reload paseo-agent-teams
 
 The application renders `index.client.tsx` and the React Native components in `client/`. `docs/mockup-panel.html` is a visual reference. The Mode agent popover and full panel share workspace-scoped draft configuration and task text, including across responsive panel remounts.
 
-Open a workspace, open **Search** (the Command Center), and choose **Open Agent Teams**. Existing agent threads also show an **Agent Teams** menu in the composer: open the workflow panel, or **Mode agent** to start a team with the default roles from a popover. Hand-offs between roles carry compact artifacts and a bounded diff rather than the whole conversation; the panel shows the hand-off size, and **fresh session per correction** (optional) restarts a role's session on each correction cycle. the plugin does not add a model entry to the native model picker. After source changes:
+To start directly in team mode, choose **Nouveau workspace agent** in the sidebar (open the navigation menu on mobile). This entry is available before creating a chat. Choose a known project or enter its directory on the indicated host; the plugin opens its workspace and immediately shows the full team configuration. No native agent is created until you launch the workflow.
+
+From a workspace, **Search** (the Command Center) also offers **Nouveau workspace agent** and **Open Agent Teams**. The native New workspace screen has no host-scoped plugin commands, so use the sidebar entry there. Existing threads show **Mode agent** in the composer, opening the configurable team popover. The SDK requires an existing agent for composer pills; it cannot insert this option into the native pre-creation Chat/model selectors.
+
+Hand-offs between roles carry compact artifacts and a bounded diff rather than the whole conversation; the panel shows the hand-off size, and **fresh session per correction** (optional) restarts a role's session on each correction cycle. After source changes:
 
 ```sh
 npm run check
@@ -44,10 +75,10 @@ paseo plugin reload paseo-agent-teams
 Install from the public repository with:
 
 ```sh
-paseo plugin add git:ssime-git/paseo-agent-teams --ref feat/agent-teams-v1
+paseo plugin add git:ssime-git/paseo-agent-teams --ref main
 ```
 
-Use `--ref main` after the implementation PR has been merged. A fresh Git installation prepares its production SDK dependency automatically; an existing developer checkout keeps its installed development tools.
+A fresh Git installation prepares its production SDK dependency automatically; an existing developer checkout keeps its installed development tools.
 
 ## Configure a workflow
 

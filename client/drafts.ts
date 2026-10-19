@@ -6,6 +6,15 @@ type ViewState = { showNew: boolean; showConfig: boolean; selected: string };
 type Draft = { config: Config; task: string; view: ViewState };
 const drafts = new Map<string, Draft>();
 const listeners = new Map<string, Set<() => void>>();
+export function prepareNewTeam(key: string) {
+  const current = drafts.get(key) ?? {
+    config: initialConfig(),
+    task: '',
+    view: { showNew: false, showConfig: false, selected: '' },
+  };
+  drafts.set(key, { ...current, view: { ...current.view, showNew: true, showConfig: true } });
+  listeners.get(key)?.forEach((listener) => listener());
+}
 export function useTeamDraft(key: string) {
   const snapshot = () => {
     if (!drafts.has(key))
