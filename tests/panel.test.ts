@@ -92,6 +92,10 @@ test('compact panel discovers models, launches a workflow, renders approvals and
       {
         name: 'host-mocks',
         setup(b) {
+          b.onResolve({ filter: /^\.\/controls$/ }, () => ({
+            path: '@getpaseo/plugin/client/ui',
+            namespace: 'host-mock',
+          }));
           b.onResolve(
             { filter: /^(react-native|@getpaseo\/plugin\/client(?:\/ui)?|@tanstack\/react-query)$/ },
             (args) => ({ path: args.path, namespace: 'host-mock' }),
@@ -101,7 +105,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
               args.path === 'react-native'
                 ? `export const Platform={OS:'ios'}; export const Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
                 : args.path.endsWith('/ui')
-                  ? `export const SettingsSelect='SettingsSelect', SettingsSwitch='SettingsSwitch';`
+                  ? `export const CompactSelect='SettingsSelect', CompactSwitch='SettingsSwitch';`
                   : args.path === '@tanstack/react-query'
                     ? `export function useQuery({queryKey}) { const r=globalThis.__teamsTest; return {data:queryKey[0].includes('catalog')?r.catalog:r.workflows,refetch:async()=>{}}; }`
                     : `export function useRpc(contract){return globalThis.__teamsTest.rpc(contract.name);}`,
@@ -268,6 +272,11 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.root.findByProps({ accessibilityLabel: 'Ouvrir planner' }).props.onPress();
   });
   assert.equal(opened, 'native-planner');
+  (registry.workflows[0] as { agents: Record<string, string> }).agents.reviewer = 'allocated-but-not-started';
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Phase Review' }).props.disabled, true);
   let card!: ReturnType<typeof create>;
   await act(async () => {
     card = create(

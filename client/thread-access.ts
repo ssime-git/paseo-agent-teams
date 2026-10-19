@@ -1,6 +1,11 @@
-import type { PluginClientContext, PluginButtonRegistration } from '@getpaseo/plugin/client';
+import { createElement } from 'react';
+import type { ComponentType } from 'react';
+import type { PluginClientContext, PluginButtonContentProps, PluginButtonRegistration } from '@getpaseo/plugin/client';
 
-export function addThreadAccess(client: PluginClientContext) {
+export function addThreadAccess(
+  client: PluginClientContext,
+  QuickStart?: ComponentType<PluginButtonContentProps & { openPanel(): void }>,
+) {
   const lifetime = new AbortController();
   const pills = new Map<string, { workspaceId: string; button: PluginButtonRegistration }>();
   const remove = (id: string) => {
@@ -23,15 +28,30 @@ export function addThreadAccess(client: PluginClientContext) {
         workspaceId,
         agentId: agent.id,
         button: {
-          title: 'Ouvrir Agent Teams',
-          label: 'Agent Teams',
+          title: QuickStart ? 'Mode agent' : 'Ouvrir Agent Teams',
+          label: QuickStart ? 'Mode agent' : 'Agent Teams',
           icon: 'Workflow',
-          behavior: {
-            kind: 'action',
-            onPress() {
-              client.openPanel('agent-teams', { workspaceId });
-            },
-          },
+          behavior: QuickStart
+            ? {
+                kind: 'popover',
+                Content: (props: PluginButtonContentProps) =>
+                  createElement(QuickStart, {
+                    ...props,
+                    openPanel: () => client.openPanel('agent-teams', { workspaceId }),
+                  }),
+              }
+            : {
+                kind: 'menu',
+                items: [
+                  {
+                    kind: 'item',
+                    id: 'open',
+                    title: 'Ouvrir le panneau',
+                    icon: 'Workflow',
+                    behavior: { kind: 'action', onPress: () => client.openPanel('agent-teams', { workspaceId }) },
+                  },
+                ],
+              },
         },
       }),
     });

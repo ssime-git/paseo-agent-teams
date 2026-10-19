@@ -4,7 +4,7 @@ import { readFile, writeFile, realpath } from 'node:fs/promises';
 import { join, sep, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { roles, type Config, type Role, type Workflow } from '../shared/contracts';
-import { repository, snapshot, changes, type Snapshot } from './git';
+import { repository, snapshot, changes, workingDiff, type Snapshot } from './git';
 import { runCommand } from './commands';
 import { providerProfiles, nativeMode } from './providers';
 import { DEFAULT_MODEL, INSTRUCTION_READ_ONLY, readOnlyMode, parseProvider } from '../shared/provider-selection';
@@ -64,7 +64,7 @@ export class PaseoRuntime implements Runtime {
           )
         : selection.modeId;
     const agent = await this.api.workspaces.ref(w.workspaceId).agents.create({
-      idempotencyKey: `${w.id}-${role}`,
+      idempotencyKey: `${w.id}-${role}${w.config.freshSessionPerCycle && w.cycle ? `-c${w.cycle}` : ''}`,
       config: {
         ...selection,
         provider: model === DEFAULT_MODEL ? harness : selection.provider,
@@ -177,17 +177,19 @@ export class PaseoRuntime implements Runtime {
         file.content = createHash('sha256').update(Buffer.from(file.content, 'base64')).digest('hex');
       }
     }
+    const { stat, diff } = await workingDiff(root, after.head);
     return boundedContext(
       JSON.stringify({
-        encoding: 'File contents are SHA-256 digests; symlink contents are link targets.',
+        note: 'Compact view. Read files yourself for anything not shown; the diff is truncated.',
         initialHead: before.head,
-        initialStatus: before.status,
-        initialStagedDiff: before.staged,
-        initialUnstagedDiff: before.unstaged,
+        initialStatus: before.status.slice(0, 4096),
         currentHead: after.head,
-        currentStagedDiff: after.staged,
-        currentUnstagedDiff: after.unstaged,
-        changesSinceStart: changes(before, after),
+        changedFiles: changes(before, after).map((c) => ({
+          path: c.path,
+          change: !c.before ? 'added' : !c.after ? 'deleted' : 'modified',
+        })),
+        diffStat: stat,
+        diff,
       }),
     );
   }
@@ -220,6 +222,9 @@ export class PaseoRuntime implements Runtime {
       version: 1,
       data: {
         workflowId: w.id,
+        ...(w.workspaceId ? { workspaceId: w.workspaceId } : {}),
+        ...(w.config ? { maxCorrections: w.config.maxCorrections } : {}),
+        ...(w.handoffTokens != null ? { handoffTokens: w.handoffTokens } : {}),
         status: `${w.phase} · ${w.status}`,
         cycle: w.cycle,
         detail: (w.error ?? w.review?.summary ?? w.build?.summary ?? w.plan?.summary ?? w.task).slice(0, 8000),
@@ -229,7 +234,7 @@ export class PaseoRuntime implements Runtime {
 }
 
 function boundedContext(context: string) {
-  const limit = 256 * 1024;
+  const limit = 32 * 1024;
   return Buffer.byteLength(context) <= limit
     ? context
     : Buffer.from(context).subarray(0, limit).toString('utf8') + '\n[Repository context truncated]';
