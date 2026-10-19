@@ -3,7 +3,16 @@ import type { PluginServerContext } from '@getpaseo/plugin/server';
 import { createPaseoClient, type PaseoClient } from '@getpaseo/client';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createRpc, actionRpc, listRpc, historyRpc, catalogRpc, testOutputRpc } from '../shared/contracts';
+import {
+  createRpc,
+  actionRpc,
+  listRpc,
+  historyRpc,
+  catalogRpc,
+  testOutputRpc,
+  workflowIndexRpc,
+  workflowRecordRpc,
+} from '../shared/contracts';
 import { TERMINAL_OR_WAITING } from '../shared/state-machine';
 import { Engine } from './engine';
 import { Store } from './store';
@@ -57,6 +66,29 @@ export function contributeServer(server: PluginServerContext) {
         receipts: undefined,
       }));
   });
+  // Host-wide, read-only history survives deletion of the native workspace.
+  server.handle(workflowIndexRpc, async () =>
+    (await store.all())
+      .map((w) => ({
+        id: w.id,
+        workspaceId: w.workspaceId,
+        cwd: w.cwd,
+        task: w.task,
+        status: w.status,
+        phase: w.phase,
+        updatedAt: w.events.at(-1)?.at ?? '',
+        closed: w.events.some((e) => e.kind === 'closed'),
+      }))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)),
+  );
+  server.handle(workflowRecordRpc, async ({ id }) => {
+    const w = await store.get(id);
+    return workflowRecordRpc.output.parse({
+      ...w,
+      closed: w.events.some((e) => e.kind === 'closed'),
+      events: w.events.filter((e) => !e.kind.startsWith('receipt:') && e.kind !== 'tests'),
+    });
+  });
   server.handle(catalogRpc, async ({ workspaceId }, { paseo }) => {
     const workspace = await paseo.workspaces.ref(workspaceId).refresh();
     if (!workspace) throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace not found');
@@ -96,6 +128,7 @@ export function contributeServer(server: PluginServerContext) {
               workspaceId: blocker.workspaceId,
               task: blocker.task,
               status: blocker.status,
+              revision: blocker.revision,
             },
           }
         : {}),

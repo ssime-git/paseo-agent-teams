@@ -1,10 +1,13 @@
 import { createElement } from 'react';
+import { HISTORY_SCREEN } from './routes';
 import type { ComponentType } from 'react';
 import type { PluginClientContext, PluginButtonContentProps, PluginButtonRegistration } from '@getpaseo/plugin/client';
 
 export function addThreadAccess(
   client: PluginClientContext,
-  QuickStart?: ComponentType<PluginButtonContentProps & { openPanel(): void }>,
+  QuickStart?: ComponentType<
+    PluginButtonContentProps & { openPanel(workspaceId?: string): void; openHistory?(): void }
+  >,
 ) {
   const lifetime = new AbortController();
   const pills = new Map<string, { workspaceId: string; button: PluginButtonRegistration }>();
@@ -37,6 +40,7 @@ export function addThreadAccess(
                 Content: (props: PluginButtonContentProps) =>
                   createElement(QuickStart, {
                     ...props,
+                    openHistory: () => client.openScreen({ screenId: HISTORY_SCREEN }),
                     openPanel: (target?: string) =>
                       client.openPanel('agent-teams', { workspaceId: target ?? workspaceId }),
                   }),

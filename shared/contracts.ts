@@ -154,6 +154,37 @@ export const listRpc = defineRpc({
   input: z.object({ workspaceId: z.string() }),
   output: z.array(workflowSchema),
 });
+export const workflowIndexRpc = defineRpc({
+  name: 'teams.workflow_index',
+  input: z.object({}),
+  output: z.array(
+    workflowSchema
+      .pick({ id: true, workspaceId: true, cwd: true, task: true, status: true, phase: true })
+      .extend({ updatedAt: z.string(), closed: z.boolean() }),
+  ),
+});
+export const workflowRecordRpc = defineRpc({
+  name: 'teams.workflow_record',
+  input: z.object({ id: z.string() }),
+  output: workflowSchema
+    .pick({
+      id: true,
+      workspaceId: true,
+      cwd: true,
+      task: true,
+      status: true,
+      phase: true,
+      cycle: true,
+      plan: true,
+      build: true,
+      review: true,
+      tests: true,
+      events: true,
+      agents: true,
+      allowNoTests: true,
+    })
+    .extend({ closed: z.boolean() }),
+});
 export const historyRpc = defineRpc({
   name: 'teams.history',
   input: z.object({ id: z.string(), workspaceId: z.string().optional() }),
@@ -171,7 +202,9 @@ export const catalogRpc = defineRpc({
     cwd: z.string(),
     gitRoot: z.string().nullable().optional(),
     launchIssue: z.string().optional(),
-    blockingWorkflow: workflowSchema.pick({ id: true, workspaceId: true, task: true, status: true }).optional(),
+    blockingWorkflow: workflowSchema
+      .pick({ id: true, workspaceId: true, task: true, status: true, revision: true })
+      .optional(),
     repositories: z.array(z.string()).default([]),
     providers: z.array(
       z.object({

@@ -1,8 +1,10 @@
 import { Pressable, Text, View } from 'react-native';
-import type { PluginHostProps } from '@getpaseo/plugin/client';
+import { useRpc, type PluginHostProps } from '@getpaseo/plugin/client';
+import { useRef, useState } from 'react';
 import type { z } from 'zod';
-import type { catalogRpc } from '../shared/contracts';
+import { actionRpc, type catalogRpc } from '../shared/contracts';
 import { showTeamWorkflow } from './drafts';
+import { errorMessage } from './errors';
 
 export function LockNotice({
   blocker,
@@ -15,8 +17,35 @@ export function LockNotice({
   onOpen?(workspaceId: string): void;
   onRefresh(): void;
 }) {
+  const actionCall = useRpc(actionRpc);
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  const pending = useRef<{ key: string; id: string } | undefined>(undefined);
   if (!blocker) return null;
   const c = theme.colors;
+  const close = async () => {
+    if (busy || !blocker.workspaceId) return;
+    setBusy(true);
+    setError('');
+    const key = `${blocker.id}:${blocker.revision}`;
+    if (pending.current?.key !== key)
+      pending.current = { key, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` };
+    try {
+      await actionCall({
+        id: blocker.id,
+        workspaceId: blocker.workspaceId,
+        expectedRevision: blocker.revision,
+        requestId: pending.current.id,
+        action: 'finish',
+      });
+      pending.current = undefined;
+      onRefresh();
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <View style={{ padding: 12, gap: 8, borderWidth: 1, borderColor: c.statusWarning, borderRadius: 8 }}>
       <Text style={{ color: c.foreground }}>Un workflow conserve le verrou de ce dépôt.</Text>
@@ -28,12 +57,31 @@ export function LockNotice({
           accessibilityRole="button"
           accessibilityLabel="Ouvrir le workflow bloquant"
           onPress={() => {
-            showTeamWorkflow(`${host.id}:${blocker.workspaceId}`, blocker.id);
-            onOpen(blocker.workspaceId!);
+            try {
+              showTeamWorkflow(`${host.id}:${blocker.workspaceId}`, blocker.id);
+              onOpen(blocker.workspaceId!);
+            } catch (error) {
+              setError(errorMessage(error));
+            }
           }}
         >
           <Text style={{ color: c.foreground }}>Ouvrir le workflow bloquant ↗</Text>
         </Pressable>
+      ) : null}
+      {blocker.workspaceId ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Clore le workflow bloquant en conservant les fichiers"
+          disabled={busy}
+          onPress={() => void close()}
+        >
+          <Text style={{ color: c.foreground }}>{busy ? 'Fermeture…' : 'Clore en conservant les fichiers'}</Text>
+        </Pressable>
+      ) : null}
+      {error ? (
+        <Text accessibilityRole="alert" style={{ color: c.statusDanger }}>
+          {error}
+        </Text>
       ) : null}
       <Pressable accessibilityRole="button" accessibilityLabel="Actualiser le verrou" onPress={onRefresh}>
         <Text style={{ color: c.foregroundMuted }}>Actualiser</Text>

@@ -5,7 +5,29 @@ import { addThreadAccess } from './client/thread-access';
 import { QuickStart } from './client/quick-start';
 import { NEW_TEAM_SCREEN, NewTeamSidebar, NewTeamWorkspace } from './client/new-workspace';
 import { addCreationAccess } from './client/new-workspace-pill';
+import { WorkflowHistory, HistorySidebar } from './client/history';
+import { HISTORY_SCREEN } from './client/routes';
 export default function contribute(client: PluginClientContext) {
+  client.addScreen({
+    id: HISTORY_SCREEN,
+    title: 'Historique des workflows',
+    Component: (props) => (
+      <WorkflowHistory
+        key={props.params.id ?? 'index'}
+        {...props}
+        onSelect={(id) => client.openScreen({ screenId: HISTORY_SCREEN, params: id ? { id } : {} })}
+      />
+    ),
+  });
+  client.addSidebarHeaderItem({ id: HISTORY_SCREEN, title: 'Historique des workflows', Component: HistorySidebar });
+  client.addCommandCenterItem({
+    id: HISTORY_SCREEN,
+    title: 'Historique des workflows',
+    icon: 'History',
+    keywords: ['Agent Teams', 'fermés', 'workflow history'],
+    context: 'global',
+    onSelect: ({ openScreen }) => openScreen({ screenId: HISTORY_SCREEN }),
+  });
   client.addScreen({
     id: NEW_TEAM_SCREEN,
     title: 'Nouveau workspace agent',
@@ -35,6 +57,7 @@ export default function contribute(client: PluginClientContext) {
     Component: (props) => (
       <TeamsPanel
         {...props}
+        onOpenHistory={() => client.openScreen({ screenId: HISTORY_SCREEN })}
         onOpenWorkspace={(workspaceId) => client.openPanel('agent-teams', { workspaceId })}
         onChooseRepository={async (path) => {
           const workspace = await client.paseo.workspaces.open(path);
@@ -61,7 +84,10 @@ export default function contribute(client: PluginClientContext) {
         {...props}
         onOpenWorkflow={
           props.item.data.workspaceId
-            ? () => client.openPanel('agent-teams', { workspaceId: props.item.data.workspaceId! })
+            ? () =>
+                props.item.data.status === 'completed'
+                  ? client.openScreen({ screenId: HISTORY_SCREEN, params: { id: props.item.data.workflowId } })
+                  : client.openPanel('agent-teams', { workspaceId: props.item.data.workspaceId! })
             : undefined
         }
       />

@@ -11,6 +11,7 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
   await mkdir('node_modules/.cache', { recursive: true });
   const dir = await mkdtemp(join(process.cwd(), 'node_modules/.cache/team-popover-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
+  const closures: { requestId: string }[] = [];
   const launches: { requestId: string; config: { roles: { builder: { provider: string } } } }[] = [];
   const registry = {
     catalog: {
@@ -37,10 +38,17 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
         },
       ],
       launchIssue: '',
-      blockingWorkflow: undefined as { id: string; workspaceId: string; task: string; status: string } | undefined,
+      blockingWorkflow: undefined as
+        { id: string; workspaceId: string; task: string; status: string; revision: number } | undefined,
     },
     rpc: (name: string) => async (input: (typeof launches)[number]) => {
       if (name === 'teams.catalog') return registry.catalog;
+      if (name === 'teams.action') {
+        closures.push(input);
+        if (closures.length === 1) throw Error('Agent still running');
+        registry.catalog.blockingWorkflow = undefined;
+        return { id: 'hidden-workflow' };
+      }
       launches.push(input);
       if (launches.length === 1) throw Error('Lost response');
       return { id: 'workflow' };
@@ -150,6 +158,7 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
     workspaceId: 'owner',
     task: 'Hidden task',
     status: 'attention',
+    revision: 0,
   };
   await act(async () => {
     other.update(React.createElement(QuickStart, { ...props, workspaceId: 'new-workspace' }));
@@ -159,5 +168,17 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
   await act(async () => other.root.findByProps({ accessibilityLabel: 'Ouvrir le workflow bloquant' }).props.onPress());
   assert.equal(targetWorkspace, 'owner');
   assert.equal(opened, 2);
+  assert.equal(launches.length, 2);
+  const close = () =>
+    other.root
+      .findByProps({ accessibilityLabel: 'Clore le workflow bloquant en conservant les fichiers' })
+      .props.onPress();
+  await act(async () => close());
+  assert.match(JSON.stringify(other.toJSON()), /Agent still running/);
+  assert.notEqual(registry.catalog.blockingWorkflow, undefined);
+  await act(async () => close());
+  assert.equal(closures[0].requestId, closures[1].requestId);
+  assert.equal(registry.catalog.blockingWorkflow, undefined);
+  assert.equal(other.root.findAllByProps({ accessibilityLabel: 'Ouvrir le workflow bloquant' }).length, 0);
   assert.equal(launches.length, 2);
 });

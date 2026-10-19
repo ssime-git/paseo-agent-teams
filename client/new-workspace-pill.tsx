@@ -10,6 +10,7 @@ import {
 import { QuickStart } from './quick-start';
 import { prepareNewTeam } from './drafts';
 import { errorMessage } from './errors';
+import { HISTORY_SCREEN } from './routes';
 
 export type CreationPillProps = PluginHostProps & {
   context: 'new-workspace';
@@ -42,7 +43,11 @@ export function addCreationAccess(client: PluginClientContext) {
       behavior: {
         kind: 'popover',
         Content: (props) => (
-          <CreationTeam {...props} onOpen={(workspaceId) => client.openPanel('agent-teams', { workspaceId })} />
+          <CreationTeam
+            {...props}
+            onOpenHistory={() => client.openScreen({ screenId: HISTORY_SCREEN })}
+            onOpen={(workspaceId) => client.openPanel('agent-teams', { workspaceId })}
+          />
         ),
       },
     },
@@ -50,7 +55,7 @@ export function addCreationAccess(client: PluginClientContext) {
   return () => pill?.remove();
 }
 
-export function CreationTeam(props: CreationPillProps & { onOpen(workspaceId: string): void }) {
+export function CreationTeam(props: CreationPillProps & { onOpen(workspaceId: string): void; onOpenHistory?(): void }) {
   const paseo = usePaseo();
   const [workspaceId, setWorkspaceId] = useState('');
   const [error, setError] = useState('');
@@ -81,6 +86,7 @@ export function CreationTeam(props: CreationPillProps & { onOpen(workspaceId: st
         {...props}
         context="workspace"
         workspaceId={workspaceId}
+        openHistory={props.onOpenHistory}
         openPanel={(target) => props.onOpen(target ?? workspaceId)}
       />
     );

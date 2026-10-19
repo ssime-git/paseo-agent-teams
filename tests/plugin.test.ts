@@ -83,7 +83,13 @@ test('catalog reveals lock owner metadata across workspaces of the same reposito
   const result = (await catalog({ workspaceId: 'different-workspace' }, context(join(repo, 'subdirectory')))) as {
     blockingWorkflow: unknown;
   };
-  assert.deepEqual(result.blockingWorkflow, { id: w.id, workspaceId: 'owner', task: w.task, status: 'awaiting_plan' });
+  assert.deepEqual(result.blockingWorkflow, {
+    id: w.id,
+    workspaceId: 'owner',
+    task: w.task,
+    status: 'awaiting_plan',
+    revision: 0,
+  });
   assert.equal(
     'blockingWorkflow' in ((await catalog({ workspaceId: 'unrelated' }, context(unrelated))) as object),
     false,
@@ -91,4 +97,52 @@ test('catalog reveals lock owner metadata across workspaces of the same reposito
   // Visibility of lock metadata does not grant cross-workspace mutation access.
   const action = handlers.get('teams.action') as unknown as (input: unknown) => Promise<unknown>;
   await assert.rejects(action({ id: w.id, workspaceId: 'different-workspace' }), /access denied/);
+});
+
+test('closed workflow history survives a missing native workspace and excludes execution internals', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'teams-history-'));
+  const old = process.env.PASEO_AGENT_TEAMS_DATA_DIR;
+  process.env.PASEO_AGENT_TEAMS_DATA_DIR = dir;
+  const w = workflowFixture();
+  w.status = 'completed';
+  w.phase = 'done';
+  w.workspaceId = 'deleted-native-workspace';
+  w.plan = { summary: 'Archived plan', tasks: ['Implement'], acceptance: ['Works'], tests: [] };
+  w.events = [{ id: 'closed', at: '2026-10-19T12:00:00Z', kind: 'closed', text: 'Files retained' }];
+  w.requests = { private: 'execution fingerprint' };
+  w.receipts = { private: 'internal receipt' };
+  await new Store(dir).put(w);
+  const handlers = new Map<string, (input: unknown) => Promise<unknown>>();
+  const cleanup = contributeServer({
+    handle(contract: { name: string }, handler: (input: unknown) => Promise<unknown>) {
+      handlers.set(contract.name, handler);
+    },
+    on() {},
+  } as unknown as PluginServerContext);
+  t.after(async () => {
+    if (typeof cleanup === 'function') await cleanup();
+    if (old === undefined) delete process.env.PASEO_AGENT_TEAMS_DATA_DIR;
+    else process.env.PASEO_AGENT_TEAMS_DATA_DIR = old;
+    await rm(dir, { recursive: true, force: true });
+  });
+  assert.deepEqual(await handlers.get('teams.workflow_index')!({}), [
+    {
+      id: w.id,
+      workspaceId: w.workspaceId,
+      cwd: w.cwd,
+      task: w.task,
+      status: 'completed',
+      phase: 'done',
+      updatedAt: '2026-10-19T12:00:00Z',
+      closed: true,
+    },
+  ]);
+  const record = (await handlers.get('teams.workflow_record')!({ id: w.id })) as Record<string, unknown>;
+  assert.deepEqual(record.plan, w.plan);
+  assert.deepEqual(record.events, w.events);
+  assert.equal(record.closed, true);
+  for (const field of ['config', 'baseline', 'repo', 'requests', 'receipts', 'operation', 'cursors'])
+    assert.equal(field in record, false);
+  assert.equal((await new Store(dir).get(w.id)).revision, w.revision);
+  await assert.rejects(handlers.get('teams.workflow_record')!({ id: 'missing' }), /Workflow not found/);
 });

@@ -118,7 +118,15 @@ The workspace must point to an accessible Git repository. If it points to a non-
 
 All three roles work **in the selected workspace directory**. There is no automatic branch, worktree, commit, merge, reset or cleanup. Existing staged, unstaged and non-ignored untracked files are captured before the first agent runs. A lock prevents other workflows of this plugin from starting in the same Git repository, including sibling worktrees. It cannot lock out tools or agents started outside the plugin.
 
-If a workflow in another workspace holds that repository lock, the launch form shows its task and state with **Ouvrir le workflow bloquant**. This opens its exact workspace and selects that workflow, including when the panel previously showed a new-workflow form. Resume it or choose **Clore en conservant les fichiers**, then refresh the lock notice before launching another workflow.
+If a workflow in another workspace holds that repository lock, the launch form shows its task and state with **Ouvrir le workflow bloquant**. This opens its exact workspace and selects that workflow, including when the panel previously showed a new-workflow form. You can also choose **Clore en conservant les fichiers** directly on the notice, including if its workspace was deleted. Closure checks the workflow revision and active operations before releasing the lock.
+
+### Workflow history
+
+**Historique des workflows** is available from the sidebar, Command Center, panel header and Mode agent popover. It lists workflows across all workspaces on that host, with search by task, directory or identifier. Closed workflows remain in this history; closing releases their repository lock and retains their saved record.
+
+Open a record to read the plan, implementation report, review, test outputs and recorded events. This view reads persisted data without resolving the native workspace, so it also works after that workspace is deleted. Opening a closed record does not resume it or start an agent. Internal execution receipts, request fingerprints, configuration and snapshot paths are excluded from this history API.
+
+![Reopening a closed workflow in the persistent workflow history](docs/screenshots/team-history.png)
 
 ### Approvals and tests
 

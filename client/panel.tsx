@@ -116,6 +116,7 @@ export function TeamsPanel(
   props: PluginWorkspacePanelProps & {
     onChooseRepository?: (path: string) => Promise<void>;
     onOpenWorkspace?: (workspaceId: string) => void;
+    onOpenHistory?: () => void;
   },
 ) {
   const { workspaceId, theme, layout, navigation } = props;
@@ -598,6 +599,15 @@ export function TeamsPanel(
         <Text accessibilityRole="header" style={{ ...text, fontSize: 18, fontWeight: '600' }}>
           Agent Teams
         </Text>
+        {props.onOpenHistory ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Historique des workflows"
+            onPress={props.onOpenHistory}
+          >
+            <Text style={{ color: c.foregroundMuted }}>Historique ↗</Text>
+          </Pressable>
+        ) : null}
         {workflow && !creating
           ? badge(statusLabel[workflow.status] ?? workflow.status, statusTone(workflow.status))
           : null}

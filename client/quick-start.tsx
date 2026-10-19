@@ -19,7 +19,8 @@ export function QuickStart({
   layout,
   close,
   openPanel,
-}: PluginButtonContentProps & { openPanel(workspaceId?: string): void }) {
+  openHistory,
+}: PluginButtonContentProps & { openPanel(workspaceId?: string): void; openHistory?(): void }) {
   const c = theme.colors;
   const catalogCall = useRpc(catalogRpc),
     createCall = useRpc(createRpc);
@@ -104,6 +105,18 @@ export function QuickStart({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: c.statusSuccess }} />
           <Text style={{ color: c.foreground, fontWeight: '600', fontSize: 13 }}>Mode agent</Text>
+          {openHistory ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Historique des workflows"
+              onPress={() => {
+                close();
+                openHistory();
+              }}
+            >
+              <Text style={{ color: c.foregroundMuted }}>Historique ↗</Text>
+            </Pressable>
+          ) : null}
           <Text style={{ marginLeft: 'auto', color: c.foregroundMuted, fontSize: 11 }}>
             Plan → Build → Tests → Review
           </Text>
