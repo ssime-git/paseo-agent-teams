@@ -12,7 +12,7 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
   const registrations: {
     agentId: string;
     workspaceId: string;
-    button: { behavior: { onPress(): void } };
+    button: { behavior: { items: { behavior: { onPress(): void } }[] } };
     removed: boolean;
   }[] = [];
   const opened: unknown[] = [];
@@ -50,7 +50,7 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
   observer.snapshot({ entries: [{ agent: { id: 'a', workspaceId: 'w1' } }, { agent: { id: 'unassigned' } }] });
   observer.update({ type: 'agent_update', payload: { kind: 'upsert', agent: { id: 'a', workspaceId: 'w1' } } });
   assert.equal(registrations.length, 1);
-  registrations[0].button.behavior.onPress();
+  registrations[0].button.behavior.items[0].behavior.onPress();
   assert.deepEqual(opened, [{ id: 'agent-teams', options: { workspaceId: 'w1' } }]);
   observer.update({ type: 'agent_update', payload: { kind: 'upsert', agent: { id: 'a', workspaceId: 'w2' } } });
   assert.equal(registrations[0].removed, true);

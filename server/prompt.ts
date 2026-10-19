@@ -1,10 +1,44 @@
 import { planSchema, buildSchema, reviewSchema, type Workflow, type Role } from '../shared/contracts';
+import { HANDOFF_BUDGET } from '../shared/context';
+export { HANDOFF_BUDGET } from '../shared/context';
 const schemaFor = (role: Role) => (role === 'planner' ? planSchema : role === 'builder' ? buildSchema : reviewSchema);
 export function boundedText(text: string, limit = 32 * 1024) {
   if (Buffer.byteLength(text) <= limit) return text;
   return Buffer.from(text).subarray(0, limit).toString('utf8') + '\n[Truncated]';
 }
-const serialize = (value: unknown) => boundedText(JSON.stringify(value) ?? 'undefined');
+const serialize = (value: unknown, limit?: number) => boundedText(JSON.stringify(value) ?? 'undefined', limit);
+/** Rough token estimate (~4 bytes per token). */
+export const estimateTokens = (text: string) => Math.ceil(Buffer.byteLength(text) / 4);
+/** Hand-off budget per role, in tokens. */
+const MIN_CONTEXT_BYTES = 2 * 1024;
+const tail = (text: string, lines = 30) => text.trimEnd().split('\n').slice(-lines).join('\n');
+// Test logs stay in the workflow record; hand-offs carry only a result line and the failing tail.
+const testSummary = (w: Workflow) =>
+  w.tests.map((t) => ({
+    command: t.command,
+    exitCode: t.exitCode,
+    timedOut: t.timedOut,
+    ...(t.exitCode === 0 && !t.timedOut ? {} : { tail: boundedText(tail(`${t.stdout}\n${t.stderr}`), 4 * 1024) }),
+  }));
+// Manual hand-offs also carry the latest assistant replies; auto roles exchange structured artifacts instead.
+const conversation = (w: Workflow) =>
+  w.events
+    .filter((e) => ['user', 'approved', ...(w.config.mode === 'auto' ? [] : ['assistant'])].includes(e.kind))
+    .slice(-10)
+    .map((e) => ({ kind: e.kind, text: boundedText(e.text, 2 * 1024) }));
+
+/** The artifacts a role needs, never the full transcript. */
+function artifacts(w: Workflow, role: Role): string[] {
+  const plan = `Plan: ${serialize(w.plan, 8 * 1024)}`;
+  const review = `Previous review: ${serialize(w.review, 4 * 1024)}`;
+  const tests = `Tests: ${serialize(testSummary(w), 8 * 1024)}`;
+  if (w.config.mode !== 'auto') return [plan, `Build: ${serialize(w.build, 4 * 1024)}`, review, tests];
+  if (role === 'planner') return w.review ? [`Current plan: ${serialize(w.plan, 8 * 1024)}`, review, tests] : [];
+  if (role === 'builder')
+    return [plan, review, tests, `Remaining from last build: ${serialize(w.build?.remaining ?? [])}`];
+  return [plan, `Build: ${serialize(w.build, 4 * 1024)}`, tests];
+}
+
 export function buildPrompt(w: Workflow, role: Role, context: string) {
   const instructions = {
     planner:
@@ -14,20 +48,24 @@ export function buildPrompt(w: Workflow, role: Role, context: string) {
       'Review the actual changes against the plan and initial repository state. Inspect test output. ' +
       'Do not edit files. Fail if tests fail or criteria are unmet.',
   };
-  return [
+  const head = [
     instructions[role],
-    `Trusted launch test commands: ${serialize(w.config.testCommands)}`,
-    `Task: ${boundedText(w.task)}`,
-    'Logical conversation (including decisions and remaining work):',
-    serialize(w.events.filter((e) => ['user', 'assistant', 'approved'].includes(e.kind)).slice(-20)),
-    `Plan: ${serialize(w.plan)}`,
-    `Build: ${serialize(w.build)}`,
-    `Review: ${serialize(w.review)}`,
-    `Tests: ${serialize(w.tests)}`,
-    'Repository context:',
-    boundedText(context, 256 * 1024),
+    `Trusted launch test commands: ${serialize(w.config.testCommands, 8 * 1024)}`,
+    `Task: ${boundedText(w.task, 16 * 1024)}`,
+    'Recent decisions and messages:',
+    serialize(conversation(w), 8 * 1024),
+    ...artifacts(w, role),
+  ];
+  const tailPart =
     w.config.mode === 'auto'
       ? `Return ONLY a JSON object matching this schema: ${JSON.stringify(schemaFor(role).toJSONSchema())}`
-      : 'Return a useful handoff briefing covering progress, decisions, relevant files and remaining work.',
+      : 'Return a useful handoff briefing covering progress, decisions, relevant files and remaining work.';
+  const fixed = Buffer.byteLength(head.join('\n') + tailPart);
+  const contextLimit = Math.max(MIN_CONTEXT_BYTES, HANDOFF_BUDGET[role] * 4 - fixed);
+  return [
+    ...head,
+    'Repository context (compact; inspect files yourself for more):',
+    boundedText(context, contextLimit),
+    tailPart,
   ].join('\n');
 }

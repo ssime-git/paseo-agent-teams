@@ -84,7 +84,7 @@ test('unborn snapshots detect content, executable mode and symlink target change
   await assert.rejects(snapshot(dir), /exceeds 20 MiB/);
 });
 
-test('runtime context projects hashes and bounded textual diffs, including legacy baselines', async (t) => {
+test('runtime context projects changed paths and a bounded diff, including legacy baselines', async (t) => {
   const { PaseoRuntime } = await import('../server/runtime');
   const { workflowFixture } = await import('./fixtures');
   const root = await mkdtemp(join(tmpdir(), 'teams-context-'));
@@ -103,10 +103,10 @@ test('runtime context projects hashes and bounded textual diffs, including legac
   const context = await runtime.context(w);
   assert.doesNotMatch(context, /aW5pdGlhbCBieXRlcw==/);
   const projected = JSON.parse(context);
-  assert.match(projected.changesSinceStart[0].before.content, /^[a-f0-9]{64}$/);
+  assert.deepEqual(projected.changedFiles, [{ path: 'file', change: 'modified' }]);
   await git(dir, ['add', 'file']);
   await writeFile(join(dir, 'file'), 'large changed line\n'.repeat(30000));
   const large = await runtime.context(w);
-  assert.ok(large.length < 256 * 1024 + 100);
-  assert.match(large, /context truncated/);
+  assert.ok(large.length < 64 * 1024);
+  assert.match(large, /truncated/);
 });

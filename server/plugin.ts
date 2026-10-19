@@ -3,7 +3,7 @@ import type { PluginServerContext } from '@getpaseo/plugin/server';
 import { createPaseoClient, type PaseoClient } from '@getpaseo/client';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createRpc, actionRpc, listRpc, historyRpc, catalogRpc } from '../shared/contracts';
+import { createRpc, actionRpc, listRpc, historyRpc, catalogRpc, testOutputRpc } from '../shared/contracts';
 import { TERMINAL_OR_WAITING } from '../shared/state-machine';
 import { Engine } from './engine';
 import { Store } from './store';
@@ -85,6 +85,7 @@ export function contributeServer(server: PluginServerContext) {
     return { cwd, providers, ...(await repositoryPreflight(cwd)) };
   });
   server.handle(historyRpc, async ({ id, workspaceId }) => (await store.authorize(id, workspaceId)).events);
+  server.handle(testOutputRpc, async ({ id, workspaceId }) => (await store.authorize(id, workspaceId)).tests);
   const forAgent = async (agentId: string, handle: (engine: Engine) => Promise<void>) => {
     if (!(await store.forAgent(agentId)).length) return;
     await handle(await bind());

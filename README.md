@@ -24,7 +24,17 @@ paseo plugin ls
 
 Enable plugins yourself in **Settings → Plugins → Enable plugins** if necessary. An automated installer must obtain explicit permission before changing that global switch. Plugin installation trusts code running with the daemon user's machine access.
 
-Open a workspace, open **Search** (the Command Center), and choose **Open Agent Teams**. Existing agent threads also show an **Agent Teams** button in the composer. This opens the workflow panel; the plugin does not add a model entry to the native model picker. After source changes:
+A reload recompiles the **registered source directory**. If the plugin was installed from Git, that directory is Paseo's internal checkout; changing your separate working copy or the HTML mockup does not change the app. For UI development, register the local project directory instead (after active agent turns have finished):
+
+```sh
+paseo plugin remove paseo-agent-teams
+paseo plugin install /absolute/path/to/paseo-agent-teams
+paseo plugin reload paseo-agent-teams
+```
+
+The application renders `index.client.tsx` and the React Native components in `client/`. `docs/mockup-panel.html` is a visual reference. The Mode agent popover and full panel share workspace-scoped draft configuration and task text, including across responsive panel remounts.
+
+Open a workspace, open **Search** (the Command Center), and choose **Open Agent Teams**. Existing agent threads also show an **Agent Teams** menu in the composer: open the workflow panel, or **Mode agent** to start a team with the default roles from a popover. Hand-offs between roles carry compact artifacts and a bounded diff rather than the whole conversation; the panel shows the hand-off size, and **fresh session per correction** (optional) restarts a role's session on each correction cycle. the plugin does not add a model entry to the native model picker. After source changes:
 
 ```sh
 npm run check

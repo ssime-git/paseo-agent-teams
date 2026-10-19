@@ -2,6 +2,7 @@ import type { PluginClientContext } from '@getpaseo/plugin/client';
 import { TeamsPanel, ProgressCard } from './client/panel';
 import { cardSchema } from './shared/contracts';
 import { addThreadAccess } from './client/thread-access';
+import { QuickStart } from './client/quick-start';
 export default function contribute(client: PluginClientContext) {
   client.addWorkspacePanel({
     id: 'agent-teams',
@@ -28,6 +29,20 @@ export default function contribute(client: PluginClientContext) {
       openPanel('agent-teams');
     },
   });
-  client.addTimelineRenderer({ kind: 'agent-teams-progress', version: 1, schema: cardSchema, Component: ProgressCard });
-  return addThreadAccess(client);
+  client.addTimelineRenderer({
+    kind: 'agent-teams-progress',
+    version: 1,
+    schema: cardSchema,
+    Component: (props) => (
+      <ProgressCard
+        {...props}
+        onOpenWorkflow={
+          props.item.data.workspaceId
+            ? () => client.openPanel('agent-teams', { workspaceId: props.item.data.workspaceId! })
+            : undefined
+        }
+      />
+    ),
+  });
+  return addThreadAccess(client, QuickStart);
 }

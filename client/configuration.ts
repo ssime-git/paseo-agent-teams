@@ -11,6 +11,7 @@ export function initialConfig(): Config {
     },
     validation: 'plan',
     autoFix: true,
+    freshSessionPerCycle: false,
     maxCorrections: 2,
     recovery: 'explicit',
     testCommands: [],
@@ -51,4 +52,23 @@ export function configurationIssue(config: Config, providers?: { id: string; fam
 }
 export function configReady(config: Config, providers?: { id: string; family?: string }[]) {
   return !configurationIssue(config, providers);
+}
+type CatalogProvider = {
+  id: string;
+  family: string;
+  models: { id: string; isDefault: boolean }[];
+  modes: { id: string }[];
+};
+/** Default role selections: Claude (or the first harness) plans and reviews, Codex builds. */
+export function defaultRoles(providers: CatalogProvider[], current?: Config['roles']): Config['roles'] {
+  const next = { ...(current ?? initialConfig().roles) };
+  for (const role of roles) {
+    if (next[role].provider) continue;
+    const preferred = role === 'builder' ? 'codex' : 'claude';
+    const provider = providers.find((p) => p.id === preferred) ?? providers[0];
+    const model = provider?.models.find((m) => m.isDefault) ?? provider?.models[0];
+    const mode = provider?.modes.find((m) => role === 'builder' || isReadOnly(provider.family, m.id));
+    if (provider && model && mode) next[role] = { provider: `${provider.id}/${model.id}`, modeId: mode.id };
+  }
+  return next;
 }

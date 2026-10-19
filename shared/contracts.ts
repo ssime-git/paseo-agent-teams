@@ -24,6 +24,7 @@ export const configSchema = z
     roles: z.object({ planner: selectionSchema, builder: selectionSchema, reviewer: selectionSchema }).strict(),
     validation: z.enum(['plan', 'final', 'autonomous']).default('plan'),
     autoFix: z.boolean().default(true),
+    freshSessionPerCycle: z.boolean().default(false),
     maxCorrections: z.number().int().min(0).max(10).default(2),
     recovery: z.enum(['explicit', 'automatic']).default('explicit'),
     testCommands: z.array(commandSchema).default([]),
@@ -64,6 +65,9 @@ export const cardSchema = z.object({
   status: z.string(),
   detail: z.string(),
   cycle: z.number(),
+  maxCorrections: z.number().optional(),
+  workspaceId: z.string().optional(),
+  handoffTokens: z.number().optional(),
 });
 export const eventSchema = z.object({
   id: z.string(),
@@ -120,6 +124,8 @@ export const workflowSchema = z.object({
     .optional(),
   cursors: z.record(z.string(), z.object({ epoch: z.string(), seq: z.number() })).default({}),
   baseline: z.string(),
+  agentCycles: z.partialRecord(roleSchema, z.number().int().nonnegative()).optional(),
+  handoffTokens: z.number().int().nonnegative().optional(),
   error: z.string().optional(),
 });
 export type Workflow = z.infer<typeof workflowSchema>;
@@ -152,6 +158,11 @@ export const historyRpc = defineRpc({
   name: 'teams.history',
   input: z.object({ id: z.string(), workspaceId: z.string().optional() }),
   output: z.array(eventSchema),
+});
+export const testOutputRpc = defineRpc({
+  name: 'teams.test_output',
+  input: z.object({ id: z.string(), workspaceId: z.string() }),
+  output: z.array(testResultSchema),
 });
 export const catalogRpc = defineRpc({
   name: 'teams.catalog',

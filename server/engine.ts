@@ -19,7 +19,7 @@ import {
   PHASE_ROLES,
   STAGE_TRANSITIONS,
 } from '../shared/state-machine';
-import { buildPrompt } from './prompt';
+import { buildPrompt, estimateTokens } from './prompt';
 import { Store } from './store';
 import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 
@@ -353,7 +353,13 @@ export class Engine {
     if (w.phase === 'testing') return this.prepareTests(w);
     const role: Role = w.phase === 'manual' ? w.activeRole : PHASE_ROLES[w.phase];
     const revision = w.revision;
-    for (const r of roles) if (!w.agents[r]) w.agents[r] = await this.runtime.agent(w, r);
+    for (const r of roles) {
+      // Opt-in: a role dispatched in a later correction cycle restarts from a clean session to bound its history.
+      const stale = w.config.freshSessionPerCycle && r === role && (w.agentCycles?.[r] ?? 0) < w.cycle;
+      if (w.agents[r] && !stale) continue;
+      w.agents[r] = await this.runtime.agent(w, r);
+      w.agentCycles = { ...w.agentCycles, [r]: w.cycle };
+    }
     const context = await this.runtime.context(w);
     const prompt = buildPrompt(w, role, context);
     const fingerprint =
@@ -362,6 +368,7 @@ export class Engine {
       const current = await this.store.get(id);
       if (this.closed || current.revision !== revision || current.operation) return;
       current.agents = w.agents;
+      current.agentCycles = w.agentCycles;
       current.operation = {
         id: randomUUID(),
         role,
@@ -371,6 +378,7 @@ export class Engine {
         readOnlyFingerprint: fingerprint,
       };
       current.status = 'running';
+      current.handoffTokens = estimateTokens(prompt);
       delete current.error;
       this.event(current, 'dispatch', `Starting ${role}`, role);
       await this.save(current);
@@ -411,7 +419,11 @@ export class Engine {
       w.tests = results;
       w.testedFingerprint = fingerprint;
       delete w.operation;
-      this.event(w, 'tests', JSON.stringify(results));
+      this.event(
+        w,
+        'tests',
+        results.map((r) => `${r.command} → ${r.exitCode ?? 'interrompu'}`).join('\n') || 'No tests',
+      );
       w.phase = controller.signal.aborted ? STAGE_TRANSITIONS.builder : STAGE_TRANSITIONS.tests;
       if (w.status !== 'paused') w.status = 'ready';
       await this.save(w);

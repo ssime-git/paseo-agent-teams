@@ -104,3 +104,19 @@ async function hashFile(path: string) {
   for await (const chunk of createReadStream(path)) hash.update(chunk);
   return hash.digest('hex');
 }
+
+/** Compact, bounded view of the working tree against HEAD: stat summary plus a truncated textual diff. */
+export async function workingDiff(cwd: string, head: string, limit = 24 * 1024) {
+  const base = head === 'unborn' ? [] : [head];
+  const run = async (extra: string[]) =>
+    head === 'unborn'
+      ? (await git(cwd, ['diff', '--cached', '--no-ext-diff', ...extra]).catch(() => '')) +
+        (await git(cwd, ['diff', '--no-ext-diff', ...extra]).catch(() => ''))
+      : await git(cwd, ['diff', '--no-ext-diff', ...extra, ...base]).catch(() => '');
+  const [stat, diff] = await Promise.all([run(['--stat=100']), run([])]);
+  const truncated = Buffer.byteLength(diff) > limit;
+  return {
+    stat: stat.trim(),
+    diff: truncated ? Buffer.from(diff).subarray(0, limit).toString('utf8') + '\n[diff truncated]' : diff,
+  };
+}

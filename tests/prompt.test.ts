@@ -26,3 +26,30 @@ test('the prompt bounds large inputs, recent conversation and repository context
   assert.match(prompt, /message-99/);
   assert.match(prompt, /Return ONLY a JSON object matching this schema/);
 });
+
+test('hand-offs are role-specific and stay within the role budget', async () => {
+  const { HANDOFF_BUDGET, estimateTokens } = await import('../server/prompt');
+  const w = workflowFixture();
+  w.config.mode = 'auto';
+  w.plan = { summary: 'Plan', tasks: ['t'], acceptance: ['a'], tests: [] };
+  w.review = { verdict: 'fail', summary: 'Nope', issues: ['fix-me'] };
+  w.tests = [
+    {
+      command: 'npm test',
+      timeoutMs: 1,
+      stdout: 'ok\n'.repeat(50000),
+      stderr: 'boom',
+      exitCode: 1,
+      durationMs: 1,
+      timedOut: false,
+      truncated: false,
+    },
+  ];
+  const huge = 'x'.repeat(500000);
+  for (const role of ['planner', 'builder', 'reviewer'] as const) {
+    assert.ok(estimateTokens(buildPrompt(w, role, huge)) <= HANDOFF_BUDGET[role] + 2000, role);
+  }
+  assert.match(buildPrompt(w, 'builder', ''), /fix-me/);
+  assert.doesNotMatch(buildPrompt(w, 'reviewer', ''), /fix-me/);
+  assert.doesNotMatch(buildPrompt(w, 'builder', ''), /(ok\n){100}/);
+});
