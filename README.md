@@ -76,8 +76,8 @@ All three roles work **in the selected workspace directory**. There is no automa
 ### Approvals and tests
 
 - **After the plan:** review the plan and edit its test commands, one command per line, before approving. Commands execute in the workspace directory.
-- **At the end / Autonomous:** explicitly provide trusted test commands at launch. Commands proposed later by the planner are never executed automatically. At-the-end mode additionally waits for final human approval.
-- A workflow without tests requires an explicit no-tests acknowledgement, displayed in its record.
+- **At the end / Autonomous:** the Planner chooses test commands after examining the repository, and the plugin executes them automatically. You can optionally specify commands at launch to override that choice. At-the-end mode additionally waits for final human approval.
+- A workflow without tests requires an explicit no-tests acknowledgement, displayed in its record. If the Planner proposes no tests and their absence was not accepted at launch, the workflow pauses after planning.
 - A command succeeds only with exit code zero and without a timeout. Completion requires all approved commands to succeed, a passing review and an unchanged repository fingerprint since the tests.
 - A failed review or failed tests go back to the same Builder session. The initial implementation plus at most `maxCorrections` fixes are allowed. Exhaustion requires intervention.
 

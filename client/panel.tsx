@@ -79,7 +79,7 @@ export function TeamsPanel(props: PluginWorkspacePanelProps & { onChooseReposito
     <SettingsSelect label="Cycles maximum" value={String(config.maxCorrections)} options={Array.from({ length: 11 }, (_, i) => ({ label: String(i), value: String(i) }))} onValueChange={v => setConfig(c => ({ ...c, maxCorrections: Number(v) }))} />
     <SettingsSelect label="Reprise après redémarrage" value={config.recovery} options={[{ label: 'Explicite', value: 'explicit' }, { label: 'Automatique', value: 'automatic' }]} onValueChange={v => setConfig(c => ({ ...c, recovery: v as Config['recovery'] }))} />
     {config.validation !== 'plan' && config.mode === 'auto' ? <>
-      <Text style={text}>Commandes de test autorisées au lancement, une par ligne. Les commandes proposées ultérieurement par le planner ne seront pas exécutées.</Text>
+      <Text style={text}>Le Planner choisit les commandes de test, qui seront exécutées automatiquement. Facultatif : indiquez ci-dessous des commandes à utiliser à la place, une par ligne.</Text>
       <TextInput accessibilityLabel="Commandes de test au lancement" multiline style={input} value={launchTestText} onChangeText={v => { setLaunchTestText(v); setConfig(c => ({ ...c, testCommands: commandsFromText(v) })); }} />
       <SettingsSwitch label="Accepter explicitement l’absence de tests" value={config.allowNoTests} onValueChange={v => setConfig(c => ({ ...c, allowNoTests: v }))} />
     </> : null}

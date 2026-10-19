@@ -58,12 +58,29 @@ test('failed tests cannot be overridden by a passing review', async t => {
   h.fake.tests = async w => w.plan!.tests.map(t => ({ ...t, stdout: '', stderr: 'failure', exitCode: 1, durationMs: 1, timedOut: false, truncated: false }));
   let w = await h.create(); w = await h.action(w, 'approve'); assert.equal(w.status, 'attention');
 });
-test('final and autonomous policies use only launch-trusted commands', async t => {
+test('explicit launch commands override planner commands for final and autonomous policies', async t => {
   for (const validation of ['final', 'autonomous'] as const) {
     const h = await setup(t, { validation, testCommands: [{ command: 'trusted-check', timeoutMs: 1000 }] });
     let w = await h.create(); assert.equal(w.plan!.tests[0].command, 'trusted-check');
     assert.equal(w.status, validation === 'final' ? 'awaiting_final' : 'completed');
     if (validation === 'final') { w = await h.action(w, 'approve'); assert.equal(w.status, 'completed'); }
+  }
+});
+test('the planner chooses and executes tests without a launch-time command list in autonomous and final modes', async t => {
+  for (const validation of ['autonomous', 'final'] as const) {
+    const h = await setup(t, { validation }); const w = await h.create();
+    assert.equal(w.status, validation === 'final' ? 'awaiting_final' : 'completed');
+    assert.equal(w.plan!.tests[0].command, 'npm test'); assert.equal(w.tests[0].command, 'npm test'); assert.equal(w.tests[0].exitCode, 0);
+    assert.deepEqual(h.fake.calls.map(c => c.role), ['planner', 'builder', 'reviewer']);
+    assert.ok(w.events.some(e => e.text === 'Using test commands chosen by the planner'));
+  }
+});
+test('an autonomous planner proposing no tests pauses after planning unless their absence was accepted', async t => {
+  for (const allowNoTests of [false, true]) {
+    const h = await setup(t, { validation: 'autonomous', allowNoTests });
+    h.fake.responses.planner = [JSON.stringify({ ...plan, tests: [] })];
+    const w = await h.create(); assert.equal(w.status, allowNoTests ? 'completed' : 'awaiting_plan');
+    assert.equal(h.fake.calls.length, allowNoTests ? 3 : 1);
   }
 });
 test('no tests requires explicit acceptance and is recorded', async t => {

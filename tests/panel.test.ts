@@ -66,6 +66,14 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   await act(async () => { builderHarness.props.onValueChange('opencode'); });
   await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress(); });
   assert.deepEqual((launched as { config: { roles: { builder: unknown } } }).config.roles.builder, { provider: 'opencode/zen/free-example', modeId: 'build' });
+  const validation = renderer.root.findAll(node => String(node.type) === 'SettingsSelect').find(x => x.props.label === 'Validation humaine')!;
+  await act(async () => { validation.props.onValueChange('autonomous'); });
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, false);
+  assert.match(JSON.stringify(renderer.toJSON()), /Le Planner choisit les commandes de test/);
+  await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress(); });
+  assert.deepEqual((launched as { config: { testCommands: unknown } }).config.testCommands, []);
+  await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Commandes de test au lancement' }).props.onChangeText('npm run check'); });
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, false);
   let chosenRepository = '';
   Object.assign(registry.catalog, { launchIssue: 'Ce dossier n’est pas un dépôt Git accessible.', repositories: ['/repo/project'] });
   await act(async () => { renderer.update(React.createElement(TeamsPanel, { ...props, onChooseRepository: async (path: string) => { chosenRepository = path; } })); });

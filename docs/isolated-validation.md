@@ -72,6 +72,10 @@ A native screenshot exposed a launch attempt from `/home/razer/Projects/paseo`, 
 
 The previous `<0.12.0` manifest ceiling excluded the connected desktop version. The official 0.11.2 and 0.12.0 SDK client contracts, button contracts and server contracts used here were compared and were identical. The manifest now permits `>=0.11.2 <0.13.0`; a regression test runs Paseo's official compatibility checker against daemon 0.11.2, mobile 0.11.4 and desktop 0.12.0. Typechecking and all 43 tests passed. The physical desktop's rendering still requires confirmation after this update.
 
+## Planner-selected autonomous tests
+
+At the user's request, autonomous and final-validation workflows no longer require a predefined list of test commands to launch. The Planner chooses commands after inspecting the repository; the plugin runs that plan automatically. Explicitly supplied launch commands remain an optional override. The UI explains this default. Tests cover launch with an empty command list, execution of planner-selected tests under both policies, preserved explicit overrides, and a pause when the Planner proposes no tests without an explicit no-tests acceptance. Typechecking and all 46 tests passed.
+
 ## Remaining limits
 
 Native iOS panel visibility was confirmed by the user; complete workflows on native devices and every model/account combination have not been tested. Codex does not advertise a `read-only` mode on this daemon; the plugin now supports its native read-only sandbox options instead. A subsequent real Codex review completed with a passing JSON verdict, and the daemon trace confirmed `sandboxPolicyType: read-only`. Ambiguous operations still require intervention by design; a missing completion receipt is never treated as permission to resend.

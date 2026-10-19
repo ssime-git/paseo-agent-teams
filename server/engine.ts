@@ -44,7 +44,6 @@ export class Engine {
       const all = await this.store.all(), key = `create:${requestId}`, hash = digest({ workspaceId, task, config });
       const previous = all.find(w => key in w.requests);
       if (previous) { if (previous.requests[key] !== hash) throw new Error('Request ID reused with different input'); return previous; }
-      if (config.mode === 'auto' && config.validation !== 'plan' && !config.testCommands.length && !config.allowNoTests) throw new Error('Supply trusted test commands or explicitly accept no tests before autonomous execution');
       const prepared = await this.runtime.prepare(workspaceId, config);
       if (all.some(w => w.repo === prepared.repo && w.status !== 'completed')) throw new Error('Another workflow holds this repository. Resume or finish it first.');
       const w: Workflow = { version: 1, id: randomUUID(), revision: 0, workspaceId, task, config, ...prepared,
@@ -225,9 +224,15 @@ export class Engine {
             w.phase = 'building';
             if (w.config.validation === 'plan') w.status = 'awaiting_plan';
             else {
-              w.plan.tests = w.config.testCommands; w.allowNoTests = w.config.allowNoTests;
-              w.testsApproved = true; w.status = 'ready';
-              this.event(w, 'approved', 'Using test commands explicitly trusted at launch');
+              if (w.config.testCommands.length) w.plan.tests = w.config.testCommands;
+              w.allowNoTests = w.config.allowNoTests;
+              if (!w.plan.tests.length && !w.allowNoTests) {
+                w.status = 'awaiting_plan';
+                this.event(w, 'intervention', 'The planner proposed no tests. Accept their absence or provide tests before continuing.');
+              } else {
+                w.testsApproved = true; w.status = 'ready';
+                this.event(w, 'approved', w.config.testCommands.length ? 'Using test commands specified at launch' : 'Using test commands chosen by the planner');
+              }
             }
           } else if (op.role === 'builder') {
             w.build = buildSchema.parse(result); w.phase = 'testing'; w.status = 'ready';
