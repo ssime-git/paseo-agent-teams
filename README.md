@@ -140,3 +140,32 @@ An authenticated **Opus 5.5 → GPT-6.1-Sol → Sonnet 5.5** smoke run completed
 See [isolated validation](docs/isolated-validation.md) for evidence, fixes and remaining limits.
 
 Official API references: [plugins](https://paseo.sh/docs/plugins/reference), [agents](https://paseo.sh/docs/sdk/agents), [providers](https://paseo.sh/docs/sdk/providers), [events](https://paseo.sh/docs/sdk/events).
+
+### Safety and validation
+
+Planner-proposed shell commands always require approval at the plan checkpoint, including
+`final` and `autonomous` workflows. Commands supplied by the human in `testCommands` at launch
+are trusted. An empty command list requires explicit `allowNoTests` acceptance.
+
+Commands run with a POSIX shell and an environment limited to `PATH`, `HOME`, `LANG`, `LC_ALL`,
+`TERM`, `CI` and `TMPDIR`. Optional `testEnvironmentKeys` allows additional named variables;
+`PASEO_AGENT_TEAMS_*` variables are always excluded. Windows command execution is unsupported.
+`maxConsecutiveTimeouts` optionally changes the default limit of three observations before
+intervention; a timeout retains the operation and never resends its prompt.
+
+Action and history RPC callers must provide `workspaceId`; the field remains optional in the
+wire schema during migration, but the server rejects missing or mismatched workspace IDs.
+The bundled client supplies it. Background execution uses a dedicated daemon connection,
+configured by `PASEO_AGENT_TEAMS_DAEMON_URL` and `PASEO_AGENT_TEAMS_DAEMON_PASSWORD`.
+
+Persistence is cached for the lifetime of one plugin instance. Stop the plugin before repairing
+state on disk. Corrupt records are quarantined as `.corrupt` files and retain their repository locks.
+If their repository cannot be recovered, creation is blocked until repair; healthy workflows remain available. Completed workflows delete their baseline.
+Recent request IDs are retained (200 including the creation ID), so clients must not rely on
+replaying requests after they leave that window. Prompts contain the last 20 conversation
+entries, bounded text sections, file hashes and bounded diffs rather than base64 file copies.
+
+`npm run check` runs type checking, ESLint, Prettier validation and tests. `npm run coverage`
+requires at least 65% line coverage for loaded modules; the report excludes unimported modules
+and the panel is exercised separately through its bundled renderer test. CI runs both commands
+on Node 22, 24 and 26. `npm run format` applies the repository formatting rules.

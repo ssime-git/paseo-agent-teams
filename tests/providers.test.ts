@@ -4,29 +4,64 @@ import { resolveProviderProfiles, nativeMode, workflowModes } from '../server/pr
 import { configReady, configurationIssue, initialConfig } from '../client/configuration';
 import { DEFAULT_MODE, DEFAULT_MODEL, INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 test('separate accounts retain their provider IDs and inherited harness family without exposing credentials', () => {
-  const entries = { 'credit-account': { extends: 'claude', label: 'Claude — credits', env: { ANTHROPIC_API_KEY: 'never-expose-this', CLAUDE_CONFIG_DIR: '/private/account' } }, 'other-codex': { extends: 'codex' }, other: { extends: 'acp' }, misleading: { label: 'claude' } };
+  const entries = {
+    'credit-account': {
+      extends: 'claude',
+      label: 'Claude — credits',
+      env: { ANTHROPIC_API_KEY: 'never-expose-this', CLAUDE_CONFIG_DIR: '/private/account' },
+    },
+    'other-codex': { extends: 'codex' },
+    other: { extends: 'acp' },
+    misleading: { label: 'claude' },
+  };
   const profiles = resolveProviderProfiles(entries);
-  assert.equal(profiles.families['credit-account'], 'claude'); assert.equal(profiles.families['other-codex'], 'codex'); assert.equal(profiles.families.other, 'acp'); assert.equal(profiles.families.misleading, 'misleading');
-  assert.equal(profiles.labels['credit-account'], 'Claude — credits'); assert.doesNotMatch(JSON.stringify(profiles), /never-expose-this|CLAUDE_CONFIG_DIR|private/);
-  const config = initialConfig(); config.roles = { planner: { provider: 'claude/model', modeId: 'plan' }, builder: { provider: 'codex/model', modeId: 'auto' }, reviewer: { provider: 'credit-account/fable', modeId: 'plan' } };
-  assert.equal(configReady(config), false); assert.equal(configReady(config, [{ id: 'credit-account', family: 'claude' }]), true);
-  config.roles.reviewer.modeId = 'bypassPermissions'; assert.equal(configReady(config, [{ id: 'credit-account', family: 'claude' }]), false);
+  assert.equal(profiles.families['credit-account'], 'claude');
+  assert.equal(profiles.families['other-codex'], 'codex');
+  assert.equal(profiles.families.other, 'acp');
+  assert.equal(profiles.families.misleading, 'misleading');
+  assert.equal(profiles.labels['credit-account'], 'Claude — credits');
+  assert.doesNotMatch(JSON.stringify(profiles), /never-expose-this|CLAUDE_CONFIG_DIR|private/);
+  const config = initialConfig();
+  config.roles = {
+    planner: { provider: 'claude/model', modeId: 'plan' },
+    builder: { provider: 'codex/model', modeId: 'auto' },
+    reviewer: { provider: 'credit-account/fable', modeId: 'plan' },
+  };
+  assert.equal(configReady(config), false);
+  assert.equal(configReady(config, [{ id: 'credit-account', family: 'claude' }]), true);
+  config.roles.reviewer.modeId = 'bypassPermissions';
+  assert.equal(configReady(config, [{ id: 'credit-account', family: 'claude' }]), false);
 });
 test('arbitrary detected harnesses support native permissions or explicit instruction-only roles', () => {
   const pi = workflowModes('pi', []);
-  assert.deepEqual(pi.map(m => m.id), [DEFAULT_MODE, INSTRUCTION_READ_ONLY]);
+  assert.deepEqual(
+    pi.map((m) => m.id),
+    [DEFAULT_MODE, INSTRUCTION_READ_ONLY],
+  );
   assert.equal(nativeMode('pi', DEFAULT_MODE, []), undefined);
   assert.equal(nativeMode('pi', INSTRUCTION_READ_ONLY, []), undefined);
-  const openCode = [{ id: 'build', label: 'Build' }, { id: 'plan', label: 'Plan' }];
+  const openCode = [
+    { id: 'build', label: 'Build' },
+    { id: 'plan', label: 'Plan' },
+  ];
   assert.equal(workflowModes('opencode', openCode), openCode);
   assert.equal(nativeMode('opencode', 'plan', openCode), 'plan');
   assert.throws(() => nativeMode('opencode', INSTRUCTION_READ_ONLY, openCode), /Unavailable mode/);
-  const config = initialConfig(); config.roles = { planner: { provider: 'opencode/zen/free', modeId: 'plan' }, builder: { provider: `pi/${DEFAULT_MODEL}`, modeId: DEFAULT_MODE }, reviewer: { provider: 'custom/model', modeId: INSTRUCTION_READ_ONLY } };
+  const config = initialConfig();
+  config.roles = {
+    planner: { provider: 'opencode/zen/free', modeId: 'plan' },
+    builder: { provider: `pi/${DEFAULT_MODEL}`, modeId: DEFAULT_MODE },
+    reviewer: { provider: 'custom/model', modeId: INSTRUCTION_READ_ONLY },
+  };
   assert.equal(configReady(config), true);
-  config.roles.reviewer.modeId = 'full-access'; assert.equal(configReady(config), false);
+  config.roles.reviewer.modeId = 'full-access';
+  assert.equal(configReady(config), false);
 });
 test('Codex read-only is supported through native sandbox options even when absent from mode discovery', () => {
-  const modes = [{ id: 'auto', label: 'Auto' }, { id: 'full-access', label: 'Full access' }];
+  const modes = [
+    { id: 'auto', label: 'Auto' },
+    { id: 'full-access', label: 'Full access' },
+  ];
   assert.equal(workflowModes('codex', modes).at(-1)?.id, 'read-only');
   assert.equal(nativeMode('codex', 'read-only', modes), 'auto');
   assert.equal(nativeMode('codex', 'read-only', [{ id: 'read-only' }]), 'read-only');
@@ -34,7 +69,11 @@ test('Codex read-only is supported through native sandbox options even when abse
   assert.equal(workflowModes('claude', modes), modes);
   assert.equal(workflowModes('codex', [{ id: 'read-only', label: 'Read only' }]).length, 1);
   const config = initialConfig();
-  config.roles = { planner: { provider: 'claude/model', modeId: 'plan' }, builder: { provider: 'codex/model', modeId: 'auto' }, reviewer: { provider: 'codex/model', modeId: '' } };
+  config.roles = {
+    planner: { provider: 'claude/model', modeId: 'plan' },
+    builder: { provider: 'codex/model', modeId: 'auto' },
+    reviewer: { provider: 'codex/model', modeId: '' },
+  };
   assert.match(configurationIssue(config)!, /reviewer.*lecture seule/);
   config.roles.reviewer.modeId = 'read-only';
   assert.equal(configReady(config), true);
