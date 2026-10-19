@@ -12,8 +12,9 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   const dir = await mkdtemp(join(process.cwd(), 'node_modules/.cache/teams-ui-')); t.after(() => rm(dir, { recursive: true, force: true }));
   let launched: unknown;
   const providers = [
-    { id: 'claude', models: [{ id: 'model-from-daemon', label: 'Discovered Claude', isDefault: true }], modes: [{ id: 'plan', label: 'Plan' }, { id: 'default', label: 'Default' }] },
-    { id: 'codex', models: [{ id: 'org/codex-from-daemon', label: 'Discovered Codex', isDefault: true }], modes: [{ id: 'read-only', label: 'Read only' }, { id: 'auto', label: 'Default' }] },
+    { id: 'claude', family: 'claude', label: 'Claude Code', models: [{ id: 'model-from-daemon', label: 'Discovered Claude', isDefault: true }], modes: [{ id: 'plan', label: 'Plan' }, { id: 'default', label: 'Default' }] },
+    { id: 'codex', family: 'codex', label: 'Codex', models: [{ id: 'org/codex-from-daemon', label: 'Discovered Codex', isDefault: true }], modes: [{ id: 'read-only', label: 'Read only' }, { id: 'auto', label: 'Default' }] },
+    { id: 'credit-account', family: 'claude', label: 'Claude — credits', models: [{ id: 'fable', label: 'Fable', isDefault: true }], modes: [{ id: 'plan', label: 'Plan' }, { id: 'default', label: 'Default' }] },
   ];
   const registry = {
     catalog: { cwd: '/repo', providers }, workflows: [] as unknown[],
@@ -44,9 +45,14 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   assert.equal(modelSelects[1].props.value, 'org/codex-from-daemon');
   const reviewerMode = renderer.root.findAll(node => String(node.type) === 'SettingsSelect').find(x => x.props.label === 'reviewer · permissions')!;
   assert.deepEqual(reviewerMode.props.options.map((o: { value: string }) => o.value), ['plan']);
+  const reviewerHarness = renderer.root.findAll(node => String(node.type) === 'SettingsSelect').find(x => x.props.label === 'reviewer · harnais')!;
+  assert.ok(reviewerHarness.props.options.some((o: { label: string; value: string }) => o.label === 'Claude — credits' && o.value === 'credit-account'));
+  await act(async () => { reviewerHarness.props.onValueChange('credit-account'); });
+  assert.deepEqual(reviewerMode.props.options.map((o: { value: string }) => o.value), ['plan']);
   await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Tâche' }).props.onChangeText('OAuth2'); });
   await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress(); });
   assert.equal((launched as { task: string }).task, 'OAuth2');
+  assert.deepEqual((launched as { config: { roles: { reviewer: unknown } } }).config.roles.reviewer, { provider: 'credit-account/fable', modeId: 'plan' });
   registry.workflows = [{ id: 'workflow', revision: 2, task: 'OAuth2', phase: 'building', status: 'awaiting_plan', cycle: 0, config: { maxCorrections: 2, mode: 'auto' }, agents: { planner: 'native-planner' }, plan: { summary: 'Plan', tests: [] }, tests: [], events: [] }];
   await act(async () => { renderer.update(React.createElement(TeamsPanel, props)); });
   assert.ok(renderer.root.findByProps({ accessibilityLabel: 'Approuver le plan et les tests' }));

@@ -52,7 +52,7 @@ test('expired Claude OAuth is reported as an actionable provider error, even whe
 });
 test('Claude read-only roles cannot exit plan mode or edit files; Builder retains its selected mode', async () => {
   const created: unknown[] = [];
-  const api = { workspaces: { ref: () => ({ agents: { create: async (input: unknown) => { created.push(input); return { id: 'agent' }; } } }) } } as unknown as PaseoApi;
+  const api = { config: { get: async () => ({ config: { providers: {} } }) }, workspaces: { ref: () => ({ agents: { create: async (input: unknown) => { created.push(input); return { id: 'agent' }; } } }) } } as unknown as PaseoApi;
   const runtime = new PaseoRuntime(api, '/unused');
   const w = { id: 'workflow', workspaceId: 'workspace', config: { roles: { planner: { provider: 'claude/discovered', modeId: 'plan' }, builder: { provider: 'codex/discovered', modeId: 'auto' } } } } as unknown as Workflow;
   await runtime.agent(w, 'planner'); await runtime.agent(w, 'builder');
@@ -65,4 +65,16 @@ test('a listed model that requires usage credits reports a provider error withou
   const h = adapter({ run: async () => ({ status: 'idle', lastMessage: 'Fable 5.1 requires usage credits. Switch to another model to continue.', error: null }) });
   const result = await h.runtime.run(savedWorkflow(), 'builder', 'task', 'operation');
   assert.equal(result.status, 'error'); assert.match(result.error!, /requires usage credits/);
+});
+
+test('a custom Claude account keeps its identity and read-only restrictions at launch', async () => {
+  let captured!: { config: { provider: string; modeId: string; options: { disallowedTools: string[] } }; env: Record<string, string> };
+  const api = { config: { get: async () => ({ config: { providers: { 'credit-account': { extends: 'claude', label: 'Credits' } } } }) }, workspaces: { ref: () => ({ agents: { create: async (input: unknown) => { captured = input as typeof captured; return { id: 'agent' }; } } }) } } as unknown as PaseoApi;
+  const runtime = new PaseoRuntime(api, '/unused');
+  const w = { id: 'workflow', workspaceId: 'workspace', config: { roles: { reviewer: { provider: 'credit-account/fable', modeId: 'plan' } } } } as unknown as Workflow;
+  await runtime.agent(w, 'reviewer');
+  assert.equal(captured.config.provider, 'credit-account/fable');
+  assert.equal(captured.config.modeId, 'plan');
+  assert.ok(captured.config.options.disallowedTools.includes('ExitPlanMode'));
+  assert.deepEqual(captured.env, { GIT_OPTIONAL_LOCKS: '0' });
 });

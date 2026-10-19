@@ -8,7 +8,10 @@ export function commandsFromText(text: string) {
   return text.split('\n').map(command => command.trim()).filter(Boolean).map(command => ({ command, timeoutMs: 600_000 }));
 }
 export const isReadOnly = (provider: string, mode: string) => (provider === 'claude' && mode === 'plan') || (provider === 'codex' && mode === 'read-only');
-export function configReady(config: Config) {
+export function configReady(config: Config, providers?: { id: string; family?: string }[]) {
   if (!configSchema.safeParse(config).success) return false;
-  return roles.every(role => role === 'builder' || isReadOnly(config.roles[role].provider.split('/')[0], config.roles[role].modeId));
+  return roles.every(role => {
+    const id = config.roles[role].provider.split('/')[0], family = providers?.find(p => p.id === id)?.family ?? id;
+    return role === 'builder' || isReadOnly(family, config.roles[role].modeId);
+  });
 }

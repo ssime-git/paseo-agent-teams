@@ -55,5 +55,5 @@ export const actionRpc = defineRpc({ name: 'teams.action', input: actionInput, o
 export const listRpc = defineRpc({ name: 'teams.list', input: z.object({ workspaceId: z.string() }), output: z.array(workflowSchema) });
 export const historyRpc = defineRpc({ name: 'teams.history', input: z.object({ id: z.string() }), output: z.array(eventSchema) });
 export const catalogRpc = defineRpc({ name: 'teams.catalog', input: z.object({ workspaceId: z.string() }), output: z.object({ cwd: z.string(), providers: z.array(z.object({
-  id: z.string(), models: z.array(z.object({ id: z.string(), label: z.string(), isDefault: z.boolean() })), modes: z.array(z.object({ id: z.string(), label: z.string() })),
+  id: z.string(), family: z.enum(['claude', 'codex']), label: z.string(), models: z.array(z.object({ id: z.string(), label: z.string(), isDefault: z.boolean() })), modes: z.array(z.object({ id: z.string(), label: z.string() })),
 })) }) });

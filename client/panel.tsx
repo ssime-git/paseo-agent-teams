@@ -34,7 +34,7 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
         const preferred = role === 'builder' ? 'codex' : 'claude';
         const provider = catalog.data.providers.find(p => p.id === preferred) ?? catalog.data.providers[0];
         const model = provider?.models.find(m => m.isDefault) ?? provider?.models[0];
-        const mode = provider?.modes.find(m => role === 'builder' || isReadOnly(provider.id, m.id));
+        const mode = provider?.modes.find(m => role === 'builder' || isReadOnly(provider.family, m.id));
         if (provider && model && mode) next.roles[role] = { provider: `${provider.id}/${model.id}`, modeId: mode.id };
       }
       return next;
@@ -49,7 +49,7 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
   const button = (label: string, onPress: () => void, disabled = false) => <Pressable key={label} accessibilityRole="button" accessibilityLabel={label} disabled={busy || disabled} onPress={onPress} style={{ padding: 12, backgroundColor: disabled ? theme.colors.surface2 : theme.colors.accent, opacity: busy ? 0.5 : 1 }}><Text style={{ color: disabled ? theme.colors.foregroundMuted : theme.colors.accentForeground }}>{label}</Text></Pressable>;
   const updateRole = (role: typeof roles[number], providerId: string, modelId?: string) => {
     const provider = catalog.data?.providers.find(p => p.id === providerId), model = provider?.models.find(m => m.id === modelId) ?? provider?.models.find(m => m.isDefault) ?? provider?.models[0];
-    const mode = provider?.modes.find(m => role === 'builder' || isReadOnly(providerId, m.id));
+    const mode = provider?.modes.find(m => role === 'builder' || isReadOnly(provider?.family ?? providerId, m.id));
     setConfig(c => ({ ...c, roles: { ...c.roles, [role]: { provider: `${providerId}/${model?.id ?? ''}`, modeId: mode?.id ?? '' } } }));
   };
   return <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding: layout.compact ? 12 : 24, gap: 12 }}>
@@ -62,9 +62,9 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
       const provider = catalog.data?.providers.find(p => p.id === harness);
       return <View key={role} style={{ gap: 8, padding: 12, backgroundColor: theme.colors.surface1 }}>
         <Text style={text}>{role}</Text>
-        <SettingsSelect label={`${role} · harnais`} value={harness} options={(catalog.data?.providers ?? []).map(p => ({ label: p.id, value: p.id }))} onValueChange={id => updateRole(role, id)} />
+        <SettingsSelect label={`${role} · harnais`} value={harness} options={(catalog.data?.providers ?? []).map(p => ({ label: p.label, value: p.id }))} onValueChange={id => updateRole(role, id)} />
         <SettingsSelect label={`${role} · modèle`} value={model} options={(provider?.models ?? []).map(m => ({ label: m.label, value: m.id }))} onValueChange={id => updateRole(role, harness, id)} />
-        <SettingsSelect label={`${role} · permissions`} value={selection.modeId} options={(provider?.modes ?? []).filter(m => role === 'builder' || isReadOnly(harness, m.id)).map(m => ({ label: m.label, value: m.id }))} onValueChange={modeId => setConfig(c => ({ ...c, roles: { ...c.roles, [role]: { ...c.roles[role], modeId } } }))} />
+        <SettingsSelect label={`${role} · permissions`} value={selection.modeId} options={(provider?.modes ?? []).filter(m => role === 'builder' || isReadOnly(provider?.family ?? harness, m.id)).map(m => ({ label: m.label, value: m.id }))} onValueChange={modeId => setConfig(c => ({ ...c, roles: { ...c.roles, [role]: { ...c.roles[role], modeId } } }))} />
       </View>;
     })}
     <SettingsSelect label="Validation humaine" value={config.validation} options={[{ label: 'Après le plan', value: 'plan' }, { label: 'À la fin', value: 'final' }, { label: 'Autonome', value: 'autonomous' }]} onValueChange={v => setConfig(c => ({ ...c, validation: v as Config['validation'] }))} />
@@ -77,7 +77,7 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
       <SettingsSwitch label="Accepter explicitement l’absence de tests" value={config.allowNoTests} onValueChange={v => setConfig(c => ({ ...c, allowNoTests: v }))} />
     </> : null}
     <TextInput accessibilityLabel="Tâche" placeholder="Décrire la tâche" placeholderTextColor={theme.colors.foregroundMuted} multiline style={input} value={task} onChangeText={setTask} />
-    {button('Démarrer le workflow', () => { void run(async () => { const w = await createCall({ workspaceId, task, config, requestId: requestId() }); setSelected(w.id); }); }, !task.trim() || !configReady(config))}
+    {button('Démarrer le workflow', () => { void run(async () => { const w = await createCall({ workspaceId, task, config, requestId: requestId() }); setSelected(w.id); }); }, !task.trim() || !configReady(config, catalog.data?.providers))}
     {button('Exporter la configuration', () => { void run(async () => { const value = exportConfig(config); setConfigText(value); if (Platform.OS === 'web') await copyConfiguration(value); }); })}
     <TextInput accessibilityLabel="Configuration JSON à copier ou importer" multiline style={input} value={configText} onChangeText={setConfigText} />
     {button('Importer la configuration', () => { void run(async () => { const imported = importConfig(configText); setConfig(imported); setLaunchTestText(imported.testCommands.map(t => t.command).join('\n')); }); }, !configText.trim())}

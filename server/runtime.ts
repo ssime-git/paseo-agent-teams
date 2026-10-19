@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { roles, type Config, type Role, type Workflow } from '../shared/contracts';
 import { repository, snapshot, changes, type Snapshot } from './git';
 import { runCommand } from './commands';
+import { providerProfiles } from './providers';
 import type { Outcome, Runtime } from './engine';
 
 export const readOnlyMode = (provider: string, modeId: string) => (provider === 'claude' && modeId === 'plan') || (provider === 'codex' && modeId === 'read-only');
@@ -15,16 +16,18 @@ export class PaseoRuntime implements Runtime {
     if (!workspace) throw new Error('Workspace no longer exists');
     const actualCwd = workspace.workspaceDirectory;
     if (!actualCwd) throw new Error('Workspace has no directory');
+    const profiles = await providerProfiles(this.api);
     const discovered = await this.api.providers.waitForReady({ cwd: actualCwd });
     for (const role of roles) {
       const selection = config.roles[role], separator = selection.provider.indexOf('/');
       const harness = selection.provider.slice(0, separator), model = selection.provider.slice(separator + 1);
-      if (!['claude', 'codex'].includes(harness)) throw new Error('V1 supports Claude Code and Codex');
+      const family = profiles.families[harness];
+      if (!family) throw new Error('V1 supports Claude Code and Codex, including their configured provider aliases');
       const entry = discovered.entries.find(e => e.provider === harness && e.status === 'ready');
       if (!entry?.models?.some(m => m.id === model)) throw new Error(`Unavailable provider/model: ${selection.provider}`);
       const modes = await this.api.providers.listModes(harness, { cwd: actualCwd });
       if (!modes.modes?.some(m => m.id === selection.modeId)) throw new Error(`Unavailable mode: ${selection.modeId}`);
-      if (role !== 'builder' && !readOnlyMode(harness, selection.modeId)) throw new Error(`${role} requires Claude plan or Codex read-only mode`);
+      if (role !== 'builder' && !readOnlyMode(family, selection.modeId)) throw new Error(`${role} requires Claude plan or Codex read-only mode`);
     }
     const repo = await repository(actualCwd);
     if (!isAbsolute(this.directory)) throw new Error('The data directory must be absolute');
@@ -35,9 +38,12 @@ export class PaseoRuntime implements Runtime {
     return { cwd: actualCwd, repo: repo.lock, baseline };
   }
   async agent(w: Workflow, role: Role) {
+    const profiles = await providerProfiles(this.api);
+    const family = profiles.families[w.config.roles[role].provider.split('/')[0]];
+    if (!family) throw new Error('Unsupported provider family');
     const agent = await this.api.workspaces.ref(w.workspaceId).agents.create({
       idempotencyKey: `${w.id}-${role}`, config: { ...w.config.roles[role],
-        ...(role !== 'builder' && w.config.roles[role].provider.startsWith('claude/') ? { options: { disallowedTools: ['ExitPlanMode', 'EnterPlanMode', 'Edit', 'Write', 'NotebookEdit'] } } : {}),
+        ...(role !== 'builder' && family === 'claude' ? { options: { disallowedTools: ['ExitPlanMode', 'EnterPlanMode', 'Edit', 'Write', 'NotebookEdit'] } } : {}),
         systemPrompt: role === 'builder' ? 'Preserve existing user changes. Only edit files required for the task.' : 'Read-only pipeline role: analyze and report. Never edit files. Do not call EnterPlanMode or ExitPlanMode or request native plan approval. Return your result directly; human checkpoints are managed by the Agent Teams plugin.',
       },
       env: { GIT_OPTIONAL_LOCKS: '0' },

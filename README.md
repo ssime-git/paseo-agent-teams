@@ -45,6 +45,28 @@ Choose each role's harness, discovered model and permission mode. Planner and Re
 
 Defaults: Auto Workflow, human approval after the plan, automatic corrections, two correction cycles and explicit restart recovery.
 
+### Separate Claude accounts
+
+The panel also discovers custom providers extending Claude or Codex. Configure a separate account on the daemon host using a dedicated directory, without logging out the default account:
+
+```sh
+CLAUDE_CONFIG_DIR="$HOME/.config/claude-fable" claude auth login --claudeai
+```
+
+After completing login, add an entry under `agents.providers` in the daemon's `config.json`, using an absolute path:
+
+```json
+{
+  "claude-fable": {
+    "extends": "claude",
+    "label": "Claude — Fable credits",
+    "env": { "CLAUDE_CONFIG_DIR": "/absolute/home/.config/claude-fable" }
+  }
+}
+```
+
+Reload the daemon configuration, then select this provider for the Reviewer. Provider inheritance determines the available read-only modes; its distinct ID is preserved when launching agents. Credentials and launch environments stay on the server and are excluded from exported workflow configurations. Model discovery alone does not confirm that the selected account has credits. See Paseo's [custom provider documentation](https://paseo.sh/docs/custom-providers).
+
 All three roles work **in the selected workspace directory**. There is no automatic branch, worktree, commit, merge, reset or cleanup. Existing staged, unstaged and non-ignored untracked files are captured before the first agent runs. A lock prevents other workflows of this plugin from starting in the same Git repository, including sibling worktrees. It cannot lock out tools or agents started outside the plugin.
 
 ### Approvals and tests

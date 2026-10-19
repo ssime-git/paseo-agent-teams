@@ -6,6 +6,7 @@ import { createRpc, actionRpc, listRpc, historyRpc, catalogRpc } from '../shared
 import { Engine } from './engine';
 import { Store } from './store';
 import { PaseoRuntime } from './runtime';
+import { providerProfiles } from './providers';
 
 export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
@@ -28,8 +29,9 @@ export function contributeServer(server: PluginServerContext) {
     if (!workspace) throw new Error('Workspace not found');
     const cwd = workspace.workspaceDirectory;
     const catalog = await paseo.providers.waitForReady({ cwd, timeoutMs: 15_000 });
-    const providers = await Promise.all(catalog.entries.filter(e => e.status === 'ready' && ['claude', 'codex'].includes(e.provider)).map(async e => ({
-      id: e.provider,
+    const profiles = await providerProfiles(paseo);
+    const providers = await Promise.all(catalog.entries.filter(e => e.status === 'ready' && !!profiles.families[e.provider]).map(async e => ({
+      id: e.provider, family: profiles.families[e.provider], label: profiles.labels[e.provider] ?? e.provider,
       models: (e.models ?? []).map(m => ({ id: m.id, label: m.label ?? m.id, isDefault: m.isDefault ?? false })),
       modes: ((await paseo.providers.listModes(e.provider, { cwd })).modes ?? []).map(m => ({ id: m.id, label: m.label })),
     })));

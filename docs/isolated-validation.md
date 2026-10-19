@@ -48,6 +48,10 @@ The panel also rendered at **390 × 844**, with discovered models, no page JavaS
 
 Every code finding has automated coverage. Typechecking and 33 automated tests passed after these corrections. A fresh Git installation of revision `4171e0d` also reached `running`, compiled both entries with only its production SDK dependency installed, and served the catalog RPC successfully. The same pinned revision was then installed into the primary daemon by reloading configuration; its supervisor and worker PIDs were unchanged. The installation health check confirmed that the client bundle and RPC were available and that isolated workflow data had not been imported.
 
+## Separate account provider discovery
+
+An additional isolated-daemon check registered `claude-alias-test` extending Claude. The plugin catalog returned the distinct provider ID, its display label, 19 discovered models and Claude's `plan` mode. The updated typecheck and all 35 automated tests passed, including alias selection in the compact iOS host mock and preservation of the alias plus read-only restrictions at agent creation. This check did not launch an agent or verify a second account's credits. The primary installation remains pinned to the previously validated revision pending account integration.
+
 ## Remaining limits
 
 Native iOS/Android devices and every model/account combination have not been tested. On this daemon, Codex does not advertise a `read-only` mode, so Claude supplies the read-only roles. Ambiguous operations still require intervention by design; a missing completion receipt is never treated as permission to resend.
