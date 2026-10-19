@@ -253,8 +253,22 @@ export class PaseoRuntime implements Runtime {
   }
   async context(w: Workflow) {
     const root = (await repository(w.cwd)).root;
-    const before = JSON.parse(await readFile(w.baseline, 'utf8')) as Snapshot,
-      after = await snapshot(root);
+    const after = await snapshot(root);
+    let before: Snapshot;
+    try {
+      before = JSON.parse(await readFile(w.baseline, 'utf8')) as Snapshot;
+    } catch (error) {
+      if (w.phase !== 'followup' || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return boundedContext(
+        JSON.stringify({
+          warning:
+            'The launch baseline was removed after completion. Ownership of uncommitted changes cannot be proved. Do not stage or commit uncommitted files; report this blocker if a PR needs them.',
+          currentHead: after.head,
+          currentStatus: after.status,
+          ...(await workingDiff(root, after.head)),
+        }),
+      );
+    }
     // Old v1 baselines stored file bytes; normalize them before projecting context.
     for (const file of Object.values(before.files)) {
       if (file.kind === 'file' && !/^[a-f0-9]{64}$/.test(file.content)) {
@@ -299,6 +313,7 @@ export class PaseoRuntime implements Runtime {
   async publish(w: Workflow) {
     const api = this.nativeApi();
     if (!api || !w.agents.planner) return;
+    const latest = w.events.filter((e) => e.kind === 'assistant' && e.role).at(-1);
     await api.agents.ref(w.agents.planner).timeline.append({
       type: 'plugin',
       id: `${w.id}-${w.phase}-${w.cycle}`,
@@ -306,6 +321,7 @@ export class PaseoRuntime implements Runtime {
       version: 1,
       data: {
         workflowId: w.id,
+        ...(latest?.role && latest.text.length <= 24000 ? { artifact: { role: latest.role, text: latest.text } } : {}),
         ...(w.workspaceId ? { workspaceId: w.workspaceId } : {}),
         ...(w.config ? { maxCorrections: w.config.maxCorrections } : {}),
         ...(w.handoffTokens != null ? { handoffTokens: w.handoffTokens } : {}),

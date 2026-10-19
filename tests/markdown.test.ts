@@ -19,3 +19,24 @@ test('agent JSON artifacts render as structured cards and anything else as markd
   assert.equal(renderEvent('builder', 'Texte libre').kind, 'markdown');
   assert.equal(renderEvent('planner', JSON.stringify({ nope: true })).kind, 'markdown');
 });
+
+test('provider separators and schema variants render readable stage fields without raw JSON', () => {
+  const r = renderEvent(
+    'planner',
+    '\n---\n\n' +
+      JSON.stringify({
+        summary: 'Une architecture **simple**',
+        tasks: [{ title: 'OAuth', description: 'Use **PKCE**' }],
+        acceptance: ['Protected route'],
+        tests: [{ command: 'npm test' }],
+        nextSteps: ['Review changes'],
+      }),
+  );
+  assert.equal(r.kind, 'markdown');
+  if (r.kind !== 'markdown') return;
+  assert.match(r.text, /## Tâches/);
+  assert.match(r.text, /OAuth/);
+  assert.match(r.text, /PKCE/);
+  assert.match(r.text, /Prochaines étapes/);
+  assert.doesNotMatch(r.text, /"summary":/);
+});

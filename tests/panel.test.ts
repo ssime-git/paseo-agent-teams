@@ -70,6 +70,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     workflows: [] as unknown[],
     permissions: [] as unknown[],
     actions: [] as unknown[],
+    openedUrl: '',
     rpc: (name: string) => async (value: unknown) => {
       if (name === 'teams.create') {
         launched = value;
@@ -106,7 +107,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
           b.onLoad({ filter: /.*/, namespace: 'host-mock' }, (args) => ({
             contents:
               args.path === 'react-native'
-                ? `export const Platform={OS:'ios'}; export const Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
+                ? `export const Platform={OS:'ios'}; export const Linking={openURL:async(url)=>{globalThis.__teamsTest.openedUrl=url;}}; export const Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
                 : args.path.endsWith('/ui')
                   ? `export const CompactSelect='SettingsSelect', CompactSwitch='SettingsSwitch';`
                   : args.path === '@tanstack/react-query'
@@ -358,6 +359,49 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     modeId: 'build',
   });
   assert.equal((registry.actions.at(-1) as { action: string }).action, 'reconfigure');
+  Object.assign(registry.workflows[0] as object, {
+    status: 'completed',
+    phase: 'done',
+    testsApproved: true,
+    allowNoTests: true,
+    review: { verdict: 'pass', summary: 'Review OK', issues: [] },
+    build: { summary: 'Implementation delivered', changes: ['callback.ts'], remaining: [] },
+  });
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  assert.match(JSON.stringify(renderer.toJSON()), /Bilan et prochaines étapes/);
+  assert.ok(renderer.root.findByProps({ accessibilityLabel: 'Message à l’équipe' }));
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Créer une PR brouillon' }).props.onPress();
+  });
+  assert.equal((registry.actions.at(-1) as { purpose: string }).purpose, 'pull_request');
+  const recipient = renderer.root
+    .findAll((n) => String(n.type) === 'SettingsSelect')
+    .find((n) => n.props.label === 'Destinataire du message')!;
+  await act(async () => {
+    recipient.props.onValueChange('reviewer');
+    renderer.root
+      .findByProps({ accessibilityLabel: 'Message à l’équipe' })
+      .props.onChangeText('Que dois-je faire ensuite ?');
+  });
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Envoyer le message' }).props.onPress();
+  });
+  assert.equal((registry.actions.at(-1) as { action: string }).action, 'followup');
+  assert.equal((registry.actions.at(-1) as { role: string }).role, 'reviewer');
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Message à l’équipe' }).props.value, '');
+  assert.match(JSON.stringify(renderer.toJSON()), /Message transmis à reviewer/);
+  Object.assign(registry.workflows[0] as object, {
+    followupResult: '[Ouvrir la PR](https://github.com/example/project/pull/1)',
+  });
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  await act(async () => {
+    renderer.root.findAllByProps({ accessibilityRole: 'link' })[0].props.onPress();
+  });
+  assert.equal(registry.openedUrl, 'https://github.com/example/project/pull/1');
   let card!: ReturnType<typeof create>;
   await act(async () => {
     card = create(
@@ -365,11 +409,29 @@ test('compact panel discovers models, launches a workflow, renders approvals and
         ...props,
         agentId: 'planner',
         timestamp: new Date(),
-        item: { data: { workflowId: 'workflow', status: 'completed', detail: 'Reviewed', cycle: 2 } },
+        item: {
+          data: {
+            workflowId: 'workflow',
+            status: 'completed',
+            detail: 'Reviewed',
+            cycle: 2,
+            artifact: {
+              role: 'planner',
+              text: JSON.stringify({
+                summary: 'Rendered plan',
+                tasks: ['Implement callback'],
+                acceptance: ['Tests pass'],
+                tests: [],
+              }),
+            },
+          },
+        },
       }),
     );
   });
-  assert.match(JSON.stringify(card.toJSON()), /Reviewed/);
+  assert.match(JSON.stringify(card.toJSON()), /Rendered plan/);
+  assert.match(JSON.stringify(card.toJSON()), /Critères d’acceptation/);
+  assert.doesNotMatch(JSON.stringify(card.toJSON()), /\\\"summary\\\"/);
   await act(async () => {
     card.unmount();
   });

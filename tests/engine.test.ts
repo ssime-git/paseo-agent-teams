@@ -505,7 +505,7 @@ test('repeated timeouts reach attention without replaying the prompt', async (t)
   assert.equal(h.fake.recoveryCount, 2);
 });
 
-test('completion deletes the baseline and request retention preserves creation idempotency', async (t) => {
+test('completion retains the delivery baseline and request retention preserves creation idempotency', async (t) => {
   const { writeFile, access } = await import('node:fs/promises');
   const h = await setup(t);
   const baseline = join(h.store.directory, 'baseline.snapshot');
@@ -516,7 +516,7 @@ test('completion deletes the baseline and request retention preserves creation i
   await h.store.put(w);
   w = await h.action(w, 'approve');
   assert.equal(w.status, 'completed');
-  await assert.rejects(access(baseline), { code: 'ENOENT' });
+  await access(baseline);
   assert.ok(Object.keys(w.requests).length <= 200);
   const duplicate = await h.engine.create('workspace', 'Implement OAuth2', h.config, 'create-1');
   assert.equal(duplicate.id, w.id);
@@ -765,4 +765,143 @@ test('continuation cannot bypass checkpoints or abandon an ambiguous accepted op
   assert.equal(w.status, 'attention');
   assert.ok(w.operation);
   await assert.rejects(h.action(w, 'continue', { role: 'planner' }), /Reconcile any retained operation/);
+});
+
+test('completed workflow messages reach the selected role once without restarting the pipeline', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const before = h.fake.calls.length,
+    tests = h.fake.testCount,
+    review = w.review;
+  h.fake.responses.reviewer = ['Voici les prochaines étapes.'];
+  const input = {
+    id: w.id,
+    workspaceId: w.workspaceId,
+    expectedRevision: w.revision,
+    requestId: 'terminal-question',
+    action: 'followup' as const,
+    role: 'reviewer' as const,
+    message: 'Que reste-t-il à faire ?',
+  };
+  await h.engine.action(input);
+  await h.engine.settle();
+  await h.engine.action(input);
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'completed');
+  assert.equal(w.phase, 'done');
+  assert.equal(w.followupResult, 'Voici les prochaines étapes.');
+  assert.deepEqual(w.review, review);
+  assert.equal(h.fake.calls.length, before + 1);
+  assert.equal(h.fake.calls.at(-1)!.role, 'reviewer');
+  assert.match(h.fake.calls.at(-1)!.prompt, /not a new implementation/);
+  assert.match(h.fake.calls.at(-1)!.prompt, /Que reste/);
+  assert.equal(h.fake.testCount, tests);
+});
+
+test('a follow-up at plan approval preserves the human checkpoint', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  h.fake.responses.planner = ['Explication du plan.'];
+  w = await h.action(w, 'followup', { role: 'planner', message: 'Explique ce choix' });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.testsApproved, false);
+  assert.equal(w.followupResult, 'Explication du plan.');
+  assert.equal(h.fake.calls.length, 2);
+});
+
+test('PR requests use the Builder with explicit draft instructions and require current successful validation', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  await assert.rejects(
+    h.action(w, 'followup', { purpose: 'pull_request', message: 'Créer une PR' }),
+    /still match a successfully validated/,
+  );
+  w = await h.action(w, 'approve');
+  const before = h.fake.calls.length;
+  h.fake.responses.builder = ['PR brouillon : https://github.com/example/project/pull/1'];
+  w = await h.action(w, 'followup', { purpose: 'pull_request', message: 'Créer une PR' });
+  assert.equal(w.status, 'completed');
+  assert.equal(h.fake.calls.length, before + 1);
+  assert.equal(h.fake.calls.at(-1)!.role, 'builder');
+  assert.match(h.fake.calls.at(-1)!.prompt, /draft pull request/);
+  assert.match(h.fake.calls.at(-1)!.prompt, /Never invent a PR URL/);
+  h.fake.fingerprint = async () => 'changed-after-validation';
+  await assert.rejects(
+    h.action(w, 'followup', { purpose: 'pull_request', message: 'Créer une PR' }),
+    /still match a successfully validated/,
+  );
+  assert.equal(h.fake.calls.length, before + 1);
+});
+
+test('completed follow-up cannot reopen a repository held by another workflow', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const other = await h.engine.create('workspace', 'Another task', h.config, 'other-create');
+  await h.engine.settle();
+  await assert.rejects(h.action(w, 'followup', { message: 'Que faire ensuite ?' }), new RegExp(other.id));
+  assert.equal((await h.store.get(w.id)).status, 'completed');
+});
+
+test('a lost follow-up response is reconciled without sending twice', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  h.fake.lost = true;
+  w = await h.action(w, 'followup', { message: 'Étapes suivantes ?' });
+  const before = h.fake.calls.length;
+  assert.equal(w.status, 'attention');
+  assert.equal(w.phase, 'followup');
+  assert.ok(w.operation);
+  h.fake.nextRecovery = { status: 'idle', text: 'Réponse récupérée.' };
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.followupResult, 'Réponse récupérée.');
+  assert.equal(h.fake.calls.length, before);
+});
+
+test('a pause during an explanatory follow-up preserves the pending plan approval', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  let release!: () => void;
+  h.fake.gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const started = await h.engine.action({
+    id: w.id,
+    expectedRevision: w.revision,
+    requestId: 'explain-and-pause',
+    action: 'followup',
+    message: 'Explain the plan',
+  });
+  while (h.fake.calls.length < 2) await new Promise((r) => setTimeout(r, 5));
+  await h.engine.action({
+    id: started.id,
+    expectedRevision: (await h.store.get(w.id)).revision,
+    requestId: 'pause-explanation',
+    action: 'pause',
+  });
+  h.fake.gate = undefined;
+  release();
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'paused');
+  assert.equal(w.resumeStatus, 'awaiting_plan');
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.testsApproved, false);
+});
+
+test('explicit closure cleans up the launch snapshot without deleting working files', async (t) => {
+  const { writeFile, access } = await import('node:fs/promises');
+  const h = await setup(t);
+  const baseline = join(h.store.directory, 'closed.snapshot');
+  await writeFile(baseline, 'snapshot');
+  h.fake.prepare = async () => ({ cwd: '/repo', repo: '/repo/.git', baseline });
+  let w = await h.create();
+  w = await h.action(w, 'finish');
+  assert.equal(w.status, 'completed');
+  await assert.rejects(access(baseline), { code: 'ENOENT' });
 });

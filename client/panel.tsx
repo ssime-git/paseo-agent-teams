@@ -7,6 +7,8 @@ import { useTeamDraft } from './drafts';
 import { LockNotice } from './lock-notice';
 import { TeamPermissions } from './permissions';
 import { WorkflowRecovery } from './recovery';
+import { StageResult } from './stage-result';
+import { CompletionSummary } from './completion';
 import { TestLog } from './test-log';
 import type { z } from 'zod';
 import { cardSchema } from '../shared/contracts';
@@ -46,7 +48,8 @@ export function ProgressCard({
   const { colors } = theme;
   const [phase, status] = item.data.status.split(' · ');
   const phaseName =
-    steps.find((step) => step.phase === phase)?.label ?? (['done', 'completed'].includes(phase) ? 'Terminé' : phase);
+    steps.find((step) => step.phase === phase)?.label ??
+    (phase === 'followup' ? 'Suivi' : ['done', 'completed'].includes(phase) ? 'Terminé' : phase);
   const tone =
     status === 'attention'
       ? colors.statusDanger
@@ -86,9 +89,11 @@ export function ProgressCard({
           {item.data.maxCorrections != null ? `/${item.data.maxCorrections}` : ''}
         </Text>
       </View>
-      <Text selectable style={{ color: colors.foregroundMuted }}>
-        {item.data.detail}
-      </Text>
+      {item.data.artifact ? (
+        <StageResult role={item.data.artifact.role} text={item.data.artifact.text} colors={colors} />
+      ) : (
+        <Markdown source={item.data.detail} colors={colors} />
+      )}
       {item.data.handoffTokens != null ? (
         <Text style={{ color: colors.foregroundMuted, fontSize: 11 }}>
           Handoff ≈ {(item.data.handoffTokens / 1000).toFixed(1)}k tokens
@@ -153,11 +158,16 @@ export function TeamsPanel(
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [configText, setConfigText] = useState(''),
-    [message, setMessage] = useState('');
+    [message, setMessage] = useState(''),
+    [recipient, setRecipient] = useState<(typeof roles)[number]>('planner'),
+    [notice, setNotice] = useState('');
   const [launchTestText, setLaunchTestText] = useState(''),
     [testText, setTestText] = useState(''),
     [allowNoTests, setAllowNoTests] = useState(false);
   const workflow = workflows.data?.find((w) => w.id === selected) ?? workflows.data?.at(-1);
+  useEffect(() => {
+    setNotice('');
+  }, [workflow?.id]);
   const testOutput = useQuery({
     queryKey: [
       'agent-teams-test-output',
@@ -218,7 +228,14 @@ export function TeamsPanel(
         ...extra,
       });
       pendingRequests.current.delete(key);
-      if (action === 'message') setMessage((current) => (current === extra.message ? '' : current));
+      if (action === 'message' || action === 'followup') {
+        setMessage((current) => (current === extra.message ? '' : current));
+        setNotice(
+          action === 'followup'
+            ? `Message transmis à ${extra.purpose === 'pull_request' ? 'builder' : (extra.role ?? 'planner')}. Réponse à suivre dans la timeline.`
+            : 'Message enregistré. Sa transmission est indiquée dans la timeline ; une pause ou une permission doit être résolue pour continuer.',
+        );
+      }
     });
   const c = theme.colors;
   const radius = 6;
@@ -560,39 +577,20 @@ export function TeamsPanel(
         ))}
       </View>
     ) : null;
-  const eventBody = (role: (typeof roles)[number] | undefined, text: string) => {
-    const r = renderEvent(role, text);
-    if (r.kind === 'plan')
-      return (
-        <>
-          <Markdown source={r.plan.summary} colors={c} />
-          {list('Tâches', r.plan.tasks)}
-          {list('Critères d’acceptation', r.plan.acceptance)}
-          {list(
-            'Tests',
-            r.plan.tests.map((t) => t.command),
-          )}
-        </>
-      );
-    if (r.kind === 'build')
-      return (
-        <>
-          <Markdown source={r.build.summary} colors={c} />
-          {list('Changements', r.build.changes)}
-          {list('Reste à faire', r.build.remaining)}
-        </>
-      );
-    if (r.kind === 'review')
-      return (
-        <>
-          {badge(r.review.verdict === 'pass' ? 'Validé' : 'Rejeté', r.review.verdict === 'pass' ? 'success' : 'danger')}
-          <Markdown source={r.review.summary} colors={c} />
-          {list('Problèmes', r.review.issues)}
-        </>
-      );
-    return <Markdown source={r.text} colors={c} />;
-  };
-  const metaEvents = ['dispatch', 'approved', 'paused', 'resumed', 'closed', 'handoff', 'created', 'tests'];
+  const eventBody = (role: (typeof roles)[number] | undefined, text: string) => (
+    <StageResult role={role} text={text} colors={c} />
+  );
+  const metaEvents = [
+    'dispatch',
+    'approved',
+    'paused',
+    'resumed',
+    'closed',
+    'handoff',
+    'created',
+    'tests',
+    'message_accepted',
+  ];
   const failedTests = workflow?.tests.filter((t) => t.exitCode !== 0 || t.timedOut) ?? [];
   return (
     <View style={{ flex: 1, backgroundColor: c.surface0 }}>
@@ -931,6 +929,9 @@ export function TeamsPanel(
             {workflow.status === 'permission' ? (
               <TeamPermissions {...props} workflow={workflow} busy={busy} onAction={act} />
             ) : null}
+            {['completed', 'awaiting_final'].includes(workflow.status) ? (
+              <CompletionSummary workflow={workflow} colors={c} busy={busy} onAction={act} />
+            ) : null}
             {['attention', 'paused'].includes(workflow.status) && !workflow.operation ? (
               <WorkflowRecovery
                 key={workflow.id}
@@ -1051,8 +1052,36 @@ export function TeamsPanel(
           </>
         )}
       </ScrollView>
-      {workflow && !creating && workflow.status !== 'completed' ? (
+      {workflow && !creating ? (
         <View style={{ borderTopWidth: 1, borderTopColor: c.border, padding: 12, gap: 8, backgroundColor: c.surface1 }}>
+          {!workflow.operation &&
+          ['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status) &&
+          workflow.phase !== 'followup' ? (
+            <SettingsSelect
+              colors={c}
+              label="Destinataire du message"
+              value={recipient}
+              disabled={busy}
+              options={roles.map((role) => ({
+                label: `${roleLabel[role]} · ${workflow.config.roles?.[role]?.provider ?? role}`,
+                value: role,
+              }))}
+              onValueChange={(role) => setRecipient(role as (typeof roles)[number])}
+            />
+          ) : (
+            <Text style={{ color: c.foregroundMuted }}>
+              {workflow.phase === 'followup'
+                ? `Réponse en cours · ${workflow.activeRole} · ${workflow.config.roles?.[workflow.activeRole]?.provider ?? ''}`
+                : workflow.config.mode === 'manual'
+                  ? `Message transmis à ${workflow.activeRole} après le tour courant.`
+                  : 'Message transmis au Planner après le tour courant.'}
+            </Text>
+          )}
+          {notice ? (
+            <Text accessibilityLiveRegion="polite" style={{ color: c.foregroundMuted }}>
+              {notice}
+            </Text>
+          ) : null}
           <TextInput
             accessibilityLabel="Message à l’équipe"
             placeholder="Message à l’équipe…"
@@ -1063,11 +1092,26 @@ export function TeamsPanel(
             onChangeText={setMessage}
           />
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {button('Mettre en pause', () => void act('pause'), false, 'ghost')}
-            {button('Reprendre', () => void act('resume'), false, 'ghost')}
-            {button('Clore en conservant les fichiers', () => void act('finish'), false, 'ghost')}
+            {workflow.status !== 'completed' ? (
+              <>
+                {button('Mettre en pause', () => void act('pause'), false, 'ghost')}
+                {button('Reprendre', () => void act('resume'), false, 'ghost')}
+                {button('Clore en conservant les fichiers', () => void act('finish'), false, 'ghost')}
+              </>
+            ) : null}
             <View style={{ marginLeft: 'auto' }}>
-              {button('Envoyer le message', () => void act('message', { message }), !message.trim())}
+              {button(
+                'Envoyer le message',
+                () =>
+                  void act(
+                    !workflow.operation &&
+                      ['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
+                      ? 'followup'
+                      : 'message',
+                    { message, role: recipient },
+                  ),
+                !message.trim() || workflow.phase === 'followup',
+              )}
             </View>
           </View>
         </View>

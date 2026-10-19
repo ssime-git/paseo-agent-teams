@@ -464,3 +464,49 @@ test('hot selections must use a discovered model and retain read-only permission
     /Unavailable provider/,
   );
 });
+
+test('native stage cards use the plugin-owned connection and render the latest artifact', async () => {
+  const items: unknown[] = [];
+  const ordinary = {
+    agents: {
+      ref: () => ({
+        timeline: {
+          append: async () => {
+            throw Error('ordinary SDK must not publish');
+          },
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  const plugin = {
+    agents: {
+      ref: () => ({
+        timeline: {
+          append: async (item: unknown) => {
+            items.push(item);
+          },
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  const runtime = new PaseoRuntime(ordinary, '/unused', () => plugin);
+  const w = savedWorkflow();
+  w.agents.planner = 'planner';
+  w.phase = 'done';
+  w.status = 'completed';
+  w.task = 'Task';
+  w.cycle = 0;
+  w.events.push({
+    id: 'result',
+    at: new Date().toISOString(),
+    kind: 'assistant',
+    role: 'planner',
+    text: JSON.stringify({ summary: 'Readable plan', tasks: ['Do it'], acceptance: ['Works'], tests: [] }),
+  });
+  await runtime.publish(w);
+  assert.equal(items.length, 1);
+  assert.deepEqual((items[0] as { data: { artifact: unknown } }).data.artifact, {
+    role: 'planner',
+    text: w.events[0].text,
+  });
+});

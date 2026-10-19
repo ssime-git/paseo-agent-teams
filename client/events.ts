@@ -14,6 +14,54 @@ const unfence = (text: string) =>
     .replace(/^```(?:json)?\s*\n?/i, '')
     .replace(/\n?```$/, '');
 
+const fieldLabels: Record<string, string> = {
+  summary: 'Résumé',
+  tasks: 'Tâches',
+  acceptance: 'Critères d’acceptation',
+  tests: 'Commandes de test',
+  changes: 'Changements',
+  remaining: 'Reste à faire',
+  verdict: 'Verdict',
+  issues: 'Anomalies',
+  nextSteps: 'Prochaines étapes',
+  command: 'Commande',
+  timeoutMs: 'Délai maximal (ms)',
+  title: 'Titre',
+  description: 'Description',
+  status: 'État',
+  severity: 'Gravité',
+  file: 'Fichier',
+  line: 'Ligne',
+};
+/** Presentation only: tolerate additional/nested fields without weakening engine validation. */
+export function artifactMarkdown(value: unknown, depth = 2): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value !== 'object') return String(value);
+  if (Array.isArray(value))
+    return value
+      .map((item, index) =>
+        typeof item === 'object' && item !== null
+          ? `${'#'.repeat(Math.min(depth, 6))} ${index + 1}\n\n${artifactMarkdown(item, depth + 1)}`
+          : `- ${String(item)}`,
+      )
+      .join('\n\n');
+  return Object.entries(value)
+    .filter(([, v]) => v !== undefined)
+    .map(([key, v]) => {
+      if (key === 'summary' && typeof v === 'string') return v;
+      if (Array.isArray(v) && !v.length) return `**${fieldLabels[key] ?? key} :** Aucun.`;
+      return `${'#'.repeat(Math.min(depth, 6))} ${fieldLabels[key] ?? key}\n\n${artifactMarkdown(v, depth + 1)}`;
+    })
+    .join('\n\n');
+}
+export function eventMarkdown(rendered: Rendered) {
+  return rendered.kind === 'markdown'
+    ? rendered.text
+    : artifactMarkdown(
+        rendered.kind === 'plan' ? rendered.plan : rendered.kind === 'build' ? rendered.build : rendered.review,
+      );
+}
+
 /** Agents answer with a JSON artifact; the panel shows it as a card instead of raw JSON. */
 export function renderEvent(role: Role | undefined, text: string): Rendered {
   try {
@@ -32,6 +80,8 @@ export function renderEvent(role: Role | undefined, text: string): Rendered {
       if (role === 'builder') return { kind: 'build', build: parsed.data as z.infer<typeof buildSchema> };
       return { kind: 'review', review: parsed.data as z.infer<typeof reviewSchema> };
     }
+    if (value && typeof value === 'object' && ('summary' in value || 'verdict' in value))
+      return { kind: 'markdown', text: artifactMarkdown(value) };
   } catch {
     // Not JSON: plain markdown.
   }

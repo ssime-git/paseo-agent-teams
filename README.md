@@ -156,6 +156,16 @@ When a workflow stops for intervention, or is paused with no turn in flight, **C
 
 Select a discovered harness, model and permission mode, then **Appliquer le harnais et le modèle** to change a phase before continuing. This saves the configuration without launching a turn. Only that role receives a new native session, with the saved plan, review, test results and repository context in its next briefing. The previous native session remains in Paseo history, and its ID is saved in the reconfiguration event. Planner and Reviewer remain read-only. Pause and wait for an active turn to finish first; uncertain accepted operations must be reconciled before replacement.
 
+### Validation, delivery and messages
+
+After validation, **Bilan et prochaines étapes** shows implementation and review summaries, verification results, and the next action. **Créer une PR brouillon** asks the Builder to inspect Git/GitHub, reuse an existing matching PR or create a draft when appropriate, and return the real link or a concrete blocker. This explicitly authorizes the delivery Git operations; the agent must preserve unrelated changes and must not merge or force-push. The plugin checks that successful validation still matches the current repository before dispatch. No external PR is created automatically at pipeline completion.
+
+The message composer remains available after completion. At a stopped checkpoint, select Planner, Builder or Reviewer to ask a question. Its response appears in the timeline and the original checkpoint is restored: a question does not restart implementation or approve a pending plan. While a pipeline turn is running, messages are queued as before; the UI acknowledges receipt and explains any pause or permission preventing delivery. Post-completion follow-ups reacquire the repository lock and retain operation IDs and completion receipts for recovery.
+
+Launch snapshots are retained after successful validation for delivery and are cleaned up on explicit closure. Older completed workflows may already have lost their snapshot; follow-up questions can still use saved artifacts and current Git context. If a snapshot is missing, the Builder must not stage uncommitted files whose ownership can no longer be proved; it reports the action needed instead. Already committed work can still be assessed for a PR.
+
+Stage results use one Markdown renderer in Team, saved history and plugin progress cards, including tasks, acceptance criteria, test commands, changes and review issues. HTTP(S) links can be opened. The original machine-readable assistant messages remain in native harness sessions; new plugin cards provide a readable projection beside them.
+
 ### Restart recovery
 
 Both explicit and automatic restart recovery are supported. Explicit recovery is the default. Automatic recovery connects through the public SDK and only resumes workflows configured for it. Paused workflows and pending human checkpoints stay paused.

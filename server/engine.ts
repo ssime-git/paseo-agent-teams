@@ -92,7 +92,8 @@ export class Engine {
     ]);
     w.revision++;
     await this.store.put(w);
-    if (w.status === 'completed') {
+    // Keep the launch snapshot for post-validation delivery; an explicit close disposes it.
+    if (w.status === 'completed' && w.events.some((event) => event.kind === 'closed')) {
       try {
         await rm(w.baseline, { force: true });
       } catch (error) {
@@ -170,6 +171,11 @@ export class Engine {
     }
   }
   async action(input: Action) {
+    // Reopening a completed record must acquire the same repository lock as creation.
+    if (input.action === 'followup') return this.serial('create', () => this.performAction(input));
+    return this.performAction(input);
+  }
+  private async performAction(input: Action) {
     const w = await this.serial(input.id, async () => {
       const w = await this.store.get(input.id),
         { expectedRevision: _, ...payload } = input,
@@ -183,8 +189,68 @@ export class Engine {
       }
       if (w.revision !== input.expectedRevision)
         throw new TeamError('REVISION_CONFLICT', 'Workflow changed. Refresh before retrying.');
-      if (w.status === 'completed') throw new TeamError('WORKFLOW_COMPLETED', 'Workflow already completed');
+      if (w.status === 'completed' && input.action !== 'followup')
+        throw new TeamError('WORKFLOW_COMPLETED', 'Workflow already completed');
       switch (input.action) {
+        case 'followup': {
+          if (
+            !['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(w.status) ||
+            w.operation ||
+            w.phase === 'followup' ||
+            this.jobs.has(w.id)
+          )
+            throw new TeamError(
+              'CHECKPOINT_REQUIRED',
+              'Wait for the current turn or reconcile its saved operation before sending a follow-up.',
+            );
+          if (!input.message?.trim()) throw new TeamError('MESSAGE_EMPTY', 'Message cannot be empty');
+          await this.store.assertCanCreate(w.repo);
+          const blocker = (await this.store.all()).find(
+            (other) => other.id !== w.id && other.repo === w.repo && other.status !== 'completed',
+          );
+          if (blocker)
+            throw new TeamError('REPOSITORY_LOCKED', `Another workflow holds this repository: ${blocker.id}`);
+          if (!(await this.runtime.canClose(w)))
+            throw new TeamError('ACTIVE_STEP', 'A native agent is still active or awaiting permissions.');
+          const purpose = input.purpose ?? 'message';
+          const testsPassed =
+            w.plan &&
+            w.testsApproved &&
+            (w.plan.tests.length
+              ? w.tests.length === w.plan.tests.length && w.tests.every((t) => t.exitCode === 0 && !t.timedOut)
+              : w.allowNoTests);
+          if (
+            purpose === 'pull_request' &&
+            (w.status !== 'completed' ||
+              w.review?.verdict !== 'pass' ||
+              !testsPassed ||
+              w.events.some((e) => e.kind === 'closed') ||
+              w.testedFingerprint !== (await this.runtime.fingerprint(w)))
+          )
+            throw new TeamError(
+              'VALIDATION_REQUIRED',
+              'The repository must still match a successfully validated workflow before creating a PR. Replan and validate current changes first.',
+            );
+          w.followup = {
+            purpose,
+            returnPhase: w.phase,
+            returnStatus: w.status as NonNullable<Workflow['followup']>['returnStatus'],
+            previousError: w.error,
+            previousResumeStatus: w.resumeStatus,
+          };
+          w.phase = 'followup';
+          w.activeRole = purpose === 'pull_request' ? 'builder' : (input.role ?? 'planner');
+          w.status = 'ready';
+          delete w.error;
+          this.event(w, 'user', input.message.trim());
+          this.event(
+            w,
+            'message_accepted',
+            `Message transmis à ${w.activeRole} · ${w.config.roles[w.activeRole].provider}`,
+            w.activeRole,
+          );
+          break;
+        }
         case 'reconfigure':
         case 'continue': {
           if (!['paused', 'attention'].includes(w.status) || w.operation || this.jobs.has(w.id))
@@ -278,6 +344,8 @@ export class Engine {
           this.event(w, 'handoff', `Pass the task to ${input.role} after the current turn`);
           break;
         case 'message':
+          if (w.phase === 'followup')
+            throw new TeamError('ACTIVE_STEP', 'Wait for the follow-up response before sending another message.');
           if (!input.message?.trim()) throw new TeamError('MESSAGE_EMPTY', 'Message cannot be empty');
           this.event(w, 'user', input.message);
           if (w.operation) w.pendingRole = w.config.mode === 'manual' ? w.activeRole : 'planner';
@@ -289,6 +357,18 @@ export class Engine {
             w.status = 'ready';
             delete w.resumeStatus;
           }
+          this.event(
+            w,
+            'message_accepted',
+            w.status === 'paused'
+              ? 'Message enregistré. Cliquez sur Reprendre pour le transmettre.'
+              : w.status === 'permission'
+                ? 'Message enregistré. Répondez à la permission puis reprenez ; le Planner le recevra après le tour courant.'
+                : w.operation
+                  ? 'Message enregistré ; transmission après le tour courant.'
+                  : 'Message transmis à l’agent.',
+            w.config.mode === 'manual' ? w.activeRole : 'planner',
+          );
           break;
         case 'finish':
           if (this.jobs.has(w.id))
@@ -441,7 +521,7 @@ export class Engine {
     if (w.operation) return { w, reconcile: true };
     if (w.status !== 'ready') return;
     if (w.phase === 'testing') return this.prepareTests(w);
-    const role: Role = w.phase === 'manual' ? w.activeRole : PHASE_ROLES[w.phase];
+    const role: Role = w.phase === 'manual' || w.phase === 'followup' ? w.activeRole : PHASE_ROLES[w.phase];
     const revision = w.revision;
     for (const r of roles) {
       // Opt-in: a role dispatched in a later correction cycle restarts from a clean session to bound its history.
@@ -453,7 +533,10 @@ export class Engine {
     const context = await this.runtime.context(w);
     const prompt = buildPrompt(w, role, context);
     const fingerprint =
-      w.config.roles[role].modeId === INSTRUCTION_READ_ONLY ? await this.runtime.fingerprint(w) : undefined;
+      w.config.roles[role].modeId === INSTRUCTION_READ_ONLY ||
+      (w.phase === 'followup' && w.followup?.purpose === 'message')
+        ? await this.runtime.fingerprint(w)
+        : undefined;
     return this.serial(id, async () => {
       const current = await this.store.get(id);
       if (this.closed || current.revision !== revision || current.operation) return;
@@ -587,6 +670,20 @@ export class Engine {
     const paused = w.status === 'paused';
     delete w.operation;
     delete w.error;
+    if (op.phase === 'followup' && w.followup) {
+      w.followupResult = text;
+      w.phase = w.followup.returnPhase;
+      w.status = w.followup.returnStatus === 'completed' ? 'completed' : paused ? 'paused' : w.followup.returnStatus;
+      w.resumeStatus =
+        w.followup.previousResumeStatus ??
+        (paused && HUMAN_CHECKPOINTS.includes(w.followup.returnStatus)
+          ? (w.followup.returnStatus as 'awaiting_plan' | 'awaiting_final' | 'attention')
+          : undefined);
+      if (w.followup.previousError) w.error = w.followup.previousError;
+      delete w.followup;
+      await this.save(w);
+      return;
+    }
     if (!this.applyHandoff(w, paused)) {
       await this.applyStageResult(w, op.role, text, fingerprint);
       if (paused && w.status !== 'completed') {

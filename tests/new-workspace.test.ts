@@ -54,7 +54,7 @@ test('global team entry works without agents and opens repository configuration 
           b.onLoad({ filter: /.*/, namespace: 'host' }, (args) => ({
             contents:
               args.path === 'react-native'
-                ? `export const Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
+                ? `export const Linking={openURL:async()=>{}}; export const Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
                 : args.path === './drafts'
                   ? `export const prepareNewTeam=key=>globalThis.__newTeamTest.prepare(key);`
                   : args.path.endsWith('/ui')

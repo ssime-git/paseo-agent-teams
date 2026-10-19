@@ -8,6 +8,7 @@ export const PHASE_ROLES = {
   testing: 'builder',
   reviewing: 'reviewer',
   done: 'reviewer',
+  followup: 'planner',
 } as const;
 export const STAGE_TRANSITIONS = {
   planner: 'building',

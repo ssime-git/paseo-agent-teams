@@ -1,4 +1,7 @@
 const messages: Record<string, string> = {
+  VALIDATION_REQUIRED:
+    'Le dépôt doit correspondre à une validation réussie avant de créer une PR. Repassez par le Planner pour valider les changements actuels.',
+  CHECKPOINT_REQUIRED: 'Attendez la fin du tour courant ou réconciliez l’opération en attente avant de continuer.',
   MODE_UNAVAILABLE: 'Cette permission n’est pas disponible.',
   PROVIDER_UNAVAILABLE: 'Le harnais ou le modèle choisi n’est pas disponible.',
   READ_ONLY_REQUIRED: 'Ce rôle nécessite une permission de lecture seule.',

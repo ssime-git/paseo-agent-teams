@@ -1,6 +1,6 @@
 import { TeamError } from '../shared/errors';
 import type { PluginServerContext } from '@getpaseo/plugin/server';
-import { createPaseoClient, type PaseoClient } from '@getpaseo/client';
+import { createPaseoClient, type PaseoClient, type PaseoApi } from '@getpaseo/client';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -26,6 +26,7 @@ export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
   const store = new Store(directory);
   let engine: Engine | undefined, recoveryClient: PaseoClient | undefined;
+  let nativeApi: PaseoApi | undefined;
   let connecting: Promise<void> | undefined;
   let disposed = false,
     recovering = false;
@@ -46,14 +47,16 @@ export function contributeServer(server: PluginServerContext) {
       await connecting;
     }
     if (disposed) throw new TeamError('PLUGIN_DISPOSED', 'Plugin disposed');
-    engine ??= new Engine(store, new PaseoRuntime(recoveryClient, directory));
+    engine ??= new Engine(store, new PaseoRuntime(recoveryClient, directory, () => nativeApi));
     return engine;
   };
-  server.handle(createRpc, async (input) => {
+  server.handle(createRpc, async (input, context) => {
+    nativeApi = context?.paseo ?? nativeApi;
     await store.init();
     return (await bind()).create(input.workspaceId, input.task, input.config, input.requestId);
   });
-  server.handle(actionRpc, async (input) => {
+  server.handle(actionRpc, async (input, context) => {
+    nativeApi = context?.paseo ?? nativeApi;
     await store.authorize(input.id, input.workspaceId);
     return (await bind()).action(input);
   });
@@ -145,14 +148,17 @@ export function contributeServer(server: PluginServerContext) {
     if (!(await store.forAgent(agentId)).length) return;
     await handle(await bind());
   };
-  server.on('agent.permission_requested', async (event) =>
-    forAgent(event.agent.id, (engine) => engine.permission(event.agent.id)),
-  );
-  server.on('agent.permission_resolved', async (event) =>
-    forAgent(event.agent.id, (engine) => engine.resolvePermission(event.agent.id)),
-  );
-  server.on('agent.turn_ended', async (event) =>
-    forAgent(event.agent.id, (engine) =>
+  server.on('agent.permission_requested', async (event, context) => {
+    nativeApi = context.paseo;
+    return forAgent(event.agent.id, (engine) => engine.permission(event.agent.id));
+  });
+  server.on('agent.permission_resolved', async (event, context) => {
+    nativeApi = context.paseo;
+    return forAgent(event.agent.id, (engine) => engine.resolvePermission(event.agent.id));
+  });
+  server.on('agent.turn_ended', async (event, context) => {
+    nativeApi = context.paseo;
+    return forAgent(event.agent.id, (engine) =>
       engine.receipt(
         event.agent.id,
         event.outcome.kind === 'completed'
@@ -163,8 +169,8 @@ export function contributeServer(server: PluginServerContext) {
             },
         event.timeline,
       ),
-    ),
-  );
+    );
+  });
 
   const recover = async () => {
     if (disposed || recovering) return;

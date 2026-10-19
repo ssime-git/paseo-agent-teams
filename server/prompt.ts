@@ -40,6 +40,21 @@ function artifacts(w: Workflow, role: Role): string[] {
 }
 
 export function buildPrompt(w: Workflow, role: Role, context: string) {
+  if (w.phase === 'followup')
+    return [
+      w.followup?.purpose === 'pull_request'
+        ? 'The user explicitly requests a draft pull request for the validated work. Inspect the actual Git branch, remote, diff and GitHub authentication. Reuse an existing matching PR instead of creating a duplicate. Create a draft PR only if a meaningful diff and appropriate repository exist. You may create a branch, commit only provably workflow-owned changes, and push that branch. Preserve unrelated user changes; never force-push, merge, reset or clean files. Do not change implementation code. If ownership, permissions, authentication or the target branch are uncertain, report the precise blocker and next action. Never invent a PR URL.'
+        : 'Answer this follow-up directly using the saved workflow context. This is a conversation, not a new implementation or planning stage. Do not edit files, commit, push or create external resources. Explain the next steps clearly when asked.',
+      `Original task: ${boundedText(w.task, 16 * 1024)}`,
+      `Plan: ${serialize(w.plan, 8 * 1024)}`,
+      `Build: ${serialize(w.build, 4 * 1024)}`,
+      `Review: ${serialize(w.review, 4 * 1024)}`,
+      `Tests: ${serialize(testSummary(w), 8 * 1024)}`,
+      `Previous follow-up response: ${boundedText(w.followupResult ?? '', 4 * 1024)}`,
+      `Recent user messages: ${serialize(conversation(w), 8 * 1024)}`,
+      `Repository context: ${boundedText(context, 16 * 1024)}`,
+      'Respond in the user’s language, in concise Markdown. Give the result, any real PR link or blocker, and concrete next steps. Do not return the pipeline JSON schema.',
+    ].join('\n');
   const instructions = {
     planner:
       'Analyze the repository. Propose architecture, tasks, acceptance criteria and test commands. Do not edit files.',

@@ -77,7 +77,7 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
           b.onLoad({ filter: /.*/, namespace: 'host' }, (args) => ({
             contents:
               args.path === 'react-native'
-                ? `export const Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
+                ? `export const Linking={openURL:async()=>{}}; export const Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
                 : args.path === './controls'
                   ? `export const CompactSelect='Select',CompactSwitch='Switch';`
                   : `export function useRpc(contract){return globalThis.__quickStartTest.rpc(contract.name);}`,

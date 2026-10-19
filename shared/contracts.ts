@@ -65,6 +65,7 @@ export const cardSchema = z.object({
   workflowId: z.string(),
   status: z.string(),
   detail: z.string(),
+  artifact: z.object({ role: roleSchema, text: z.string() }).optional(),
   cycle: z.number(),
   maxCorrections: z.number().optional(),
   workspaceId: z.string().optional(),
@@ -87,7 +88,7 @@ export const workflowSchema = z.object({
   task: z.string(),
   config: configSchema,
   agents: z.partialRecord(roleSchema, z.string()),
-  phase: z.enum(['planning', 'building', 'testing', 'reviewing', 'manual', 'done']),
+  phase: z.enum(['planning', 'building', 'testing', 'reviewing', 'manual', 'done', 'followup']),
   status: z.enum([
     'ready',
     'running',
@@ -128,6 +129,16 @@ export const workflowSchema = z.object({
   agentCycles: z.partialRecord(roleSchema, z.number().int().nonnegative()).optional(),
   agentGenerations: z.partialRecord(roleSchema, z.number().int().nonnegative()).optional(),
   handoffTokens: z.number().int().nonnegative().optional(),
+  followup: z
+    .object({
+      purpose: z.enum(['message', 'pull_request']),
+      returnPhase: z.enum(['planning', 'building', 'testing', 'reviewing', 'manual', 'done']),
+      returnStatus: z.enum(['paused', 'attention', 'awaiting_plan', 'awaiting_final', 'completed']),
+      previousError: z.string().optional(),
+      previousResumeStatus: z.enum(['ready', 'awaiting_plan', 'awaiting_final', 'attention']).optional(),
+    })
+    .optional(),
+  followupResult: z.string().optional(),
   error: z.string().optional(),
 });
 export type Workflow = z.infer<typeof workflowSchema>;
@@ -152,7 +163,9 @@ export const actionInput = z.object({
     'permission',
     'continue',
     'reconfigure',
+    'followup',
   ]),
+  purpose: z.enum(['message', 'pull_request']).optional(),
   selection: selectionSchema.optional(),
   extraCorrections: z.number().int().min(1).max(10).optional(),
   permissionId: z.string().optional(),

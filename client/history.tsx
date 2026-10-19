@@ -7,7 +7,7 @@ import { workflowIndexRpc, workflowRecordRpc } from '../shared/contracts';
 import { HISTORY_SCREEN } from './routes';
 import { Markdown } from './markdown';
 import { TestLog } from './test-log';
-import { renderEvent } from './events';
+import { StageResult } from './stage-result';
 import { errorMessage } from './errors';
 
 export function HistorySidebar({ currentScreen, openScreen }: PluginSidebarItemProps) {
@@ -164,15 +164,6 @@ export function WorkflowHistory({
             Événements enregistrés
           </Text>
           {w.events.map((event) => {
-            const content = renderEvent(event.role, event.text);
-            const summary =
-              content.kind === 'markdown'
-                ? content.text
-                : content.kind === 'plan'
-                  ? content.plan.summary
-                  : content.kind === 'build'
-                    ? content.build.summary
-                    : content.review.summary;
             return (
               <View
                 key={event.id}
@@ -181,7 +172,7 @@ export function WorkflowHistory({
                 <Text style={{ color: c.foregroundMuted }}>
                   {new Date(event.at).toLocaleString()} · {event.role ?? event.kind}
                 </Text>
-                <Markdown source={summary} colors={c} />
+                <StageResult role={event.role} text={event.text} colors={c} />
               </View>
             );
           })}

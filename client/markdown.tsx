@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Text, View } from 'react-native';
+import { Linking, Text, View } from 'react-native';
 import { parseBlocks } from './blocks';
 
 export interface MarkdownColors {
@@ -9,7 +9,7 @@ export interface MarkdownColors {
   border: string;
   accent: string;
 }
-/** Inline `code`, **bold**, *italic* and [label](url) (links render as their label). */
+/** Inline code, emphasis and actionable HTTP(S) links. */
 function inline(text: string, colors: MarkdownColors, keyPrefix: string): ReactNode[] {
   const out: ReactNode[] = [];
   const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\([^)]+\))/g;
@@ -31,13 +31,25 @@ function inline(text: string, colors: MarkdownColors, keyPrefix: string): ReactN
           {token.slice(2, -2)}
         </Text>,
       );
-    else if (token.startsWith('['))
+    else if (token.startsWith('[')) {
+      const url = token.slice(token.indexOf('](') + 2, -1);
       out.push(
-        <Text key={key} style={{ color: colors.accent }}>
+        <Text
+          key={key}
+          accessibilityRole={/^https?:\/\//i.test(url) ? 'link' : undefined}
+          onPress={
+            /^https?:\/\//i.test(url)
+              ? () => {
+                  void Linking.openURL(url);
+                }
+              : undefined
+          }
+          style={{ color: colors.accent, textDecorationLine: 'underline' }}
+        >
           {token.slice(1, token.indexOf(']'))}
         </Text>,
       );
-    else
+    } else
       out.push(
         <Text key={key} style={{ fontStyle: 'italic' }}>
           {token.slice(1, -1)}
