@@ -1,0 +1,23 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, writeFile, copyFile, chmod, rm } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+const exec = promisify(execFile);
+test('Git installation prepares production dependencies once without pruning a developer checkout', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'teams-prepare-')); t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'server')); await mkdir(join(root, 'bin'));
+  await copyFile('server/prepare.mjs', join(root, 'server/prepare.mjs'));
+  await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { '@getpaseo/client': '0.11.2' } }));
+  const log = join(root, 'npm-args'), fakeNpm = join(root, 'bin/npm');
+  await writeFile(fakeNpm, '#!/bin/sh\nprintf "%s\\n" "$@" > "$TEAMS_NPM_LOG"\n'); await chmod(fakeNpm, 0o755);
+  const env = { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, TEAMS_NPM_LOG: log };
+  await exec(process.execPath, [join(root, 'server/prepare.mjs')], { env });
+  assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund']);
+  await rm(log); await mkdir(join(root, 'node_modules/@getpaseo/client'), { recursive: true });
+  await writeFile(join(root, 'node_modules/@getpaseo/client/package.json'), JSON.stringify({ version: '0.11.2' }));
+  await exec(process.execPath, [join(root, 'server/prepare.mjs')], { env });
+  await assert.rejects(readFile(log), /ENOENT/);
+});

@@ -17,7 +17,7 @@ export interface Runtime {
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const schemaFor = (role: Role) => role === 'planner' ? planSchema : role === 'builder' ? buildSchema : reviewSchema;
 export function parseResult(role: Role, text: string) {
-  return schemaFor(role).parse(JSON.parse(text.trim().replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```$/, '')));
+  return schemaFor(role).parse(JSON.parse(text.trim().replace(/^(?:---[ \t]*\r?\n\s*)+/, '').replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```$/, '')));
 }
 export class Engine {
   private queue: Promise<unknown> = Promise.resolve();
@@ -145,7 +145,8 @@ export class Engine {
     if (this.closed || this.jobs.has(id)) return;
     this.jobs.add(id);
     void this.drive(id).catch(async e => {
-      await this.serial(async () => { const w = await this.store.get(id); w.status = 'attention'; w.error = String(e); this.event(w, 'error', String(e)); await this.save(w); });
+      if (this.closed) return;
+      await this.serial(async () => { if (this.closed) return; const w = await this.store.get(id); w.status = 'attention'; w.error = String(e); this.event(w, 'error', String(e)); await this.save(w); });
     }).catch(console.error).finally(() => { this.jobs.delete(id); });
   }
   private async drive(id: string) {
@@ -166,7 +167,7 @@ export class Engine {
         const context = await this.runtime.context(w);
         const prompt = this.prompt(w, role, context);
         w.operation = { id: randomUUID(), role, phase: w.phase, state: 'prepared', startedAt: new Date().toISOString() };
-        w.status = 'running'; this.event(w, 'dispatch', `Starting ${role}`, role); await this.save(w);
+        w.status = 'running'; delete w.error; this.event(w, 'dispatch', `Starting ${role}`, role); await this.save(w);
         work = { w, role, prompt };
       });
       if (!work) return;

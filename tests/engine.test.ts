@@ -147,3 +147,21 @@ test('a manual message during a turn queues a follow-up for the same session', a
   h.fake.gate = undefined; release(); await h.engine.settle();
   assert.deepEqual(h.fake.calls.map(c => c.role), ['planner', 'planner']); assert.match(h.fake.calls[1].prompt, /Also cover refresh tokens/);
 });
+test('provider presentation separators are accepted without accepting prose or invalid stage JSON', async () => {
+  const { parseResult } = await import('../server/engine');
+  assert.deepEqual(parseResult('builder', '\n\n---\n\n' + JSON.stringify(build)), build);
+  assert.deepEqual(parseResult('builder', '\n---\n\n```json\n' + JSON.stringify(build) + '\n```'), build);
+  assert.throws(() => parseResult('builder', 'Some explanation\n' + JSON.stringify(build)));
+  assert.throws(() => parseResult('builder', '\n---\n\n' + JSON.stringify(build) + '\nTrailing explanation'));
+});
+test('shutdown preserves an accepted in-flight checkpoint when the SDK connection is closed', async t => {
+  const h = await setup(t, { recovery: 'automatic' }); let rejectRun!: (error: Error) => void;
+  h.fake.run = async (_w, role, prompt, id) => { h.fake.calls.push({ role, prompt, id }); return new Promise<Outcome>((_resolve, reject) => { rejectRun = reject; }); };
+  const created = await h.engine.create('workspace', 'Implement OAuth2', h.config, 'create-1');
+  while (!rejectRun) await new Promise(r => setTimeout(r, 5));
+  h.engine.close(); rejectRun(new Error('Daemon client closed')); await h.engine.settle();
+  let w = await h.store.get(created.id); assert.equal(w.status, 'running'); assert.ok(w.operation); assert.equal(w.error, undefined);
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
+  const restarted = new Engine(h.store, h.fake); await restarted.recoverAutomatic(); await restarted.settle(); restarted.close();
+  w = await h.store.get(created.id); assert.equal(w.status, 'awaiting_plan'); assert.equal(h.fake.calls.length, 1);
+});

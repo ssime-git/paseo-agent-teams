@@ -36,7 +36,11 @@ export class PaseoRuntime implements Runtime {
   }
   async agent(w: Workflow, role: Role) {
     const agent = await this.api.workspaces.ref(w.workspaceId).agents.create({
-      idempotencyKey: `${w.id}-${role}`, config: { ...w.config.roles[role], systemPrompt: role === 'builder' ? 'Preserve existing user changes. Only edit files required for the task.' : 'Read-only role: analyze and report. Never edit repository files.' },
+      idempotencyKey: `${w.id}-${role}`, config: { ...w.config.roles[role],
+        ...(role !== 'builder' && w.config.roles[role].provider.startsWith('claude/') ? { options: { disallowedTools: ['ExitPlanMode', 'EnterPlanMode', 'Edit', 'Write', 'NotebookEdit'] } } : {}),
+        systemPrompt: role === 'builder' ? 'Preserve existing user changes. Only edit files required for the task.' : 'Read-only pipeline role: analyze and report. Never edit files. Do not call EnterPlanMode or ExitPlanMode or request native plan approval. Return your result directly; human checkpoints are managed by the Agent Teams plugin.',
+      },
+      env: { GIT_OPTIONAL_LOCKS: '0' },
       title: `Agent Teams · ${role}`, labels: { 'agent-teams-workflow': w.id, 'agent-teams-role': role },
     });
     return agent.id;
@@ -45,6 +49,8 @@ export class PaseoRuntime implements Runtime {
     const agent = this.api.agents.ref(w.agents[role]!); await agent.refresh();
     if (agent.status === 'running' || agent.pendingPermissions?.length) return { status: 'uncertain', error: 'Agent is already busy. Open its native session before resuming.' };
     const result = await agent.run(`[agent-teams-operation:${operationId}]\n${prompt}`, { messageId: operationId, activeTurnBehavior: 'steer', timeoutMs: 60_000 });
+    // Claude may report authentication/entitlement failures as assistant replies with an idle turn.
+    if (result.status === 'idle' && (/^Failed to authenticate:/i.test(result.lastMessage ?? '') || /^.{1,120} requires usage credits\./.test(result.lastMessage ?? ''))) return { status: 'error', error: result.lastMessage! };
     return { status: result.status, text: result.lastMessage ?? undefined, error: result.error ?? undefined };
   }
   async reconcile(w: Workflow): Promise<Outcome> {

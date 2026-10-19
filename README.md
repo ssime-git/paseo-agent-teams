@@ -37,11 +37,11 @@ Install from the public repository with:
 paseo plugin add git:ssime-git/paseo-agent-teams --ref feat/agent-teams-v1
 ```
 
-Use `--ref main` after the implementation PR has been merged.
+Use `--ref main` after the implementation PR has been merged. A fresh Git installation prepares its production SDK dependency automatically; an existing developer checkout keeps its installed development tools.
 
 ## Configure a workflow
 
-Choose each role's harness, discovered model and permission mode. Planner and Reviewer accept only Claude's `plan` mode or Codex's `read-only` mode. Builder uses the mode you select; the plugin does not answer native permission requests automatically.
+Choose each role's harness, discovered model and permission mode. Planner and Reviewer accept only Claude's `plan` mode or Codex's `read-only` mode when that mode is advertised by the daemon. On the tested 0.11.2 installation, Codex advertises only write-capable modes, so the read-only roles use Claude. Claude read-only sessions also disable editing and native plan-mode transitions; approval stays in the plugin. Builder uses the mode you select; the plugin does not answer native permission requests automatically.
 
 Defaults: Auto Workflow, human approval after the plan, automatic corrections, two correction cycles and explicit restart recovery.
 
@@ -109,6 +109,8 @@ Snapshot capture currently rejects repositories whose captured files and diffs e
 
 The local implementation has typechecking, automated tests and compilation of both entries with Paseo 0.11.2's official plugin compiler. UI tests use a mocked React Native/Paseo host; they are not native device tests.
 
-An authenticated Claude Code → Codex → Claude Code smoke run still requires explicit permission to enable plugins and run the demo agents. The existing installation has not been enabled or modified by the implementation.
+An authenticated **Opus 5.5 → GPT-6.1-Sol → Sonnet 5.5** smoke run completed on an isolated daemon, including a deliberately failed verification, a failed review, one correction and a passing review. Manual handoff, automatic recovery across a plugin reload, native progress cards and desktop/compact web rendering were also checked. Fable was listed but required usage credits on the tested account; model availability is not an entitlement guarantee.
+
+See [isolated validation](docs/isolated-validation.md) for evidence, fixes and remaining limits.
 
 Official API references: [plugins](https://paseo.sh/docs/plugins/reference), [agents](https://paseo.sh/docs/sdk/agents), [providers](https://paseo.sh/docs/sdk/providers), [events](https://paseo.sh/docs/sdk/events).

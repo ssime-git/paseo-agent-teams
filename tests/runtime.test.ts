@@ -45,3 +45,24 @@ test('native cards append through the plugin-owned API with stable identity', as
   const h = adapter(); const w = savedWorkflow(); w.agents.planner = 'planner'; w.phase = 'building'; w.cycle = 1; w.task = 'task'; w.status = 'running';
   await h.runtime.publish(w); await h.runtime.publish(w); assert.equal(h.counts().appends, 2);
 });
+test('expired Claude OAuth is reported as an actionable provider error, even when the SDK reports idle', async () => {
+  const h = adapter({ run: async () => ({ status: 'idle', lastMessage: 'Failed to authenticate: OAuth session expired and could not be refreshed', error: null }) });
+  const result = await h.runtime.run(savedWorkflow(), 'builder', 'task', 'operation');
+  assert.equal(result.status, 'error'); assert.match(result.error!, /OAuth session expired/);
+});
+test('Claude read-only roles cannot exit plan mode or edit files; Builder retains its selected mode', async () => {
+  const created: unknown[] = [];
+  const api = { workspaces: { ref: () => ({ agents: { create: async (input: unknown) => { created.push(input); return { id: 'agent' }; } } }) } } as unknown as PaseoApi;
+  const runtime = new PaseoRuntime(api, '/unused');
+  const w = { id: 'workflow', workspaceId: 'workspace', config: { roles: { planner: { provider: 'claude/discovered', modeId: 'plan' }, builder: { provider: 'codex/discovered', modeId: 'auto' } } } } as unknown as Workflow;
+  await runtime.agent(w, 'planner'); await runtime.agent(w, 'builder');
+  const [planner, builder] = created as { env: Record<string, string>; config: { modeId: string; options?: { disallowedTools: string[] } } }[];
+  assert.equal(planner.env.GIT_OPTIONAL_LOCKS, '0'); assert.equal(builder.env.GIT_OPTIONAL_LOCKS, '0');
+  assert.equal(planner.config.modeId, 'plan'); assert.ok(planner.config.options?.disallowedTools.includes('ExitPlanMode')); assert.ok(planner.config.options?.disallowedTools.includes('Write'));
+  assert.equal(builder.config.modeId, 'auto'); assert.equal(builder.config.options, undefined);
+});
+test('a listed model that requires usage credits reports a provider error without substituting another model', async () => {
+  const h = adapter({ run: async () => ({ status: 'idle', lastMessage: 'Fable 5.1 requires usage credits. Switch to another model to continue.', error: null }) });
+  const result = await h.runtime.run(savedWorkflow(), 'builder', 'task', 'operation');
+  assert.equal(result.status, 'error'); assert.match(result.error!, /requires usage credits/);
+});
