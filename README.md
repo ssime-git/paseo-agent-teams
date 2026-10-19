@@ -84,6 +84,8 @@ paseo plugin add git:ssime-git/paseo-agent-teams --ref main
 
 A fresh Git installation prepares its production SDK dependency automatically; an existing developer checkout keeps its installed development tools.
 
+The manifest runs `node server/prepare.mjs`. When the declared `@getpaseo/client` version is absent, this script runs `npm ci --omit=dev --ignore-scripts --no-audit --no-fund` against the committed lockfile. It skips installation when that version is already present so reloading a developer checkout does not prune development tools. Dependency lifecycle scripts are disabled.
+
 ## Configure a workflow
 
 Choose each role's harness, discovered model and permission mode. Planner and Reviewer can use any discovered harness. Claude uses `plan`. For Codex, the plugin offers **Lecture seule (sandbox Codex)** even when discovery omits that mode: it maps to the advertised `auto` mode with native `sandbox_mode: read-only` and `approval_policy: never` options. A native `read-only` mode, when advertised, is retained. Claude read-only sessions also disable editing and native plan-mode transitions; approval stays in the plugin. OpenCode uses its native `plan` mode. Other harnesses use an advertised `read-only` mode when available; otherwise they offer **Lecture seule par consigne (sans sandbox)**. This choice sends read-only instructions and persists a repository fingerprint before dispatch. Any repository change during that turn, including after restart recovery, suspends the workflow without reverting files. This detects changes; it cannot prevent writes or attribute external changes to an agent. Builder uses the mode you select; the plugin does not answer native permission requests automatically.

@@ -2,6 +2,10 @@
   "id": "paseo-agent-teams",
   "name": "Agent Teams",
   "description": "Persistent Plan, Build, Test and Review workflows across coding harnesses.",
+  "media": [
+    "docs/screenshots/team-workflow.png",
+    "docs/screenshots/team-history.png"
+  ],
   "requirements": {
     "paseo": ">=0.11.2 <0.13.0"
   },

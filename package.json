@@ -2,9 +2,12 @@
   "name": "paseo-agent-teams",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",
+    "docs/screenshots/team-workflow.png",
+    "docs/screenshots/team-history.png",
     "index.client.ts",
     "index.client.tsx",
     "index.server.ts",
