@@ -4,6 +4,7 @@ import { cardSchema } from './shared/contracts';
 import { addThreadAccess } from './client/thread-access';
 import { QuickStart } from './client/quick-start';
 import { NEW_TEAM_SCREEN, NewTeamSidebar, NewTeamWorkspace } from './client/new-workspace';
+import { addCreationAccess } from './client/new-workspace-pill';
 export default function contribute(client: PluginClientContext) {
   client.addScreen({
     id: NEW_TEAM_SCREEN,
@@ -65,5 +66,10 @@ export default function contribute(client: PluginClientContext) {
       />
     ),
   });
-  return addThreadAccess(client, QuickStart);
+  const removeCreationAccess = addCreationAccess(client);
+  const removeThreadAccess = addThreadAccess(client, QuickStart);
+  return () => {
+    removeCreationAccess();
+    removeThreadAccess();
+  };
 }

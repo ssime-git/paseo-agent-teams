@@ -14,6 +14,10 @@ Real captures from an isolated Paseo installation and a demo repository. The mob
 
 ![Agent mode available next to New workspace](docs/screenshots/new-workspace.png)
 
+**Native creation pill — client extension prototype:** this capture shows the actual New workspace form with **Mode agent**, using the [proposed Paseo client patch](docs/upstream/README.md). It requires that client change; installing the plugin alone on a VM does not add the pill to current official desktop/mobile apps.
+
+![Mode agent pill in the native New workspace form with the proposed client extension](docs/screenshots/native-new-workspace-desktop.png)
+
 **Unified conversation:** phase navigation, role models, shared context and structured planning results.
 
 ![Agent Teams workflow panel](docs/screenshots/team-workflow.png)
@@ -63,7 +67,7 @@ The application renders `index.client.tsx` and the React Native components in `c
 
 To start directly in team mode, choose **Nouveau workspace agent** in the sidebar (open the navigation menu on mobile). This entry is available before creating a chat. Choose a known project or enter its directory on the indicated host; the plugin opens its workspace and immediately shows the full team configuration. No native agent is created until you launch the workflow.
 
-From a workspace, **Search** (the Command Center) also offers **Nouveau workspace agent** and **Open Agent Teams**. The native New workspace screen has no host-scoped plugin commands, so use the sidebar entry there. Existing threads show **Mode agent** in the composer, opening the configurable team popover. The SDK requires an existing agent for composer pills; it cannot insert this option into the native pre-creation Chat/model selectors.
+From a workspace, **Search** (the Command Center) also offers **Nouveau workspace agent** and **Open Agent Teams**. The native New workspace screen has no host-scoped plugin commands, so use the sidebar entry there. Existing threads show **Mode agent** in the composer, opening the configurable team popover. Released SDKs require an existing agent for composer pills. With the [proposed client extension](docs/upstream/README.md), this plugin additionally registers a **Mode agent** pill directly above the native New workspace composer, scoped to the selected host, project and draft text.
 
 Hand-offs between roles carry compact artifacts and a bounded diff rather than the whole conversation; the panel shows the hand-off size, and **fresh session per correction** (optional) restarts a role's session on each correction cycle. After source changes:
 
