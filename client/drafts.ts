@@ -6,6 +6,12 @@ type ViewState = { showNew: boolean; showConfig: boolean; selected: string };
 type Draft = { config: Config; task: string; view: ViewState };
 const drafts = new Map<string, Draft>();
 const listeners = new Map<string, Set<() => void>>();
+export function showTeamWorkflow(key: string, id: string) {
+  prepareNewTeam(key);
+  const current = drafts.get(key)!;
+  drafts.set(key, { ...current, view: { selected: id, showNew: false, showConfig: false } });
+  listeners.get(key)?.forEach((listener) => listener());
+}
 export function prepareNewTeam(key: string, task?: string) {
   const current = drafts.get(key) ?? {
     config: initialConfig(),

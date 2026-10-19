@@ -9,6 +9,7 @@ import { configurationIssue, defaultRoles, isReadOnly } from './configuration';
 import { CompactSelect, CompactSwitch } from './controls';
 import { useTeamDraft } from './drafts';
 import { errorMessage } from './errors';
+import { LockNotice } from './lock-notice';
 
 /** Compact, configurable team composer; all choices come from the connected host. */
 export function QuickStart({
@@ -18,12 +19,13 @@ export function QuickStart({
   layout,
   close,
   openPanel,
-}: PluginButtonContentProps & { openPanel(): void }) {
+}: PluginButtonContentProps & { openPanel(workspaceId?: string): void }) {
   const c = theme.colors;
   const catalogCall = useRpc(catalogRpc),
     createCall = useRpc(createRpc);
   const { config, setConfig, task, setTask, setView } = useTeamDraft(`${host.id}:${workspaceId}`);
   const [catalog, setCatalog] = useState<z.infer<typeof catalogRpc.output>>();
+  const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   const pending = useRef<{ key: string; id: string } | undefined>(undefined);
@@ -41,10 +43,11 @@ export function QuickStart({
     return () => {
       live = false;
     };
-  }, [workspaceId]);
+  }, [workspaceId, refresh]);
   const issue = !catalog
     ? 'Chargement…'
-    : (catalog.launchIssue ??
+    : ((catalog.launchIssue || undefined) ??
+      (catalog.blockingWorkflow ? 'Un workflow conserve le verrou de ce dépôt.' : undefined) ??
       configurationIssue(config, catalog.providers) ??
       (!task.trim() ? 'Décrivez la tâche.' : undefined));
   const updateRole = (role: Role, harness: string, modelId?: string) => {
@@ -87,6 +90,16 @@ export function QuickStart({
       contentContainerStyle={{ width: layout.compact ? 300 : 400, maxWidth: '100%' }}
       keyboardShouldPersistTaps="handled"
     >
+      <LockNotice
+        blocker={catalog?.blockingWorkflow}
+        theme={theme}
+        host={host}
+        onOpen={(target) => {
+          close();
+          openPanel(target);
+        }}
+        onRefresh={() => setRefresh((value) => value + 1)}
+      />
       <View style={section}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: c.statusSuccess }} />

@@ -171,6 +171,7 @@ export const catalogRpc = defineRpc({
     cwd: z.string(),
     gitRoot: z.string().nullable().optional(),
     launchIssue: z.string().optional(),
+    blockingWorkflow: workflowSchema.pick({ id: true, workspaceId: true, task: true, status: true }).optional(),
     repositories: z.array(z.string()).default([]),
     providers: z.array(
       z.object({

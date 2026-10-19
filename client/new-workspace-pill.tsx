@@ -81,7 +81,7 @@ export function CreationTeam(props: CreationPillProps & { onOpen(workspaceId: st
         {...props}
         context="workspace"
         workspaceId={workspaceId}
-        openPanel={() => props.onOpen(workspaceId)}
+        openPanel={(target) => props.onOpen(target ?? workspaceId)}
       />
     );
   }

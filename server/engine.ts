@@ -126,10 +126,11 @@ export class Engine {
             throw new TeamError('REQUEST_ID_CONFLICT', 'Request ID reused with different input');
           return previous;
         }
-        if (all.some((w) => w.repo === prepared.repo && w.status !== 'completed'))
+        const blocker = all.find((w) => w.repo === prepared.repo && w.status !== 'completed');
+        if (blocker)
           throw new TeamError(
             'REPOSITORY_LOCKED',
-            'Another workflow holds this repository. Resume or finish it first.',
+            `Another workflow holds this repository: ${blocker.id} (workspace ${blocker.workspaceId ?? 'unknown'}). Open Agent Teams there to resume or close it.`,
           );
         const w: Workflow = {
           version: 1,

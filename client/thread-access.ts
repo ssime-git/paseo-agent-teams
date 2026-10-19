@@ -37,7 +37,8 @@ export function addThreadAccess(
                 Content: (props: PluginButtonContentProps) =>
                   createElement(QuickStart, {
                     ...props,
-                    openPanel: () => client.openPanel('agent-teams', { workspaceId }),
+                    openPanel: (target?: string) =>
+                      client.openPanel('agent-teams', { workspaceId: target ?? workspaceId }),
                   }),
               }
             : {

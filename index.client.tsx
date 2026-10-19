@@ -35,6 +35,7 @@ export default function contribute(client: PluginClientContext) {
     Component: (props) => (
       <TeamsPanel
         {...props}
+        onOpenWorkspace={(workspaceId) => client.openPanel('agent-teams', { workspaceId })}
         onChooseRepository={async (path) => {
           const workspace = await client.paseo.workspaces.open(path);
           client.openPanel('agent-teams', { workspaceId: workspace.id });

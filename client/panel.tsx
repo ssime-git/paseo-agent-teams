@@ -4,6 +4,7 @@ import { useRpc } from '@getpaseo/plugin/client';
 import { CompactSelect as SettingsSelect, CompactSwitch as SettingsSwitch } from './controls';
 import { HANDOFF_BUDGET } from '../shared/context';
 import { useTeamDraft } from './drafts';
+import { LockNotice } from './lock-notice';
 import { TestLog } from './test-log';
 import type { z } from 'zod';
 import { cardSchema } from '../shared/contracts';
@@ -112,7 +113,10 @@ export function ProgressCard({
   );
 }
 export function TeamsPanel(
-  props: PluginWorkspacePanelProps & { onChooseRepository?: (path: string) => Promise<void> },
+  props: PluginWorkspacePanelProps & {
+    onChooseRepository?: (path: string) => Promise<void>;
+    onOpenWorkspace?: (workspaceId: string) => void;
+  },
 ) {
   const { workspaceId, theme, layout, navigation } = props;
   const thread = useRef<ScrollView>(null);
@@ -173,7 +177,8 @@ export function TeamsPanel(
   const text = { color: theme.colors.foreground };
   const startIssue = !catalog.data
     ? 'Vérification du workspace…'
-    : (catalog.data.launchIssue ??
+    : ((catalog.data.launchIssue || undefined) ??
+      (catalog.data.blockingWorkflow ? 'Un workflow conserve le verrou de ce dépôt.' : undefined) ??
       configurationIssue(config, catalog.data.providers) ??
       (!task.trim() ? 'Décrivez la tâche pour démarrer.' : undefined));
   const input = {
@@ -665,6 +670,17 @@ export function TeamsPanel(
           <Text accessibilityRole="alert" style={{ color: c.statusDanger }}>
             {error || errorMessage(catalog.error ?? workflows.error)}
           </Text>
+        ) : null}
+        {creating ? (
+          <LockNotice
+            blocker={catalog.data?.blockingWorkflow}
+            theme={theme}
+            host={props.host}
+            onOpen={props.onOpenWorkspace}
+            onRefresh={() => {
+              void catalog.refetch();
+            }}
+          />
         ) : null}
         {catalog.data?.launchIssue ? (
           <View style={{ gap: 8 }}>

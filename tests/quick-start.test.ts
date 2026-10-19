@@ -37,6 +37,7 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
         },
       ],
       launchIssue: '',
+      blockingWorkflow: undefined as { id: string; workspaceId: string; task: string; status: string } | undefined,
     },
     rpc: (name: string) => async (input: (typeof launches)[number]) => {
       if (name === 'teams.catalog') return registry.catalog;
@@ -80,6 +81,7 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
   const path = join(dir, 'popover.mjs');
   await writeFile(path, result.outputFiles[0].text);
   const { QuickStart } = await import(path);
+  let targetWorkspace: string | undefined;
   let opened = 0,
     closed = 0;
   const props = {
@@ -90,7 +92,8 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
     close: () => {
       closed++;
     },
-    openPanel: () => {
+    openPanel: (workspaceId?: string) => {
+      targetWorkspace = workspaceId;
       opened++;
     },
   };
@@ -140,5 +143,21 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
     other.root.findByProps({ accessibilityLabel: 'Tâche pour l’équipe' }).props.onChangeText('Blocked task');
   });
   assert.equal(other.root.findByProps({ accessibilityLabel: 'Lancer l’équipe' }).props.disabled, true);
+  assert.equal(launches.length, 2);
+  registry.catalog.launchIssue = '';
+  registry.catalog.blockingWorkflow = {
+    id: 'hidden-workflow',
+    workspaceId: 'owner',
+    task: 'Hidden task',
+    status: 'attention',
+  };
+  await act(async () => {
+    other.update(React.createElement(QuickStart, { ...props, workspaceId: 'new-workspace' }));
+  });
+  assert.equal(other.root.findByProps({ accessibilityLabel: 'Lancer l’équipe' }).props.disabled, true);
+  assert.match(JSON.stringify(other.toJSON()), /Hidden task/);
+  await act(async () => other.root.findByProps({ accessibilityLabel: 'Ouvrir le workflow bloquant' }).props.onPress());
+  assert.equal(targetWorkspace, 'owner');
+  assert.equal(opened, 2);
   assert.equal(launches.length, 2);
 });

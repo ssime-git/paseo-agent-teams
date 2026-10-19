@@ -118,6 +118,8 @@ The workspace must point to an accessible Git repository. If it points to a non-
 
 All three roles work **in the selected workspace directory**. There is no automatic branch, worktree, commit, merge, reset or cleanup. Existing staged, unstaged and non-ignored untracked files are captured before the first agent runs. A lock prevents other workflows of this plugin from starting in the same Git repository, including sibling worktrees. It cannot lock out tools or agents started outside the plugin.
 
+If a workflow in another workspace holds that repository lock, the launch form shows its task and state with **Ouvrir le workflow bloquant**. This opens its exact workspace and selects that workflow, including when the panel previously showed a new-workflow form. Resume it or choose **Clore en conservant les fichiers**, then refresh the lock notice before launching another workflow.
+
 ### Approvals and tests
 
 - **After the plan:** review the plan and edit its test commands, one command per line, before approving. Commands execute in the workspace directory.

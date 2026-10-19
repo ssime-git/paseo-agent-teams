@@ -10,7 +10,7 @@ import { Store } from './store';
 import { PaseoRuntime } from './runtime';
 import { providerProfiles, workflowModes } from './providers';
 import { DEFAULT_MODEL } from '../shared/provider-selection';
-import { repositoryPreflight } from './git';
+import { repository, repositoryPreflight } from './git';
 
 export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
@@ -82,7 +82,24 @@ export function contributeServer(server: PluginServerContext) {
           ),
         })),
     );
-    return { cwd, providers, ...(await repositoryPreflight(cwd)) };
+    const preflight = await repositoryPreflight(cwd);
+    const lock = preflight.gitRoot ? (await repository(cwd)).lock : undefined;
+    const blocker = lock ? (await store.all()).find((w) => w.repo === lock && w.status !== 'completed') : undefined;
+    return {
+      cwd,
+      providers,
+      ...preflight,
+      ...(blocker
+        ? {
+            blockingWorkflow: {
+              id: blocker.id,
+              workspaceId: blocker.workspaceId,
+              task: blocker.task,
+              status: blocker.status,
+            },
+          }
+        : {}),
+    };
   });
   server.handle(historyRpc, async ({ id, workspaceId }) => (await store.authorize(id, workspaceId)).events);
   server.handle(testOutputRpc, async ({ id, workspaceId }) => (await store.authorize(id, workspaceId)).tests);
