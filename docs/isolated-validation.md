@@ -50,7 +50,7 @@ Every code finding has automated coverage. Typechecking and 33 automated tests p
 
 ## Separate account provider discovery
 
-An additional isolated-daemon check registered `claude-alias-test` extending Claude. The plugin catalog returned the distinct provider ID, its display label, 19 discovered models and Claude's `plan` mode. The updated typecheck and all 35 automated tests passed, including alias selection in the compact iOS host mock and preservation of the alias plus read-only restrictions at agent creation. This check did not launch an agent or verify a second account's credits. The primary installation remains pinned to the previously validated revision pending account integration.
+An additional isolated-daemon check registered `claude-alias-test` extending Claude. The plugin catalog returned the distinct provider ID, its display label, 19 discovered models and Claude's `plan` mode. The updated typecheck and all 35 automated tests passed, including alias selection in the compact iOS host mock and preservation of the alias plus read-only restrictions at agent creation. This check did not launch an agent or verify a second account's credits. At that point, the primary installation remained pinned to the earlier revision; the later multi-harness deployment is recorded below.
 
 ## Mobile access and Codex review follow-up
 
@@ -61,6 +61,10 @@ A real compact Chromium session opened a native agent from the panel, found the 
 ## All-harness discovery
 
 The isolated plugin catalog was checked against the real daemon provider inventory. It included Claude, Codex, Copilot, OpenCode, Pi and a custom Claude alias, preserving discovered model IDs and modes. OpenCode returned its detected free-model catalog and native Plan mode. Pi returned no model or mode IDs; its explicitly labelled default choices omit those values at launch. Typechecking and all 41 tests passed, including generic model IDs containing slashes, launch defaults, compact role selection and instruction-only repository-change detection across recovery. This does not claim successful execution of every provider/account/model combination.
+
+## Final deployment
+
+Commit `1696271` was installed from Git into the isolated daemon and reached `running`, then installed into the primary daemon after confirming there were no unfinished plugin workflows and backing up its configuration. The primary plugin health check reported the expected revision, a compiled client bundle and no imported isolated workflows; supervisor and worker PIDs were unchanged. CI passed for that code revision. A compact browser test on the Git installation selected Codex review with its read-only permission and confirmed the start button enabled, then selected Pi with its explicit instruction-only permissions; there were no page errors or horizontal overflow.
 
 ## Remaining limits
 
