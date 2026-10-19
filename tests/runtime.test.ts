@@ -78,3 +78,13 @@ test('a custom Claude account keeps its identity and read-only restrictions at l
   assert.ok(captured.config.options.disallowedTools.includes('ExitPlanMode'));
   assert.deepEqual(captured.env, { GIT_OPTIONAL_LOCKS: '0' });
 });
+test('Codex review uses a read-only sandbox with escalation disabled while Builder keeps its selected mode', async () => {
+  const created: { config: { modeId: string; provider: string; options?: unknown } }[] = [];
+  const api = { config: { get: async () => ({ config: { providers: { 'codex-account': { extends: 'codex' } } } }) }, providers: { listModes: async () => ({ modes: [{ id: 'auto' }, { id: 'full-access' }] }) }, workspaces: { ref: () => ({ agents: { create: async (input: unknown) => { created.push(input as typeof created[number]); return { id: 'agent' }; } } }) } } as unknown as PaseoApi;
+  const runtime = new PaseoRuntime(api, '/unused');
+  const w = { id: 'workflow', workspaceId: 'workspace', cwd: '/repo', config: { roles: { reviewer: { provider: 'codex-account/model', modeId: 'read-only' }, builder: { provider: 'codex/model', modeId: 'full-access' } } } } as unknown as Workflow;
+  await runtime.agent(w, 'reviewer'); await runtime.agent(w, 'builder');
+  assert.equal(created[0].config.provider, 'codex-account/model'); assert.equal(created[0].config.modeId, 'auto');
+  assert.deepEqual(created[0].config.options, { sandbox_mode: 'read-only', approval_policy: 'never' });
+  assert.equal(created[1].config.modeId, 'full-access'); assert.equal(created[1].config.options, undefined);
+});

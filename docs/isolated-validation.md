@@ -52,6 +52,12 @@ Every code finding has automated coverage. Typechecking and 33 automated tests p
 
 An additional isolated-daemon check registered `claude-alias-test` extending Claude. The plugin catalog returned the distinct provider ID, its display label, 19 discovered models and Claude's `plan` mode. The updated typecheck and all 35 automated tests passed, including alias selection in the compact iOS host mock and preservation of the alias plus read-only restrictions at agent creation. This check did not launch an agent or verify a second account's credits. The primary installation remains pinned to the previously validated revision pending account integration.
 
+## Mobile access and Codex review follow-up
+
+The user's iPhone screenshot confirmed that the installed workspace panel renders in native iOS. It also exposed a disabled start button with an empty Codex reviewer mode. The updated panel explains incomplete configuration, and the catalog offers a plugin read-only permission backed by Codex's native sandbox options when only `auto` is advertised. A real Codex review on the isolated repository returned a passing JSON verdict; the daemon trace recorded a `read-only` sandbox. All 38 automated tests and typechecking passed.
+
+A real compact Chromium session opened a native agent from the panel, found the new Agent Teams composer button and used it to reopen the panel. There were no page errors or horizontal overflow. This button opens the existing workflow UI; the SDK does not provide a model-picker contribution point. Native iOS interaction with this new button still requires confirmation on the phone.
+
 ## Remaining limits
 
-Native iOS/Android devices and every model/account combination have not been tested. On this daemon, Codex does not advertise a `read-only` mode, so Claude supplies the read-only roles. Ambiguous operations still require intervention by design; a missing completion receipt is never treated as permission to resend.
+Native iOS/Android devices and every model/account combination have not been tested. Codex does not advertise a `read-only` mode on this daemon; the plugin now supports its native read-only sandbox options instead. A subsequent real Codex review completed with a passing JSON verdict, and the daemon trace confirmed `sandboxPolicyType: read-only`. Ambiguous operations still require intervention by design; a missing completion receipt is never treated as permission to resend.

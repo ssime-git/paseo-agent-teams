@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { actionRpc, catalogRpc, createRpc, listRpc, roles, type Action, type Config, type Workflow } from '../shared/contracts';
-import { initialConfig, exportConfig, importConfig, commandsFromText, configReady, isReadOnly } from './configuration';
+import { initialConfig, exportConfig, importConfig, commandsFromText, configurationIssue, isReadOnly } from './configuration';
 import { copyConfiguration } from './web';
 
 const requestId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -41,6 +41,7 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
     });
   }, [catalog.data]);
   const text = { color: theme.colors.foreground };
+  const startIssue = configurationIssue(config, catalog.data?.providers) ?? (!task.trim() ? 'Décrivez la tâche pour démarrer.' : undefined);
   const input = { color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, padding: 10, minHeight: 44 };
   const run = async (job: () => Promise<unknown>) => { setBusy(true); setError(''); try { await job(); await workflows.refetch(); } catch (e) { setError(String(e)); } finally { setBusy(false); } };
   const act = (action: Action['action'], extra: Partial<Action> = {}) => workflow && run(async () => {
@@ -77,7 +78,8 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
       <SettingsSwitch label="Accepter explicitement l’absence de tests" value={config.allowNoTests} onValueChange={v => setConfig(c => ({ ...c, allowNoTests: v }))} />
     </> : null}
     <TextInput accessibilityLabel="Tâche" placeholder="Décrire la tâche" placeholderTextColor={theme.colors.foregroundMuted} multiline style={input} value={task} onChangeText={setTask} />
-    {button('Démarrer le workflow', () => { void run(async () => { const w = await createCall({ workspaceId, task, config, requestId: requestId() }); setSelected(w.id); }); }, !task.trim() || !configReady(config, catalog.data?.providers))}
+    {startIssue ? <Text accessibilityRole="alert" style={{ color: theme.colors.foregroundMuted }}>{startIssue}</Text> : null}
+    {button('Démarrer le workflow', () => { void run(async () => { const w = await createCall({ workspaceId, task, config, requestId: requestId() }); setSelected(w.id); }); }, !!startIssue)}
     {button('Exporter la configuration', () => { void run(async () => { const value = exportConfig(config); setConfigText(value); if (Platform.OS === 'web') await copyConfiguration(value); }); })}
     <TextInput accessibilityLabel="Configuration JSON à copier ou importer" multiline style={input} value={configText} onChangeText={setConfigText} />
     {button('Importer la configuration', () => { void run(async () => { const imported = importConfig(configText); setConfig(imported); setLaunchTestText(imported.testCommands.map(t => t.command).join('\n')); }); }, !configText.trim())}

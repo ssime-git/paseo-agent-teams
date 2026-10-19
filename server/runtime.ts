@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { roles, type Config, type Role, type Workflow } from '../shared/contracts';
 import { repository, snapshot, changes, type Snapshot } from './git';
 import { runCommand } from './commands';
-import { providerProfiles } from './providers';
+import { providerProfiles, nativeMode } from './providers';
 import type { Outcome, Runtime } from './engine';
 
 export const readOnlyMode = (provider: string, modeId: string) => (provider === 'claude' && modeId === 'plan') || (provider === 'codex' && modeId === 'read-only');
@@ -26,7 +26,7 @@ export class PaseoRuntime implements Runtime {
       const entry = discovered.entries.find(e => e.provider === harness && e.status === 'ready');
       if (!entry?.models?.some(m => m.id === model)) throw new Error(`Unavailable provider/model: ${selection.provider}`);
       const modes = await this.api.providers.listModes(harness, { cwd: actualCwd });
-      if (!modes.modes?.some(m => m.id === selection.modeId)) throw new Error(`Unavailable mode: ${selection.modeId}`);
+      nativeMode(family, selection.modeId, modes.modes ?? []);
       if (role !== 'builder' && !readOnlyMode(family, selection.modeId)) throw new Error(`${role} requires Claude plan or Codex read-only mode`);
     }
     const repo = await repository(actualCwd);
@@ -41,8 +41,12 @@ export class PaseoRuntime implements Runtime {
     const profiles = await providerProfiles(this.api);
     const family = profiles.families[w.config.roles[role].provider.split('/')[0]];
     if (!family) throw new Error('Unsupported provider family');
+    const selection = w.config.roles[role];
+    const codexReadOnly = family === 'codex' && selection.modeId === 'read-only';
+    const modeId = codexReadOnly ? nativeMode(family, selection.modeId, (await this.api.providers.listModes(selection.provider.split('/')[0], { cwd: w.cwd })).modes ?? []) : selection.modeId;
     const agent = await this.api.workspaces.ref(w.workspaceId).agents.create({
-      idempotencyKey: `${w.id}-${role}`, config: { ...w.config.roles[role],
+      idempotencyKey: `${w.id}-${role}`, config: { ...selection, modeId,
+        ...(codexReadOnly ? { options: { sandbox_mode: 'read-only', approval_policy: 'never' } } : {}),
         ...(role !== 'builder' && family === 'claude' ? { options: { disallowedTools: ['ExitPlanMode', 'EnterPlanMode', 'Edit', 'Write', 'NotebookEdit'] } } : {}),
         systemPrompt: role === 'builder' ? 'Preserve existing user changes. Only edit files required for the task.' : 'Read-only pipeline role: analyze and report. Never edit files. Do not call EnterPlanMode or ExitPlanMode or request native plan approval. Return your result directly; human checkpoints are managed by the Agent Teams plugin.',
       },

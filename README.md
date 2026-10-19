@@ -24,7 +24,7 @@ paseo plugin ls
 
 Enable plugins yourself in **Settings → Plugins → Enable plugins** if necessary. An automated installer must obtain explicit permission before changing that global switch. Plugin installation trusts code running with the daemon user's machine access.
 
-Open a workspace, open the Command Center, and choose **Open Agent Teams**. After source changes:
+Open a workspace, open **Search** (the Command Center), and choose **Open Agent Teams**. Existing agent threads also show an **Agent Teams** button in the composer. This opens the workflow panel; the plugin does not add a model entry to the native model picker. After source changes:
 
 ```sh
 npm run check
@@ -41,7 +41,7 @@ Use `--ref main` after the implementation PR has been merged. A fresh Git instal
 
 ## Configure a workflow
 
-Choose each role's harness, discovered model and permission mode. Planner and Reviewer accept only Claude's `plan` mode or Codex's `read-only` mode when that mode is advertised by the daemon. On the tested 0.11.2 installation, Codex advertises only write-capable modes, so the read-only roles use Claude. Claude read-only sessions also disable editing and native plan-mode transitions; approval stays in the plugin. Builder uses the mode you select; the plugin does not answer native permission requests automatically.
+Choose each role's harness, discovered model and permission mode. Planner and Reviewer run read-only with either Claude or Codex. Claude uses `plan`. For Codex, the plugin offers **Lecture seule (sandbox Codex)** even when discovery omits that mode: it maps to the advertised `auto` mode with native `sandbox_mode: read-only` and `approval_policy: never` options. A native `read-only` mode, when advertised, is retained. Claude read-only sessions also disable editing and native plan-mode transitions; approval stays in the plugin. Builder uses the mode you select; the plugin does not answer native permission requests automatically.
 
 Defaults: Auto Workflow, human approval after the plan, automatic corrections, two correction cycles and explicit restart recovery.
 

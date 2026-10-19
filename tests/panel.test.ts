@@ -40,6 +40,8 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   await act(async () => { renderer = create(React.createElement(TeamsPanel, props)); });
   t.after(() => act(() => renderer.unmount()));
   assert.equal(renderer.root.find(node => String(node.type) === 'ScrollView').props.contentContainerStyle.padding, 12);
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, true);
+  assert.match(JSON.stringify(renderer.toJSON()), /Décrivez la tâche pour démarrer/);
   const modelSelects = renderer.root.findAll(node => String(node.type) === 'SettingsSelect').filter(x => x.props.label.includes('modèle'));
   assert.equal(modelSelects[0].props.options[0].value, 'model-from-daemon');
   assert.equal(modelSelects[1].props.value, 'org/codex-from-daemon');
@@ -50,6 +52,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   await act(async () => { reviewerHarness.props.onValueChange('credit-account'); });
   assert.deepEqual(reviewerMode.props.options.map((o: { value: string }) => o.value), ['plan']);
   await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Tâche' }).props.onChangeText('OAuth2'); });
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, false);
   await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress(); });
   assert.equal((launched as { task: string }).task, 'OAuth2');
   assert.deepEqual((launched as { config: { roles: { reviewer: unknown } } }).config.roles.reviewer, { provider: 'credit-account/fable', modeId: 'plan' });
