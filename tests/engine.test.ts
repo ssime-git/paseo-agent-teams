@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Engine, type Outcome, type Runtime } from '../server/engine';
 import { Store } from '../server/store';
 import { configSchema, type Config, type Role, type Workflow } from '../shared/contracts';
+import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 const plan = { summary: 'Add OAuth2', tasks: ['Implement callback'], acceptance: ['Tests pass'], tests: [{ command: 'npm test', timeoutMs: 1000 }] };
 const build = { summary: 'Implemented', changes: ['callback.ts'], remaining: [] };
 const pass = { verdict: 'pass', summary: 'Ready', issues: [] };
@@ -164,4 +165,15 @@ test('shutdown preserves an accepted in-flight checkpoint when the SDK connectio
   h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
   const restarted = new Engine(h.store, h.fake); await restarted.recoverAutomatic(); await restarted.settle(); restarted.close();
   w = await h.store.get(created.id); assert.equal(w.status, 'awaiting_plan'); assert.equal(h.fake.calls.length, 1);
+});
+test('instruction-only read-only roles stop on repository changes and keep their checkpoint across recovery', async t => {
+  const h = await setup(t, { recovery: 'automatic' });
+  h.config.roles.planner = { provider: 'pi/connected/model', modeId: INSTRUCTION_READ_ONLY };
+  h.fake.lost = true; let fingerprint = 'original-tree'; h.fake.fingerprint = async () => fingerprint;
+  let w = await h.create(); assert.equal(w.operation?.readOnlyFingerprint, 'original-tree');
+  fingerprint = 'changed-tree'; w.status = 'running'; await h.store.put(w); h.engine.close();
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
+  const restarted = new Engine(h.store, h.fake); await restarted.recoverAutomatic(); await restarted.settle(); restarted.close();
+  w = await h.store.get(w.id); assert.equal(w.status, 'attention'); assert.match(w.error!, /changed during a read-only turn/);
+  assert.equal(w.operation?.readOnlyFingerprint, 'original-tree'); assert.equal(w.plan, undefined); assert.equal(h.fake.calls.length, 1);
 });

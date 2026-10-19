@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { PaseoApi } from '@getpaseo/client';
 import { PaseoRuntime, readOnlyMode } from '../server/runtime';
 import type { Workflow } from '../shared/contracts';
+import { DEFAULT_MODE, DEFAULT_MODEL, INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 
 function savedWorkflow(): Workflow {
   return { id: 'workflow', agents: { builder: 'agent' }, operation: { id: 'operation', role: 'builder', phase: 'building', state: 'prepared', startedAt: new Date().toISOString() }, events: [] } as unknown as Workflow;
@@ -87,4 +88,15 @@ test('Codex review uses a read-only sandbox with escalation disabled while Build
   assert.equal(created[0].config.provider, 'codex-account/model'); assert.equal(created[0].config.modeId, 'auto');
   assert.deepEqual(created[0].config.options, { sandbox_mode: 'read-only', approval_policy: 'never' });
   assert.equal(created[1].config.modeId, 'full-access'); assert.equal(created[1].config.options, undefined);
+});
+test('generic harnesses preserve discovered model IDs and omit workflow-only default markers at launch', async () => {
+  const created: { config: { provider: string; modeId?: string; options?: unknown; systemPrompt: string } }[] = [];
+  const api = { config: { get: async () => ({ config: { providers: {} } }) }, providers: { listModes: async (id: string) => ({ modes: id === 'opencode' ? [{ id: 'build' }, { id: 'plan' }] : [] }) }, workspaces: { ref: () => ({ agents: { create: async (input: unknown) => { created.push(input as typeof created[number]); return { id: 'agent' }; } } }) } } as unknown as PaseoApi;
+  const runtime = new PaseoRuntime(api, '/unused');
+  const w = { id: 'workflow', workspaceId: 'workspace', cwd: '/repo', config: { roles: { planner: { provider: 'opencode/zen/free-model', modeId: 'plan' }, builder: { provider: `pi/${DEFAULT_MODEL}`, modeId: DEFAULT_MODE }, reviewer: { provider: 'pi/connected/model', modeId: INSTRUCTION_READ_ONLY } } } } as unknown as Workflow;
+  await runtime.agent(w, 'planner'); await runtime.agent(w, 'builder'); await runtime.agent(w, 'reviewer');
+  assert.equal(created[0].config.provider, 'opencode/zen/free-model'); assert.equal(created[0].config.modeId, 'plan'); assert.equal(created[0].config.options, undefined);
+  assert.equal(created[1].config.provider, 'pi'); assert.equal(created[1].config.modeId, undefined);
+  assert.equal(created[2].config.provider, 'pi/connected/model'); assert.equal(created[2].config.modeId, undefined); assert.match(created[2].config.systemPrompt, /Never edit files/);
+  assert.doesNotMatch(JSON.stringify(created), /__paseo_|__agent_teams/);
 });

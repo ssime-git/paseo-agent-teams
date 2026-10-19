@@ -1,6 +1,6 @@
 # paseo-agent-teams
 
-A standalone Paseo plugin for persistent workflows across **Claude Code** and **Codex**. No Paseo fork is needed.
+A standalone Paseo plugin for persistent workflows across **all available harnesses and models discovered by your Paseo daemon**, including Claude Code, Codex, OpenCode, Pi and custom providers. No Paseo fork is needed.
 
 - **Manual Switch:** hand a task to another harness after the current turn finishes, carrying the logical conversation and repository context.
 - **Auto Workflow:** Plan → Build → Tests → Review → Fix, with a configurable correction limit.
@@ -10,7 +10,7 @@ A standalone Paseo plugin for persistent workflows across **Claude Code** and **
 
 - Paseo daemon and connected clients **0.11.2** (`>=0.11.2 <0.12.0`).
 - Node.js 22.15 or later for development.
-- Authenticated Claude Code and/or Codex providers on the daemon host. Model IDs and modes are discovered from that host; no subscription or model availability is assumed.
+- At least one available, authenticated harness on the daemon host. Model IDs and modes are discovered from that host; no subscription or model availability is assumed.
 - A Git workspace on a Linux/macOS daemon host. The test runner uses `/bin/sh` and POSIX process groups.
 
 ## Install locally
@@ -41,9 +41,11 @@ Use `--ref main` after the implementation PR has been merged. A fresh Git instal
 
 ## Configure a workflow
 
-Choose each role's harness, discovered model and permission mode. Planner and Reviewer run read-only with either Claude or Codex. Claude uses `plan`. For Codex, the plugin offers **Lecture seule (sandbox Codex)** even when discovery omits that mode: it maps to the advertised `auto` mode with native `sandbox_mode: read-only` and `approval_policy: never` options. A native `read-only` mode, when advertised, is retained. Claude read-only sessions also disable editing and native plan-mode transitions; approval stays in the plugin. Builder uses the mode you select; the plugin does not answer native permission requests automatically.
+Choose each role's harness, discovered model and permission mode. Planner and Reviewer can use any discovered harness. Claude uses `plan`. For Codex, the plugin offers **Lecture seule (sandbox Codex)** even when discovery omits that mode: it maps to the advertised `auto` mode with native `sandbox_mode: read-only` and `approval_policy: never` options. A native `read-only` mode, when advertised, is retained. Claude read-only sessions also disable editing and native plan-mode transitions; approval stays in the plugin. OpenCode uses its native `plan` mode. Other harnesses use an advertised `read-only` mode when available; otherwise they offer **Lecture seule par consigne (sans sandbox)**. This choice sends read-only instructions and persists a repository fingerprint before dispatch. Any repository change during that turn, including after restart recovery, suspends the workflow without reverting files. This detects changes; it cannot prevent writes or attribute external changes to an agent. Builder uses the mode you select; the plugin does not answer native permission requests automatically.
 
 Defaults: Auto Workflow, human approval after the plan, automatic corrections, two correction cycles and explicit restart recovery.
+
+Providers without discovered model IDs offer an explicit **harness default (not advertised)** choice. It leaves model selection to that harness; the plugin never sends a made-up model ID. Providers with no mode catalog can likewise retain their native default permissions. Authentication, connected accounts and configured model catalogs remain the harness's responsibility. Unavailable/error providers cannot be launched; discovering a model does not guarantee access or credits.
 
 ### Separate Claude accounts
 

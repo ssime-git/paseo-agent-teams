@@ -38,7 +38,7 @@ export const workflowSchema = z.object({
   tests: z.array(testResultSchema), testsApproved: z.boolean(), allowNoTests: z.boolean(),
   events: z.array(eventSchema), requests: z.record(z.string(), z.string()),
   pendingRole: roleSchema.optional(), activeRole: roleSchema.default('planner'),
-  operation: z.object({ id: z.string(), role: roleSchema, phase: z.string(), state: z.enum(['prepared', 'sent']), startedAt: z.string() }).optional(),
+  operation: z.object({ id: z.string(), role: roleSchema, phase: z.string(), state: z.enum(['prepared', 'sent']), startedAt: z.string(), readOnlyFingerprint: z.string().optional() }).optional(),
   cursors: z.record(z.string(), z.object({ epoch: z.string(), seq: z.number() })).default({}),
   baseline: z.string(), error: z.string().optional(),
 });
@@ -55,5 +55,5 @@ export const actionRpc = defineRpc({ name: 'teams.action', input: actionInput, o
 export const listRpc = defineRpc({ name: 'teams.list', input: z.object({ workspaceId: z.string() }), output: z.array(workflowSchema) });
 export const historyRpc = defineRpc({ name: 'teams.history', input: z.object({ id: z.string() }), output: z.array(eventSchema) });
 export const catalogRpc = defineRpc({ name: 'teams.catalog', input: z.object({ workspaceId: z.string() }), output: z.object({ cwd: z.string(), providers: z.array(z.object({
-  id: z.string(), family: z.enum(['claude', 'codex']), label: z.string(), models: z.array(z.object({ id: z.string(), label: z.string(), isDefault: z.boolean() })), modes: z.array(z.object({ id: z.string(), label: z.string() })),
+  id: z.string(), family: z.string(), label: z.string(), models: z.array(z.object({ id: z.string(), label: z.string(), isDefault: z.boolean() })), modes: z.array(z.object({ id: z.string(), label: z.string() })),
 })) }) });

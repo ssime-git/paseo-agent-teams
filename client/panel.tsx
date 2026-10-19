@@ -7,6 +7,7 @@ import { Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-na
 import { actionRpc, catalogRpc, createRpc, listRpc, roles, type Action, type Config, type Workflow } from '../shared/contracts';
 import { initialConfig, exportConfig, importConfig, commandsFromText, configurationIssue, isReadOnly } from './configuration';
 import { copyConfiguration } from './web';
+import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 
 const requestId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 export function ProgressCard({ item, theme, layout }: PluginTimelineItemProps<{ workflowId: string; status: string; detail: string; cycle: number }>) {
@@ -66,6 +67,7 @@ export function TeamsPanel(props: PluginWorkspacePanelProps) {
         <SettingsSelect label={`${role} · harnais`} value={harness} options={(catalog.data?.providers ?? []).map(p => ({ label: p.label, value: p.id }))} onValueChange={id => updateRole(role, id)} />
         <SettingsSelect label={`${role} · modèle`} value={model} options={(provider?.models ?? []).map(m => ({ label: m.label, value: m.id }))} onValueChange={id => updateRole(role, harness, id)} />
         <SettingsSelect label={`${role} · permissions`} value={selection.modeId} options={(provider?.modes ?? []).filter(m => role === 'builder' || isReadOnly(provider?.family ?? harness, m.id)).map(m => ({ label: m.label, value: m.id }))} onValueChange={modeId => setConfig(c => ({ ...c, roles: { ...c.roles, [role]: { ...c.roles[role], modeId } } }))} />
+        {selection.modeId === INSTRUCTION_READ_ONLY ? <Text style={{ color: theme.colors.foregroundMuted }}>Ce harnais reçoit une consigne de lecture seule, sans sandbox garantie. Toute modification du dépôt pendant ce tour suspend le workflow pour intervention ; les fichiers sont conservés.</Text> : null}
       </View>;
     })}
     <SettingsSelect label="Validation humaine" value={config.validation} options={[{ label: 'Après le plan', value: 'plan' }, { label: 'À la fin', value: 'final' }, { label: 'Autonome', value: 'autonomous' }]} onValueChange={v => setConfig(c => ({ ...c, validation: v as Config['validation'] }))} />

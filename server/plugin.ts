@@ -7,6 +7,7 @@ import { Engine } from './engine';
 import { Store } from './store';
 import { PaseoRuntime } from './runtime';
 import { providerProfiles, workflowModes } from './providers';
+import { DEFAULT_MODEL } from '../shared/provider-selection';
 
 export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
@@ -30,10 +31,10 @@ export function contributeServer(server: PluginServerContext) {
     const cwd = workspace.workspaceDirectory;
     const catalog = await paseo.providers.waitForReady({ cwd, timeoutMs: 15_000 });
     const profiles = await providerProfiles(paseo);
-    const providers = await Promise.all(catalog.entries.filter(e => e.status === 'ready' && !!profiles.families[e.provider]).map(async e => ({
-      id: e.provider, family: profiles.families[e.provider], label: profiles.labels[e.provider] ?? e.provider,
-      models: (e.models ?? []).map(m => ({ id: m.id, label: m.label ?? m.id, isDefault: m.isDefault ?? false })),
-      modes: workflowModes(profiles.families[e.provider], ((await paseo.providers.listModes(e.provider, { cwd })).modes ?? []).map(m => ({ id: m.id, label: m.label }))),
+    const providers = await Promise.all(catalog.entries.filter(e => e.status === 'ready').map(async e => ({
+      id: e.provider, family: profiles.families[e.provider] ?? e.provider, label: profiles.labels[e.provider] ?? e.provider,
+      models: e.models?.length ? e.models.map(m => ({ id: m.id, label: m.label ?? m.id, isDefault: m.isDefault ?? false })) : [{ id: DEFAULT_MODEL, label: 'Modèle par défaut du harnais (non annoncé)', isDefault: true }],
+      modes: workflowModes(profiles.families[e.provider] ?? e.provider, ((await paseo.providers.listModes(e.provider, { cwd })).modes ?? []).map(m => ({ id: m.id, label: m.label }))),
     })));
     return { cwd, providers };
   });

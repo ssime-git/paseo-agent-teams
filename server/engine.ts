@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { buildSchema, planSchema, reviewSchema, roles, type Action, type Config, type Role, type TestResult, type Workflow } from '../shared/contracts';
 import { Store } from './store';
+import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 
 export interface Outcome { status: 'idle' | 'permission' | 'error' | 'timeout' | 'uncertain'; text?: string; error?: string; cursor?: { epoch: string; seq: number }; }
 export interface Runtime {
@@ -167,6 +168,7 @@ export class Engine {
         const context = await this.runtime.context(w);
         const prompt = this.prompt(w, role, context);
         w.operation = { id: randomUUID(), role, phase: w.phase, state: 'prepared', startedAt: new Date().toISOString() };
+        if (w.config.roles[role].modeId === INSTRUCTION_READ_ONLY) w.operation.readOnlyFingerprint = await this.runtime.fingerprint(w);
         w.status = 'running'; delete w.error; this.event(w, 'dispatch', `Starting ${role}`, role); await this.save(w);
         work = { w, role, prompt };
       });
@@ -202,6 +204,10 @@ export class Engine {
         }
         const text = outcome.text ?? '';
         this.event(w, 'assistant', text, op.role);
+        if (op.readOnlyFingerprint && await this.runtime.fingerprint(w) !== op.readOnlyFingerprint) {
+          w.status = 'attention'; w.error = 'Repository changed during a read-only turn. Inspect the files before continuing; no changes were reverted.';
+          this.event(w, 'error', w.error, op.role); await this.save(w); return;
+        }
         const paused = w.status === 'paused'; delete w.operation; delete w.error;
         if (w.config.mode === 'auto' && w.pendingRole === 'planner') {
           delete w.pendingRole; w.phase = 'planning'; w.testsApproved = false; w.status = paused ? 'paused' : 'ready';

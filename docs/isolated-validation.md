@@ -58,6 +58,10 @@ The user's iPhone screenshot confirmed that the installed workspace panel render
 
 A real compact Chromium session opened a native agent from the panel, found the new Agent Teams composer button and used it to reopen the panel. There were no page errors or horizontal overflow. This button opens the existing workflow UI; the SDK does not provide a model-picker contribution point. Native iOS interaction with this new button still requires confirmation on the phone.
 
+## All-harness discovery
+
+The isolated plugin catalog was checked against the real daemon provider inventory. It included Claude, Codex, Copilot, OpenCode, Pi and a custom Claude alias, preserving discovered model IDs and modes. OpenCode returned its detected free-model catalog and native Plan mode. Pi returned no model or mode IDs; its explicitly labelled default choices omit those values at launch. Typechecking and all 41 tests passed, including generic model IDs containing slashes, launch defaults, compact role selection and instruction-only repository-change detection across recovery. This does not claim successful execution of every provider/account/model combination.
+
 ## Remaining limits
 
-Native iOS/Android devices and every model/account combination have not been tested. Codex does not advertise a `read-only` mode on this daemon; the plugin now supports its native read-only sandbox options instead. A subsequent real Codex review completed with a passing JSON verdict, and the daemon trace confirmed `sandboxPolicyType: read-only`. Ambiguous operations still require intervention by design; a missing completion receipt is never treated as permission to resend.
+Native iOS panel visibility was confirmed by the user; complete workflows on native devices and every model/account combination have not been tested. Codex does not advertise a `read-only` mode on this daemon; the plugin now supports its native read-only sandbox options instead. A subsequent real Codex review completed with a passing JSON verdict, and the daemon trace confirmed `sandboxPolicyType: read-only`. Ambiguous operations still require intervention by design; a missing completion receipt is never treated as permission to resend.

@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import React from 'react';
 import { create, act } from 'react-test-renderer';
+import { DEFAULT_MODEL, DEFAULT_MODE, INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 
 test('compact panel discovers models, launches a workflow, renders approvals and opens native sessions', async t => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,6 +16,8 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     { id: 'claude', family: 'claude', label: 'Claude Code', models: [{ id: 'model-from-daemon', label: 'Discovered Claude', isDefault: true }], modes: [{ id: 'plan', label: 'Plan' }, { id: 'default', label: 'Default' }] },
     { id: 'codex', family: 'codex', label: 'Codex', models: [{ id: 'org/codex-from-daemon', label: 'Discovered Codex', isDefault: true }], modes: [{ id: 'read-only', label: 'Read only' }, { id: 'auto', label: 'Default' }] },
     { id: 'credit-account', family: 'claude', label: 'Claude — credits', models: [{ id: 'fable', label: 'Fable', isDefault: true }], modes: [{ id: 'plan', label: 'Plan' }, { id: 'default', label: 'Default' }] },
+    { id: 'pi', family: 'pi', label: 'Pi', models: [{ id: DEFAULT_MODEL, label: 'Harness default', isDefault: true }], modes: [{ id: DEFAULT_MODE, label: 'Default' }, { id: INSTRUCTION_READ_ONLY, label: 'Read only by instruction' }] },
+    { id: 'opencode', family: 'opencode', label: 'OpenCode', models: [{ id: 'zen/free-example', label: 'Detected Zen fixture', isDefault: true }], modes: [{ id: 'build', label: 'Build' }, { id: 'plan', label: 'Plan' }] },
   ];
   const registry = {
     catalog: { cwd: '/repo', providers }, workflows: [] as unknown[],
@@ -56,6 +59,13 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress(); });
   assert.equal((launched as { task: string }).task, 'OAuth2');
   assert.deepEqual((launched as { config: { roles: { reviewer: unknown } } }).config.roles.reviewer, { provider: 'credit-account/fable', modeId: 'plan' });
+  await act(async () => { reviewerHarness.props.onValueChange('pi'); });
+  assert.match(JSON.stringify(renderer.toJSON()), /sans sandbox garantie/);
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, false);
+  const builderHarness = renderer.root.findAll(node => String(node.type) === 'SettingsSelect').find(x => x.props.label === 'builder · harnais')!;
+  await act(async () => { builderHarness.props.onValueChange('opencode'); });
+  await act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress(); });
+  assert.deepEqual((launched as { config: { roles: { builder: unknown } } }).config.roles.builder, { provider: 'opencode/zen/free-example', modeId: 'build' });
   registry.workflows = [{ id: 'workflow', revision: 2, task: 'OAuth2', phase: 'building', status: 'awaiting_plan', cycle: 0, config: { maxCorrections: 2, mode: 'auto' }, agents: { planner: 'native-planner' }, plan: { summary: 'Plan', tests: [] }, tests: [], events: [] }];
   await act(async () => { renderer.update(React.createElement(TeamsPanel, props)); });
   assert.ok(renderer.root.findByProps({ accessibilityLabel: 'Approuver le plan et les tests' }));
