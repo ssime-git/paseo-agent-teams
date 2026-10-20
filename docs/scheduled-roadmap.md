@@ -106,6 +106,14 @@ Demande utilisateur : implémenter et tester les quatre axes ci-dessous, avec un
 - **Prochain incrément :** définir une récupération explicite, bornée et réconciliable des propositions depuis la timeline native du Reviewer (curseur/identifiant du tour et choix explicite du résultat), conserver les échanges et décisions, gérer les prompts concurrents et les réponses invalides sans transformer un silence en approbation. Tester un échange natif réel et une reprise pendant un tour ; ensuite avancer vers les questions persistantes du Planner. Réutiliser les contrats discussion/proposition et l’adoption, sans refaire la traçabilité déjà validée.
 - **Intervention nécessaire :** aucune ; aucune question utilisateur ouverte. Tâche `f873454c` laissée active, la couverture complète n’étant pas atteinte.
 
+### 20 octobre 2026 — workflow sur plusieurs dépôts depuis un parent sans Git
+
+- **Demande directe livrée :** sélection de plusieurs dépôts dans un seul workflow, depuis un dossier de coordination sans Git. Découverte bornée des dépôts enfants, sélection visible dans Team et ajout de chemins absolus ou relatifs, y compris hors du parent. Le périmètre affiché est figé au lancement ; aucun `git init` du parent.
+- **Moteur :** verrouillage de tous les dépôts sélectionnés avant capture initiale, prise en compte des worktrees partageant un Git common-dir, snapshots/diffs/empreintes par dépôt et conservation de l’index et des fichiers préexistants. Compatibilité des workflows persistés à dépôt unique conservée. Les agents restent dans le dossier de coordination et reçoivent les racines sélectionnées ; les commandes de test précisent leur dossier. La livraison peut demander une PR par dépôt.
+- **Preuves :** `npm run check` réussi, **116 tests** ; cas de découverte, sélection externe, index initialement modifié, fichiers non suivis, worktrees, verrous secondaires, créations concurrentes avant snapshot et états corrompus. Essai réel isolé Codex sur deux dépôts : plan approuvé → implémentation → deux commandes `node --test` réussies → revue favorable. Index et fichiers protégés inchangés, parent toujours sans Git. Preuves locales : `/tmp/teams-multirepo-live-XiiSn2/result.json` et `workflow.json`.
+- **Interface réelle :** navigateur desktop et viewport mobile 390×844, sélection/désélection et application des chemins, lancement disponible depuis le parent sans Git, aucune erreur navigateur ni débordement horizontal. Captures et `ui-result.json` dans `/tmp/paseo-agent-teams-smoke.rKjEX5/browser/`. Aucun essai physique iOS supplémentaire.
+- **Suite :** cette demande complète le périmètre de travail ; elle ne clôt aucun des quatre axes ci-dessus. Continuer l’itération Reviewer et les clarifications persistantes selon les prochains incréments déjà consignés. L’ajout d’un dépôt à un workflow déjà lancé nécessite un nouveau workflow avec le périmètre étendu.
+
 ## Tâche Paseo enregistrée
 
 - Nom : Agent Teams — roadmap et tests (5 h)

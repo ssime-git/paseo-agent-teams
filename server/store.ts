@@ -77,6 +77,15 @@ export class Store {
       const raw: unknown = JSON.parse(await readFile(join(this.directory, file), 'utf8'));
       if (raw && typeof raw === 'object' && 'repo' in raw && typeof raw.repo === 'string' && isAbsolute(raw.repo)) {
         this.corruptRepositories.add(raw.repo);
+        if ('repositoryTargets' in raw) {
+          if (!Array.isArray(raw.repositoryTargets) || !raw.repositoryTargets.length) this.corrupt = true;
+          else
+            for (const target of raw.repositoryTargets) {
+              if (target && typeof target === 'object' && typeof target.lock === 'string' && isAbsolute(target.lock))
+                this.corruptRepositories.add(target.lock);
+              else this.corrupt = true;
+            }
+        }
       } else this.corrupt = true;
     } catch {
       this.corrupt = true;

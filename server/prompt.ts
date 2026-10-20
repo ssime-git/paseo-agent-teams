@@ -54,6 +54,8 @@ export function buildPrompt(w: Workflow, role: Role, context: string) {
         : w.followup?.purpose === 'pull_request'
           ? 'The user explicitly requests a draft pull request for the validated work. Inspect the actual Git branch, remote, diff and GitHub authentication. Reuse an existing matching PR instead of creating a duplicate. Create a draft PR only if a meaningful diff and appropriate repository exist. You may create a branch, commit only provably workflow-owned changes, and push that branch. Preserve unrelated user changes; never force-push, merge, reset or clean files. Do not change implementation code. If ownership, permissions, authentication or the target branch are uncertain, report the precise blocker and next action. Never invent a PR URL.'
           : 'Answer this follow-up directly using the saved workflow context. This is a conversation, not a new implementation or planning stage. Do not edit files, commit, push or create external resources. Explain the next steps clearly when asked.',
+      'The coordination directory may not be a Git repository. Use git -C <repository> for each selected target. A multi-repository delivery may need separate PRs: report the real result or blocker for each repository and never assume a shared branch or remote.',
+      `Allowed repositories: ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd], 8 * 1024)}`,
       `Original task: ${boundedText(w.task, 16 * 1024)}`,
       `Plan: ${serialize(w.plan, 8 * 1024)}`,
       `Pending plan proposal: ${serialize(w.planProposal, 8 * 1024)}`,
@@ -67,6 +69,16 @@ export function buildPrompt(w: Workflow, role: Role, context: string) {
         ? `Respond in the user’s language. Return ONLY a JSON object matching this schema: ${JSON.stringify(planRevisionSchema.toJSONSchema())}`
         : 'Respond in the user’s language, in concise Markdown. Give the result, any real PR link or blocker, and concrete next steps. Do not return the pipeline JSON schema.',
     ].join('\n');
+  const scopeInstructions = w.repositoryTargets?.length
+    ? [
+        `Workspace coordination directory: ${w.cwd}`,
+        `Allowed Git repositories: ${serialize(
+          w.repositoryTargets.map((r) => r.root),
+          8 * 1024,
+        )}`,
+        'Analyze the request across these repositories. Identify the repository for each task, file change and verification. Test commands run from the coordination directory: use explicit cd <repository> && <command> or tool-specific directory options. The parent is a coordination and reading location only: do not initialize Git there or edit files outside the selected repository roots. If another repository is needed, ask the user to start a workflow with an expanded scope. Preserve each repository’s existing staged, unstaged and untracked changes.',
+      ]
+    : [];
   const instructions = {
     planner:
       'Analyze the repository. Propose architecture, tasks, acceptance criteria and test commands. Do not edit files.',
@@ -77,6 +89,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string) {
   };
   const head = [
     instructions[role],
+    ...scopeInstructions,
     `Trusted launch test commands: ${serialize(w.config.testCommands, 8 * 1024)}`,
     `Task: ${boundedText(w.task, 16 * 1024)}`,
     'Recent decisions and messages:',

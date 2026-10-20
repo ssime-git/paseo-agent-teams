@@ -65,3 +65,16 @@ test('new teams enable Builder auto-accept while imported legacy configurations 
   delete legacy.builderAutoAccept;
   assert.equal(importConfig(JSON.stringify(legacy)).builderAutoAccept, false);
 });
+
+test('launch freezes the displayed repository scope without mutating automatic draft discovery', async () => {
+  const { scopedLaunchConfig } = await import('../client/configuration');
+  const draft = initialConfig();
+  const launched = scopedLaunchConfig(draft, { selectedRepositories: ['/a', '/b'] });
+  assert.deepEqual(launched.repositoryPaths, ['/a', '/b']);
+  assert.equal(draft.repositoryPaths, undefined);
+  assert.deepEqual(
+    scopedLaunchConfig({ ...draft, repositoryPaths: ['/explicit'] }, { selectedRepositories: ['/a', '/b'] })
+      .repositoryPaths,
+    ['/explicit'],
+  );
+});

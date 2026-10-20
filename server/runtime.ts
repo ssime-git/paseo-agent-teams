@@ -1,14 +1,15 @@
 import { TeamError } from '../shared/errors';
 import type { PaseoApi, PaseoAgentHandle } from '@getpaseo/client';
-import { readFile, writeFile, realpath } from 'node:fs/promises';
+import { writeFile, realpath } from 'node:fs/promises';
 import { join, sep, isAbsolute } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { roles, type Config, type Role, type Workflow, type Permission } from '../shared/contracts';
-import { repository, snapshot, changes, workingDiff, type Snapshot } from './git';
+import { resolveRepositories } from './scopes';
+import { captureRepositories, repositoryContext, scopeFingerprint } from './repository-context';
 import { runCommand } from './commands';
 import { providerProfiles, nativeMode, builderMode } from './providers';
 import { DEFAULT_MODEL, INSTRUCTION_READ_ONLY, readOnlyMode, parseProvider } from '../shared/provider-selection';
-import type { Outcome, Runtime } from './engine';
+import type { Outcome, Runtime, CheckScope } from './engine';
 
 export { readOnlyMode } from '../shared/provider-selection';
 export class PaseoRuntime implements Runtime {
@@ -30,7 +31,7 @@ export class PaseoRuntime implements Runtime {
     if (role !== 'builder' && !readOnlyMode(family, selection.modeId))
       throw new TeamError('READ_ONLY_REQUIRED', `${role} requires a read-only permission choice`);
   }
-  async prepare(workspaceId: string, config: Config) {
+  async prepare(workspaceId: string, config: Config, checkScope?: CheckScope) {
     const workspace = await this.api.workspaces.ref(workspaceId).refresh();
     if (!workspace) throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace no longer exists');
     const actualCwd = workspace.workspaceDirectory;
@@ -49,18 +50,25 @@ export class PaseoRuntime implements Runtime {
       if (role !== 'builder' && !readOnlyMode(family, selection.modeId))
         throw new TeamError('READ_ONLY_REQUIRED', `${role} requires a read-only permission choice`);
     }
-    const repo = await repository(actualCwd);
+    const targets = await resolveRepositories(actualCwd, config.repositoryPaths);
     if (!isAbsolute(this.directory))
       throw new TeamError('DATA_DIRECTORY_RELATIVE', 'The data directory must be absolute');
     const dataPath = await realpath(this.directory);
-    if (dataPath === repo.root || dataPath.startsWith(repo.root + sep))
+    if (targets.some((repo) => dataPath === repo.root || dataPath.startsWith(repo.root + sep)))
       throw new TeamError(
         'DATA_DIRECTORY_IN_REPOSITORY',
         'The data directory must be outside the workspace repository',
       );
+    await checkScope?.({ cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets });
     const baseline = join(this.directory, `baseline-${randomUUID()}.snapshot`);
-    await writeFile(baseline, JSON.stringify(await snapshot(repo.root)), { mode: 0o600, flush: true });
-    return { cwd: actualCwd, repo: repo.lock, baseline };
+    const captured = JSON.stringify(await captureRepositories(targets));
+    if (Buffer.byteLength(captured) > 20 * 1024 * 1024)
+      throw new TeamError(
+        'SNAPSHOT_TOO_LARGE',
+        'The combined repository snapshot exceeds 20 MiB. Narrow the selected repositories.',
+      );
+    await writeFile(baseline, captured, { mode: 0o600, flush: true });
+    return { cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets, baseline };
   }
   async agent(w: Workflow, role: Role) {
     const profiles = await providerProfiles(this.api);
@@ -252,49 +260,10 @@ export class PaseoRuntime implements Runtime {
     return results;
   }
   async context(w: Workflow) {
-    const root = (await repository(w.cwd)).root;
-    const after = await snapshot(root);
-    let before: Snapshot;
-    try {
-      before = JSON.parse(await readFile(w.baseline, 'utf8')) as Snapshot;
-    } catch (error) {
-      if (w.phase !== 'followup' || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      return boundedContext(
-        JSON.stringify({
-          warning:
-            'The launch baseline was removed after completion. Ownership of uncommitted changes cannot be proved. Do not stage or commit uncommitted files; report this blocker if a PR needs them.',
-          currentHead: after.head,
-          currentStatus: after.status,
-          ...(await workingDiff(root, after.head)),
-        }),
-      );
-    }
-    // Old v1 baselines stored file bytes; normalize them before projecting context.
-    for (const file of Object.values(before.files)) {
-      if (file.kind === 'file' && !/^[a-f0-9]{64}$/.test(file.content)) {
-        file.content = createHash('sha256').update(Buffer.from(file.content, 'base64')).digest('hex');
-      }
-    }
-    const { stat, diff } = await workingDiff(root, after.head);
-    return boundedContext(
-      JSON.stringify({
-        note: 'Compact view. Read files yourself for anything not shown; the diff is truncated.',
-        initialHead: before.head,
-        initialStatus: before.status.slice(0, 4096),
-        currentHead: after.head,
-        changedFiles: changes(before, after).map((c) => ({
-          path: c.path,
-          change: !c.before ? 'added' : !c.after ? 'deleted' : 'modified',
-        })),
-        diffStat: stat,
-        diff,
-      }),
-    );
+    return repositoryContext(w);
   }
   async fingerprint(w: Workflow) {
-    return createHash('sha256')
-      .update(JSON.stringify(await snapshot((await repository(w.cwd)).root)))
-      .digest('hex');
+    return scopeFingerprint(w);
   }
   async canClose(w: Workflow) {
     for (const id of Object.values(w.agents)) {
@@ -331,11 +300,4 @@ export class PaseoRuntime implements Runtime {
       },
     });
   }
-}
-
-function boundedContext(context: string) {
-  const limit = 32 * 1024;
-  return Buffer.byteLength(context) <= limit
-    ? context
-    : Buffer.from(context).subarray(0, limit).toString('utf8') + '\n[Repository context truncated]';
 }

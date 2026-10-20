@@ -20,7 +20,8 @@ import { Store } from './store';
 import { PaseoRuntime } from './runtime';
 import { providerProfiles, workflowModes } from './providers';
 import { DEFAULT_MODEL } from '../shared/provider-selection';
-import { repository, repositoryPreflight } from './git';
+import { repositoryPreflight } from './git';
+import { resolveRepositories, scopesOverlap } from './scopes';
 
 export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
@@ -93,7 +94,7 @@ export function contributeServer(server: PluginServerContext) {
       events: w.events.filter((e) => !e.kind.startsWith('receipt:') && e.kind !== 'tests'),
     });
   });
-  server.handle(catalogRpc, async ({ workspaceId }, { paseo }) => {
+  server.handle(catalogRpc, async ({ workspaceId, repositoryPaths }, { paseo }) => {
     const workspace = await paseo.workspaces.ref(workspaceId).refresh();
     if (!workspace) throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace not found');
     const cwd = workspace.workspaceDirectory;
@@ -119,12 +120,26 @@ export function contributeServer(server: PluginServerContext) {
         })),
     );
     const preflight = await repositoryPreflight(cwd);
-    const lock = preflight.gitRoot ? (await repository(cwd)).lock : undefined;
-    const blocker = lock ? (await store.all()).find((w) => w.repo === lock && w.status !== 'completed') : undefined;
+    let targets: Awaited<ReturnType<typeof resolveRepositories>> | undefined, scopeIssue: string | undefined;
+    try {
+      targets = await resolveRepositories(
+        cwd,
+        repositoryPaths ?? (preflight.gitRoot ? [preflight.gitRoot] : preflight.repositories),
+      );
+    } catch (error) {
+      scopeIssue = String(error);
+    }
+    const blocker = targets?.length
+      ? (await store.all()).find(
+          (w) => w.status !== 'completed' && scopesOverlap(w, { repo: targets[0].lock, repositoryTargets: targets }),
+        )
+      : undefined;
     return {
       cwd,
       providers,
       ...preflight,
+      launchIssue: scopeIssue,
+      selectedRepositories: targets?.map((r) => r.root) ?? [],
       ...(blocker
         ? {
             blockingWorkflow: {

@@ -1,4 +1,8 @@
 const messages: Record<string, string> = {
+  REPOSITORIES_REQUIRED:
+    'Sélectionnez au moins un dépôt Git accessible, ou ajoutez son chemin dans les dépôts du workflow.',
+  REPOSITORY_LIMIT: 'Sélectionnez au plus 20 dépôts pour ce workflow.',
+  REPOSITORY_CHANGED: 'Un dépôt a changé de chemin ou d’identité Git. Vérifiez le périmètre avant de reprendre.',
   VALIDATION_REQUIRED:
     'Le dépôt doit correspondre à une validation réussie avant de créer une PR. Repassez par le Planner pour valider les changements actuels.',
   CHECKPOINT_REQUIRED: 'Attendez la fin du tour courant ou réconciliez l’opération en attente avant de continuer.',
@@ -33,7 +37,7 @@ const messages: Record<string, string> = {
   SNAPSHOT_TOO_LARGE: 'L’instantané dépasse 20 Mio. Réduisez les fichiers du dépôt à analyser.',
   POSIX_REQUIRED: 'Les commandes de test nécessitent un shell POSIX. Windows n’est pas pris en charge.',
   CORRUPT_STATE: 'Un état corrompu peut verrouiller un dépôt. Réparez les fichiers isolés avant de créer un workflow.',
-  NOT_GIT_REPOSITORY: 'Ce dossier n’est pas un dépôt Git accessible. Ouvrez le workspace du dépôt à traiter.',
+  NOT_GIT_REPOSITORY: 'Ce chemin n’est pas un dépôt Git accessible. Vérifiez les dépôts sélectionnés pour le workflow.',
 };
 export function errorMessage(error: unknown) {
   const text = String(error);

@@ -7,6 +7,7 @@ import { useTeamDraft } from './drafts';
 import { LockNotice } from './lock-notice';
 import { TeamPermissions } from './permissions';
 import { WorkflowRecovery } from './recovery';
+import { RepositoryPicker } from './repository-picker';
 import { StageResult } from './stage-result';
 import { CompletionSummary } from './completion';
 import { TestLog } from './test-log';
@@ -30,6 +31,7 @@ import {
   importConfig,
   commandsFromText,
   configurationIssue,
+  scopedLaunchConfig,
   defaultRoles,
   isReadOnly,
 } from './configuration';
@@ -141,9 +143,10 @@ export function TeamsPanel(
     createCall = useRpc(createRpc),
     actionCall = useRpc(actionRpc),
     testOutputCall = useRpc(testOutputRpc);
+  const { config, setConfig, task, setTask, view, setView } = useTeamDraft(`${props.host.id}:${workspaceId}`);
   const catalog = useQuery({
-    queryKey: ['agent-teams-catalog', props.host.id, workspaceId],
-    queryFn: () => catalogCall({ workspaceId }),
+    queryKey: ['agent-teams-catalog', props.host.id, workspaceId, config.repositoryPaths],
+    queryFn: () => catalogCall({ workspaceId, repositoryPaths: config.repositoryPaths }),
     refetchInterval: 30_000,
   });
   const workflows = useQuery({
@@ -151,7 +154,6 @@ export function TeamsPanel(
     queryFn: () => listCall({ workspaceId }),
     refetchInterval: 5000,
   });
-  const { config, setConfig, task, setTask, view, setView } = useTeamDraft(`${props.host.id}:${workspaceId}`);
   const { selected, showConfig, showNew } = view;
   const setSelected = (selected: string) => setView({ selected });
   const setShowNew = (showNew: boolean) => setView({ showNew });
@@ -331,6 +333,16 @@ export function TeamsPanel(
     }));
   };
   const configOpen = showConfig || !workflow;
+  const repositoryPicker = catalog.data ? (
+    <RepositoryPicker
+      paths={config.repositoryPaths}
+      defaults={catalog.data.gitRoot ? [catalog.data.gitRoot] : (catalog.data.repositories ?? [])}
+      candidates={catalog.data.repositories ?? []}
+      truncated={catalog.data.searchTruncated}
+      colors={c}
+      onChange={(repositoryPaths) => setConfig((cur) => ({ ...cur, repositoryPaths }))}
+    />
+  ) : null;
   const configForm = () => (
     <View style={{ gap: 12 }}>
       <SettingsSelect
@@ -719,6 +731,16 @@ export function TeamsPanel(
 
         {workflow && !creating ? (
           <>
+            {workflow.repositoryTargets?.length ? (
+              <View style={{ gap: 4 }}>
+                <Text style={{ color: c.foregroundMuted }}>Dépôts suivis par ce workflow :</Text>
+                {workflow.repositoryTargets.map((repo) => (
+                  <Text key={repo.root} style={{ color: c.foreground, fontSize: 12 }}>
+                    {repo.root}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
             {workflow.planProposal
               ? card(
                   <>
@@ -1020,6 +1042,7 @@ export function TeamsPanel(
                   value={task}
                   onChangeText={setTask}
                 />
+                {repositoryPicker}
                 {startIssue ? (
                   <Text accessibilityRole="alert" style={{ color: c.foregroundMuted }}>
                     {startIssue}
@@ -1029,8 +1052,14 @@ export function TeamsPanel(
                   'Démarrer le workflow',
                   () => {
                     void run(async () => {
-                      const key = JSON.stringify({ workspaceId, task, config });
-                      const w = await createCall({ workspaceId, task, config, requestId: intentionId(key) });
+                      const launchConfig = scopedLaunchConfig(config, catalog.data);
+                      const key = JSON.stringify({ workspaceId, task, config: launchConfig });
+                      const w = await createCall({
+                        workspaceId,
+                        task,
+                        config: launchConfig,
+                        requestId: intentionId(key),
+                      });
                       pendingRequests.current.delete(key);
                       setSelected(w.id);
                       setShowNew(false);

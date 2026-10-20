@@ -5,8 +5,9 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import type { z } from 'zod';
 import { catalogRpc, createRpc, roles, type Config, type Role } from '../shared/contracts';
 import { parseProvider, INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
-import { configurationIssue, defaultRoles, isReadOnly } from './configuration';
+import { configurationIssue, defaultRoles, isReadOnly, scopedLaunchConfig } from './configuration';
 import { CompactSelect, CompactSwitch } from './controls';
+import { RepositoryPicker } from './repository-picker';
 import { useTeamDraft } from './drafts';
 import { errorMessage } from './errors';
 import { LockNotice } from './lock-notice';
@@ -32,7 +33,8 @@ export function QuickStart({
   const pending = useRef<{ key: string; id: string } | undefined>(undefined);
   useEffect(() => {
     let live = true;
-    catalogCall({ workspaceId })
+    setCatalog(undefined);
+    catalogCall({ workspaceId, repositoryPaths: config.repositoryPaths })
       .then((value) => {
         if (!live) return;
         setCatalog(value);
@@ -44,7 +46,7 @@ export function QuickStart({
     return () => {
       live = false;
     };
-  }, [workspaceId, refresh]);
+  }, [workspaceId, refresh, JSON.stringify(config.repositoryPaths)]);
   const issue = !catalog
     ? 'Chargement…'
     : ((catalog.launchIssue || undefined) ??
@@ -67,11 +69,12 @@ export function QuickStart({
     if (busy || issue) return;
     setBusy(true);
     setError('');
-    const key = JSON.stringify({ workspaceId, task, config });
+    const launchConfig = scopedLaunchConfig(config, catalog);
+    const key = JSON.stringify({ workspaceId, task, config: launchConfig });
     if (pending.current?.key !== key)
       pending.current = { key, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` };
     try {
-      const workflow = await createCall({ workspaceId, task, config, requestId: pending.current.id });
+      const workflow = await createCall({ workspaceId, task, config: launchConfig, requestId: pending.current.id });
       setView({ selected: workflow.id, showNew: false });
       pending.current = undefined;
       close();
@@ -124,6 +127,16 @@ export function QuickStart({
         <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>Une tâche, trois rôles, une conversation.</Text>
       </View>
       <View style={section}>
+        {catalog ? (
+          <RepositoryPicker
+            paths={config.repositoryPaths}
+            defaults={catalog.gitRoot ? [catalog.gitRoot] : (catalog.repositories ?? [])}
+            candidates={catalog.repositories ?? []}
+            truncated={catalog.searchTruncated}
+            colors={c}
+            onChange={(repositoryPaths) => setConfig((cur) => ({ ...cur, repositoryPaths }))}
+          />
+        ) : null}
         {roles.map((role) => {
           const selection = config.roles[role];
           const { harness, model } = selection.provider

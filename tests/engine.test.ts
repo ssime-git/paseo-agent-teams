@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Engine, type Outcome, type Runtime } from '../server/engine';
+import { Engine, type Outcome, type Runtime, type CheckScope } from '../server/engine';
 import { Store } from '../server/store';
 import { configSchema, type Action, type Config, type Role, type Workflow } from '../shared/contracts';
 import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
@@ -1148,4 +1148,70 @@ test('Reviewer revision detects repository edits even in native read-only modes'
   assert.ok(w.operation);
   assert.equal(w.planProposal, undefined);
   assert.deepEqual(w.plan, plan);
+});
+
+test('one multi-repository workflow locks every target atomically and releases them together', async (t) => {
+  const h = await setup(t);
+  h.fake.prepare = async () => ({
+    cwd: '/parent',
+    repo: '/a/.git',
+    baseline: '/unused-baseline',
+    repositoryTargets: [
+      { root: '/a', lock: '/a/.git' },
+      { root: '/b', lock: '/b/.git' },
+    ],
+  });
+  let first = await h.create();
+  assert.equal(first.repositoryTargets?.length, 2);
+  h.fake.prepare = async () => ({
+    cwd: '/other',
+    repo: '/c/.git',
+    baseline: '/unused-baseline',
+    repositoryTargets: [
+      { root: '/c', lock: '/c/.git' },
+      { root: '/b', lock: '/b/.git' },
+    ],
+  });
+  await assert.rejects(h.engine.create('other', 'Second task', h.config, 'second-create'), /Another workflow holds/);
+  first = await h.action(first, 'finish');
+  const second = await h.engine.create('other', 'Second task', h.config, 'second-create');
+  await h.engine.settle();
+  assert.ok(second.id !== first.id);
+  await assert.rejects(h.action(first, 'followup', { message: 'Next steps?' }), /Another workflow holds/);
+  assert.match(h.fake.calls[0].prompt, /Allowed Git repositories/);
+  assert.match(h.fake.calls[0].prompt, /\/b/);
+  assert.match(h.fake.calls[0].prompt, /coordination directory/);
+});
+
+test('overlapping creation checks locks before snapshots while retaining atomic acquisition', async (t) => {
+  const h = await setup(t);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let captures = 0;
+  h.fake.prepare = async (workspace?: string, _config?: Config, check?: CheckScope) => {
+    const scope = {
+      cwd: '/parent',
+      repo: workspace === 'other' ? '/c/.git' : '/a/.git',
+      repositoryTargets: [
+        { root: workspace === 'other' ? '/c' : '/a', lock: workspace === 'other' ? '/c/.git' : '/a/.git' },
+        { root: '/b', lock: '/b/.git' },
+      ],
+    };
+    await check?.(scope);
+    captures++;
+    await gate;
+    return { ...scope, baseline: '/unused-baseline' };
+  };
+  const first = h.engine.create('workspace', 'First', h.config, 'atomic-first');
+  while (captures < 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = h.engine.create('other', 'Second', h.config, 'atomic-second');
+  release();
+  const results = await Promise.allSettled([first, second]);
+  await h.engine.settle();
+  assert.equal(results[0].status, 'fulfilled');
+  assert.equal(results[1].status, 'rejected');
+  assert.equal(captures, 1);
+  if (results[1].status === 'rejected') assert.match(String(results[1].reason), /Another workflow holds/);
 });

@@ -193,6 +193,20 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress();
   });
   assert.equal((launched as { task: string }).task, 'OAuth2');
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Chemins des dépôts' }).props.onChangeText('/repo/api\n/repo/web');
+  });
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Appliquer les dépôts' }).props.onPress();
+  });
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress();
+  });
+  assert.deepEqual((launched as { config: { repositoryPaths: string[] } }).config.repositoryPaths, [
+    '/repo/api',
+    '/repo/web',
+  ]);
+
   assert.deepEqual((launched as { config: { roles: { reviewer: unknown } } }).config.roles.reviewer, {
     provider: 'credit-account/fable',
     modeId: 'plan',

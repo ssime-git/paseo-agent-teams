@@ -56,7 +56,7 @@ test('a non-Git parent explains the launch requirement and suggests its actual c
   const parentBefore = await readdir(dir);
   const result = await repositoryPreflight(dir);
   assert.equal(result.gitRoot, null);
-  assert.match(result.launchIssue!, /NOT_GIT_REPOSITORY/);
+  assert.equal(result.launchIssue, undefined);
   assert.deepEqual(result.repositories, [child]);
   assert.deepEqual(await readdir(dir), parentBefore);
   assert.equal((await repositoryPreflight(child)).gitRoot, child);

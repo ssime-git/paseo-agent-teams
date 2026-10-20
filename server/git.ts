@@ -32,23 +32,39 @@ export async function repositoryPreflight(cwd: string) {
   try {
     return { gitRoot: (await repository(cwd)).root, repositories: [] as string[] };
   } catch (error) {
-    const entries = await readdir(cwd, { withFileTypes: true }).catch(() => []);
-    const candidates = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).slice(0, 50);
-    const found = await Promise.all(
-      candidates.map(async (e) => {
-        const path = join(cwd, e.name);
+    const found: string[] = [];
+    const queue = [{ path: cwd, depth: 0 }];
+    const excluded = new Set(['node_modules', 'vendor', 'dist', 'build', 'target', 'venv', '__pycache__']);
+    let visited = 0,
+      truncated = false;
+    while (queue.length && visited < 300 && found.length < 50) {
+      const current = queue.shift()!;
+      visited++;
+      if (current.depth > 0) {
         try {
-          await lstat(join(path, '.git'));
-          return (await repository(path)).root;
-        } catch {
-          return undefined;
-        }
-      }),
-    );
+          await lstat(join(current.path, '.git'));
+          found.push((await repository(current.path)).root);
+          continue;
+        } catch {}
+      }
+      if (current.depth >= 4) {
+        truncated = true;
+        continue;
+      }
+      const entries = await readdir(current.path, { withFileTypes: true }).catch(() => []);
+      const children = entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !excluded.has(e.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const capacity = Math.max(0, 300 - visited - queue.length);
+      if (children.length > capacity) truncated = true;
+      for (const entry of children.slice(0, capacity))
+        queue.push({ path: join(current.path, entry.name), depth: current.depth + 1 });
+    }
     return {
       gitRoot: null,
-      launchIssue: String(error),
-      repositories: [...new Set(found.filter((p): p is string => !!p))],
+      ...(found.length ? {} : { launchIssue: String(error) }),
+      repositories: [...new Set(found)],
+      searchTruncated: truncated || queue.length > 0,
     };
   }
 }

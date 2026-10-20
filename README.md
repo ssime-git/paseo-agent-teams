@@ -42,7 +42,7 @@ Real captures from an isolated Paseo installation and a demo repository. The mob
 - Paseo daemon **0.11.2** and compatible connected clients (`>=0.11.2 <0.13.0`), including mobile 0.11.4 and desktop 0.12.0.
 - Node.js 22.15 or later for development.
 - At least one available, authenticated harness on the daemon host. Model IDs and modes are discovered from that host; no subscription or model availability is assumed.
-- A Git workspace on a Linux/macOS daemon host. The test runner uses `/bin/sh` and POSIX process groups.
+- A workspace containing a Git repository, or a coordination directory with selected Git repositories, on a Linux/macOS daemon host. The test runner uses `/bin/sh` and POSIX process groups.
 
 ## Install locally
 
@@ -139,6 +139,16 @@ Open a record to read the plan, implementation report, review, test outputs and 
 - A failed review or failed tests go back to the same Builder session. The initial implementation plus at most `maxCorrections` fixes are allowed. Exhaustion requires intervention.
 
 Command timeouts default to ten minutes. Configuration JSON can set each timeout between 100 ms and one hour. Each stdout/stderr stream retains at most 128 KiB and records truncation. Tests run directly on the daemon host with its environment, so only approve commands you trust.
+
+### One workflow across multiple repositories
+
+The workspace directory can be a plain folder without Git. **Dépôts du workflow** discovers repositories below it (up to four directory levels, 300 visited directories and 50 suggestions), excluding hidden/dependency/build directories and directory symlinks. Select the repositories for this workflow or add absolute/relative paths, including repositories outside the parent. At most 20 repositories can be selected. The parent remains the coordination directory; the plugin never runs `git init` there.
+
+Selection is frozen at launch. The engine acquires every repository lock atomically, saves each initial HEAD/index/working-tree state and checks the combined fingerprint. A workflow that overlaps even one selected repository must wait. Linked worktrees share their Git common-directory lock. Existing single-repository workflows retain their saved sessions and fingerprints. Corrupt multi-repository state reserves all identifiable locks.
+
+Planner and Reviewer receive per-repository context. The Builder is instructed to edit only selected repository roots and preserve their existing user changes. Tests run from the coordination directory: approve commands such as `cd services/api && npm test` and `cd clients/web && npm test`. A failed verification in either repository prevents automatic completion. Delivery can require separate draft PRs for different repositories; a branch or remote is never assumed to be shared.
+
+Automatic discovery is bounded; add any missing paths explicitly before launch. Repositories found later by an agent are not silently added to the write scope or snapshots. Selection describes the repositories tracked by the workflow; native harness permissions still control what its tools can access.
 
 ### Manual handoffs and pause
 

@@ -73,3 +73,15 @@ export function defaultRoles(providers: CatalogProvider[], current?: Config['rol
   }
   return next;
 }
+
+/** Freeze the repositories shown to the user rather than discovering new targets at dispatch time. */
+export function scopedLaunchConfig(
+  config: Config,
+  catalog?: { selectedRepositories?: string[]; gitRoot?: string | null; repositories?: string[] },
+): Config {
+  const paths =
+    config.repositoryPaths ??
+    catalog?.selectedRepositories ??
+    (catalog?.gitRoot ? [catalog.gitRoot] : catalog?.repositories);
+  return paths?.length ? { ...config, repositoryPaths: paths } : config;
+}

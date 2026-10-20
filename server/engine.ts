@@ -23,6 +23,7 @@ import {
 } from '../shared/state-machine';
 import { buildPrompt, estimateTokens } from './prompt';
 import { Store } from './store';
+import { repositoryLocks, scopesOverlap, type RepositoryTarget } from './scopes';
 import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 
 export interface Outcome {
@@ -31,8 +32,10 @@ export interface Outcome {
   error?: string;
   cursor?: { epoch: string; seq: number };
 }
+export type PreparedScope = { cwd: string; repo: string; repositoryTargets?: RepositoryTarget[] };
+export type CheckScope = (scope: PreparedScope) => Promise<void>;
 export interface Runtime {
-  prepare(workspaceId: string, config: Config): Promise<{ cwd: string; repo: string; baseline: string }>;
+  prepare(workspaceId: string, config: Config, checkScope?: CheckScope): Promise<PreparedScope & { baseline: string }>;
   agent(w: Workflow, role: Role): Promise<string>;
   run(w: Workflow, role: Role, prompt: string, operationId: string): Promise<Outcome>;
   reconcile(w: Workflow): Promise<Outcome>;
@@ -123,24 +126,29 @@ export class Engine {
       return existing;
     }
     await this.store.assertCanCreate();
-    const prepared = await this.runtime.prepare(workspaceId, config);
-    let committed = false;
-    try {
-      const result = await this.serial('create', async () => {
-        await this.store.assertCanCreate(prepared.repo);
-        const all = await this.store.all();
-        const previous = all.find((w) => key in w.requests);
-        if (previous) {
-          if (previous.requests[key] !== hash)
-            throw new TeamError('REQUEST_ID_CONFLICT', 'Request ID reused with different input');
-          return previous;
-        }
-        const blocker = all.find((w) => w.repo === prepared.repo && w.status !== 'completed');
+    const result = await this.serial('create', async () => {
+      const previous = (await this.store.all()).find((w) => key in w.requests);
+      if (previous) {
+        if (previous.requests[key] !== hash)
+          throw new TeamError('REQUEST_ID_CONFLICT', 'Request ID reused with different input');
+        return previous;
+      }
+      const checkScope: CheckScope = async (scope) => {
+        for (const lock of repositoryLocks(scope)) await this.store.assertCanCreate(lock);
+        const blocker = (await this.store.all()).find((w) => scopesOverlap(w, scope) && w.status !== 'completed');
         if (blocker)
           throw new TeamError(
             'REPOSITORY_LOCKED',
             `Another workflow holds this repository: ${blocker.id} (workspace ${blocker.workspaceId ?? 'unknown'}). Open Agent Teams there to resume or close it.`,
           );
+      };
+      let prepared: (PreparedScope & { baseline: string }) | undefined;
+      let committed = false;
+      try {
+        // The creation lock is held through snapshot capture and persistence. The runtime
+        // checks the resolved target locks before reading any launch snapshot.
+        prepared = await this.runtime.prepare(workspaceId, config, checkScope);
+        await checkScope(prepared);
         const w: Workflow = {
           version: 1,
           id: randomUUID(),
@@ -165,12 +173,12 @@ export class Engine {
         await this.save(w);
         committed = true;
         return w;
-      });
-      this.kick(result.id);
-      return result;
-    } finally {
-      if (!committed) await rm(prepared.baseline, { force: true });
-    }
+      } finally {
+        if (prepared && !committed) await rm(prepared.baseline, { force: true });
+      }
+    });
+    this.kick(result.id);
+    return result;
   }
   async action(input: Action) {
     // Reopening a completed record must acquire the same repository lock as creation.
@@ -206,9 +214,9 @@ export class Engine {
               'Wait for the current turn or reconcile its saved operation before sending a follow-up.',
             );
           if (!input.message?.trim()) throw new TeamError('MESSAGE_EMPTY', 'Message cannot be empty');
-          await this.store.assertCanCreate(w.repo);
+          for (const lock of repositoryLocks(w)) await this.store.assertCanCreate(lock);
           const blocker = (await this.store.all()).find(
-            (other) => other.id !== w.id && other.repo === w.repo && other.status !== 'completed',
+            (other) => other.id !== w.id && scopesOverlap(other, w) && other.status !== 'completed',
           );
           if (blocker)
             throw new TeamError('REPOSITORY_LOCKED', `Another workflow holds this repository: ${blocker.id}`);

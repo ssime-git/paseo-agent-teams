@@ -69,7 +69,7 @@ export function CompletionSummary({
           })
         : null}
       {w.status === 'completed' && validated
-        ? button('Créer une PR brouillon', () => {
+        ? button((w.repositoryTargets?.length ?? 1) > 1 ? 'Créer les PR brouillons' : 'Créer une PR brouillon', () => {
             void onAction('followup', { purpose: 'pull_request', message: PR_REQUEST });
           })
         : null}

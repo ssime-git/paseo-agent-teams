@@ -21,6 +21,7 @@ export const configSchema = z
   .object({
     version: z.literal(1),
     mode: z.enum(['manual', 'auto']).default('auto'),
+    repositoryPaths: z.array(z.string().min(1)).min(1).max(20).optional(),
     roles: z.object({ planner: selectionSchema, builder: selectionSchema, reviewer: selectionSchema }).strict(),
     validation: z.enum(['plan', 'final', 'autonomous']).default('plan'),
     autoFix: z.boolean().default(true),
@@ -110,6 +111,11 @@ export const workflowSchema = z.object({
   workspaceId: z.string(),
   cwd: z.string(),
   repo: z.string(),
+  repositoryTargets: z
+    .array(z.object({ root: z.string(), lock: z.string() }))
+    .min(1)
+    .max(20)
+    .optional(),
   task: z.string(),
   config: configSchema,
   agents: z.partialRecord(roleSchema, z.string()),
@@ -273,10 +279,12 @@ export const testOutputRpc = defineRpc({
 });
 export const catalogRpc = defineRpc({
   name: 'teams.catalog',
-  input: z.object({ workspaceId: z.string() }),
+  input: z.object({ workspaceId: z.string(), repositoryPaths: z.array(z.string()).max(20).optional() }),
   output: z.object({
     cwd: z.string(),
     gitRoot: z.string().nullable().optional(),
+    searchTruncated: z.boolean().optional(),
+    selectedRepositories: z.array(z.string()).optional(),
     launchIssue: z.string().optional(),
     blockingWorkflow: workflowSchema
       .pick({ id: true, workspaceId: true, task: true, status: true, revision: true })
