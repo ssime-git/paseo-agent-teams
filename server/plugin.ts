@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { TeamError } from '../shared/errors';
 import type { PluginServerContext } from '@getpaseo/plugin/server';
 import { createPaseoClient, type PaseoClient, type PaseoApi } from '@getpaseo/client';
@@ -13,6 +14,7 @@ import {
   workflowIndexRpc,
   workflowRecordRpc,
   permissionsRpc,
+  nativeArtifactsRpc,
 } from '../shared/contracts';
 import { TERMINAL_OR_WAITING } from '../shared/state-machine';
 import { Engine } from './engine';
@@ -70,6 +72,23 @@ export function contributeServer(server: PluginServerContext) {
         events: w.events.filter((e) => !e.kind.startsWith('receipt:') && e.kind !== 'tests').slice(-50),
         receipts: undefined,
       }));
+  });
+  server.handle(nativeArtifactsRpc, async ({ revision }) => {
+    const records = (await store.all()).flatMap((w) =>
+      w.events
+        .filter((e) => e.kind === 'assistant' && e.role)
+        .map((e) => ({
+          eventId: e.id,
+          workflowId: w.id,
+          workspaceId: w.workspaceId,
+          role: e.role!,
+          text: e.text,
+        })),
+    );
+    const current = createHash('sha256')
+      .update(records.map((e) => e.eventId).join('|'))
+      .digest('hex');
+    return revision === current ? { revision: current } : { revision: current, records };
   });
   // Host-wide, read-only history survives deletion of the native workspace.
   server.handle(workflowIndexRpc, async () =>

@@ -1,3 +1,5 @@
+import { Disclosure } from './disclosure';
+import { LiveWorkflowAction, GoalAction } from './workflow-action';
 import { errorMessage } from './errors';
 import type { PluginWorkspacePanelProps, PluginTimelineItemProps } from '@getpaseo/plugin/client';
 import { useRpc } from '@getpaseo/plugin/client';
@@ -45,6 +47,7 @@ export function ProgressCard({
   item,
   theme,
   layout,
+  host,
   onOpenWorkflow,
 }: PluginTimelineItemProps<z.infer<typeof cardSchema>> & { onOpenWorkflow?: () => void }) {
   const { colors } = theme;
@@ -92,30 +95,36 @@ export function ProgressCard({
         </Text>
       </View>
       {item.data.artifact ? (
-        <StageResult role={item.data.artifact.role} text={item.data.artifact.text} colors={colors} />
+        <Disclosure title="Voir le compte rendu de l’étape" colors={colors}>
+          <StageResult role={item.data.artifact.role} text={item.data.artifact.text} colors={colors} />
+        </Disclosure>
       ) : (
-        <Markdown source={item.data.detail} colors={colors} />
+        <Markdown
+          source={item.data.detail.length > 280 ? item.data.detail.slice(0, 280) + '…' : item.data.detail}
+          colors={colors}
+        />
       )}
       {item.data.handoffTokens != null ? (
         <Text style={{ color: colors.foregroundMuted, fontSize: 11 }}>
           Handoff ≈ {(item.data.handoffTokens / 1000).toFixed(1)}k tokens
         </Text>
       ) : null}
-      {onOpenWorkflow ? (
+      {onOpenWorkflow && item.data.workspaceId ? (
+        <LiveWorkflowAction
+          snapshot={{ phase, cycle: item.data.cycle }}
+          workflowId={item.data.workflowId}
+          workspaceId={item.data.workspaceId}
+          colors={colors}
+          hostId={host.id}
+          onOpen={onOpenWorkflow}
+        />
+      ) : onOpenWorkflow ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Ouvrir le workflow Agent Teams"
           onPress={onOpenWorkflow}
-          style={{
-            alignSelf: 'flex-start',
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 6,
-            paddingHorizontal: 8,
-            paddingVertical: 5,
-          }}
         >
-          <Text style={{ color: colors.foreground, fontSize: 12 }}>Ouvrir le workflow ↗</Text>
+          <Text style={{ color: colors.accent, fontSize: 12 }}>Ouvrir l’équipe ↗</Text>
         </Pressable>
       ) : null}
     </View>
@@ -240,7 +249,7 @@ export function TeamsPanel(
       }
     });
   const c = theme.colors;
-  const radius = 6;
+  const radius = 8;
   const button = (
     label: string,
     onPress: () => void,
@@ -258,8 +267,8 @@ export function TeamsPanel(
         paddingVertical: 8,
         borderRadius: radius,
         borderWidth: variant === 'ghost' ? 0 : 1,
-        borderColor: variant === 'primary' ? c.foreground : c.border,
-        backgroundColor: disabled ? c.surface2 : variant === 'primary' ? c.foreground : 'transparent',
+        borderColor: variant === 'primary' ? c.accent : c.border,
+        backgroundColor: disabled ? c.surface2 : variant === 'primary' ? c.accent : 'transparent',
         opacity: busy || disabled ? 0.5 : 1,
       }}
     >
@@ -267,7 +276,7 @@ export function TeamsPanel(
         style={{
           fontSize: 12,
           fontWeight: '500',
-          color: variant === 'primary' && !disabled ? c.surface0 : c.foregroundMuted,
+          color: variant === 'primary' && !disabled ? c.accentForeground : c.foregroundMuted,
         }}
       >
         {label}
@@ -720,6 +729,24 @@ export function TeamsPanel(
           })}
         </View>
       ) : null}
+      {workflow && !creating && ['attention', 'paused', 'permission', 'running', 'ready'].includes(workflow.status) ? (
+        <View
+          style={{
+            paddingHorizontal: layout.compact ? 14 : 20,
+            paddingVertical: 14,
+            borderBottomWidth: 1,
+            borderBottomColor: c.border,
+            backgroundColor: c.surface1,
+          }}
+        >
+          <GoalAction
+            workflow={workflow}
+            colors={c}
+            busy={busy}
+            onContinue={() => void act(workflow.operation ? 'resume' : 'start_goal')}
+          />
+        </View>
+      ) : null}
       <ScrollView
         ref={thread}
         style={{ flex: 1 }}
@@ -760,14 +787,10 @@ export function TeamsPanel(
         {workflow && !creating ? (
           <>
             {workflow.repositoryTargets?.length ? (
-              <View style={{ gap: 4 }}>
-                <Text style={{ color: c.foregroundMuted }}>Dépôts suivis par ce workflow :</Text>
-                {workflow.repositoryTargets.map((repo) => (
-                  <Text key={repo.root} style={{ color: c.foreground, fontSize: 12 }}>
-                    {repo.root}
-                  </Text>
-                ))}
-              </View>
+              <Text style={{ color: c.foregroundMuted, fontSize: 11 }}>
+                {workflow.repositoryTargets.length} dépôt{workflow.repositoryTargets.length > 1 ? 's' : ''} · travail
+                conservé dans le workspace
+              </Text>
             ) : null}
             {workflow.planProposal
               ? card(
@@ -878,18 +901,25 @@ export function TeamsPanel(
                 onValueChange={setSelected}
               />
             ) : null}
-            {workflow.error ? <Text style={{ color: c.statusDanger }}>{workflow.error}</Text> : null}
-            {card(
-              <>
-                {caption('Tâche')}
-                <Markdown source={workflow.task} colors={c} />
-              </>,
-              'task',
-            )}
+
+            <Disclosure title="Demande initiale" colors={c}>
+              <Markdown source={workflow.task} colors={c} />
+            </Disclosure>
             {workflow.events
               .filter((e) => !e.kind.startsWith('receipt:'))
               .map((event) => {
-                if (event.kind === 'created') return null;
+                if (!['assistant', 'user', 'correction', 'goal_replan', 'verification_failed'].includes(event.kind))
+                  return null;
+                if (
+                  event.kind === 'assistant' &&
+                  event.role &&
+                  workflow.events.filter((e) => e.kind === 'assistant' && e.role === event.role).at(-1)?.id !== event.id
+                )
+                  return (
+                    <Disclosure key={event.id} title={`${roleLabel[event.role]} · étape précédente`} colors={c}>
+                      <StageResult role={event.role} text={event.text} colors={c} />
+                    </Disclosure>
+                  );
                 if (
                   workflow.status === 'awaiting_plan' &&
                   event.kind === 'assistant' &&
@@ -1005,15 +1035,31 @@ export function TeamsPanel(
               <CompletionSummary workflow={workflow} colors={c} busy={busy} onAction={act} />
             ) : null}
             {['attention', 'paused'].includes(workflow.status) && !workflow.operation ? (
-              <WorkflowRecovery
-                key={workflow.id}
-                workflow={workflow}
-                providers={catalog.data?.providers ?? []}
-                colors={c}
-                busy={busy}
-                onAction={act}
-              />
+              <Disclosure title="Changer de phase ou de modèle" colors={c}>
+                <WorkflowRecovery
+                  key={workflow.id}
+                  workflow={workflow}
+                  providers={catalog.data?.providers ?? []}
+                  colors={c}
+                  busy={busy}
+                  onAction={act}
+                />
+              </Disclosure>
             ) : null}
+            <Disclosure title="Journal technique" colors={c}>
+              {workflow.error ? (
+                <Text selectable style={{ color: c.foregroundMuted, fontSize: 12 }}>
+                  {workflow.error}
+                </Text>
+              ) : null}
+              {workflow.events
+                .filter((e) => !['assistant', 'user', 'created'].includes(e.kind))
+                .map((e) => (
+                  <Text key={e.id} style={{ color: c.foregroundMuted, fontSize: 11 }}>
+                    {e.text}
+                  </Text>
+                ))}
+            </Disclosure>
             <View
               onLayout={(event) => {
                 testsPosition.current = event.nativeEvent.layout.y;
@@ -1185,8 +1231,12 @@ export function TeamsPanel(
               : null}
             {workflow.status !== 'completed' ? (
               <>
-                {button('Mettre en pause', () => void act('pause'), false, 'ghost')}
-                {button('Reprendre', () => void act('resume'), false, 'ghost')}
+                {!['paused', 'attention'].includes(workflow.status)
+                  ? button('Mettre en pause', () => void act('pause'), false, 'ghost')
+                  : null}
+                {['paused', 'permission', 'attention'].includes(workflow.status) && workflow.operation
+                  ? button('Réconcilier l’étape', () => void act('resume'), false, 'ghost')
+                  : null}
                 {button('Clore en conservant les fichiers', () => void act('finish'), false, 'ghost')}
               </>
             ) : null}

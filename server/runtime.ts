@@ -300,7 +300,6 @@ export class PaseoRuntime implements Runtime {
   async publish(w: Workflow) {
     const api = this.nativeApi();
     if (!api || !w.agents.planner) return;
-    const latest = w.events.filter((e) => e.kind === 'assistant' && e.role).at(-1);
     await api.agents.ref(w.agents.planner).timeline.append({
       type: 'plugin',
       id: `${w.id}-${w.phase}-${w.cycle}`,
@@ -308,7 +307,6 @@ export class PaseoRuntime implements Runtime {
       version: 1,
       data: {
         workflowId: w.id,
-        ...(latest?.role && latest.text.length <= 24000 ? { artifact: { role: latest.role, text: latest.text } } : {}),
         ...(w.workspaceId ? { workspaceId: w.workspaceId } : {}),
         ...(w.config ? { maxCorrections: w.config.maxCorrections } : {}),
         ...(w.handoffTokens != null ? { handoffTokens: w.handoffTokens } : {}),

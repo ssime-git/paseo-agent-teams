@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Linking, Text, View } from 'react-native';
+import { Linking, ScrollView, Text, View } from 'react-native';
 import { parseBlocks } from './blocks';
 
 export interface MarkdownColors {
@@ -67,6 +67,34 @@ export function Markdown({ source, colors }: { source: string; colors: MarkdownC
     <View style={{ gap: 6 }}>
       {parseBlocks(source).map((block, index) => {
         const key = `b${index}`;
+        if (block.kind === 'table')
+          return (
+            <ScrollView key={key} horizontal style={{ borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
+              <View>
+                {[block.headers, ...block.rows].map((row, r) => (
+                  <View
+                    key={r}
+                    style={{
+                      flexDirection: 'row',
+                      backgroundColor: r === 0 ? colors.surface2 : undefined,
+                      borderBottomWidth: r < block.rows.length ? 1 : 0,
+                      borderBottomColor: colors.border,
+                    }}
+                  >
+                    {block.headers.map((_, col) => (
+                      <Text
+                        key={col}
+                        selectable
+                        style={{ ...base, width: 190, padding: 10, fontWeight: r === 0 ? '600' : '400' }}
+                      >
+                        {inline(row[col] ?? '', colors, `${key}-${r}-${col}`)}
+                      </Text>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          );
         if (block.kind === 'heading')
           return (
             <Text

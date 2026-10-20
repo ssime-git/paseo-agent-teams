@@ -1,4 +1,5 @@
 import { buildSchema, planSchema, planRevisionSchema, reviewSchema, type Plan, type Role } from '../shared/contracts';
+import { parseResult } from '../shared/artifacts';
 import { z } from 'zod';
 
 export type Rendered =
@@ -65,7 +66,12 @@ export function eventMarkdown(rendered: Rendered) {
 /** Agents answer with a JSON artifact; the panel shows it as a card instead of raw JSON. */
 export function renderEvent(role: Role | undefined, text: string): Rendered {
   try {
-    const value: unknown = JSON.parse(unfence(text));
+    let value: unknown;
+    try {
+      value = JSON.parse(unfence(text));
+    } catch {
+      value = role ? parseResult(role, text) : undefined;
+    }
     const revision = role === 'reviewer' ? planRevisionSchema.safeParse(value) : undefined;
     if (revision?.success)
       return {

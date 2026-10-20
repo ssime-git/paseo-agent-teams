@@ -1,11 +1,12 @@
 export type Block =
+  | { kind: 'table'; headers: string[]; rows: string[][] }
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'code'; text: string }
   | { kind: 'list'; items: string[]; ordered: boolean }
   | { kind: 'quote'; text: string }
   | { kind: 'paragraph'; text: string };
 
-/** Splits markdown into the small set of blocks the panel renders (no HTML, no images, no tables). */
+/** Splits markdown into the small set of blocks the panel renders (no HTML or images). */
 export function parseBlocks(source: string): Block[] {
   const blocks: Block[] = [];
   const lines = source.replace(/\r\n/g, '\n').split('\n');
@@ -13,6 +14,17 @@ export function parseBlocks(source: string): Block[] {
     const line = lines[i];
     if (!line.trim()) {
       i++;
+    } else if (line.includes('|') && /^\s*\|?\s*:?-{3,}:?\s*\|(?:\s*:?-{3,}:?\s*\|?)+\s*$/.test(lines[i + 1] ?? '')) {
+      const cells = (row: string) =>
+        row
+          .trim()
+          .replace(/^\||\|$/g, '')
+          .split('|')
+          .map((cell) => cell.trim());
+      const headers = cells(line),
+        rows: string[][] = [];
+      for (i += 2; i < lines.length && lines[i].trim() && lines[i].includes('|'); i++) rows.push(cells(lines[i]));
+      blocks.push({ kind: 'table', headers, rows });
     } else if (line.startsWith('```')) {
       const code: string[] = [];
       for (i++; i < lines.length && !lines[i].startsWith('```'); i++) code.push(lines[i]);

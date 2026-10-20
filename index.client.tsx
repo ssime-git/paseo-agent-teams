@@ -1,4 +1,6 @@
 import type { PluginClientContext } from '@getpaseo/plugin/client';
+import { showTeamWorkflow } from './client/drafts';
+import { addNativeTimeline } from './client/native-timeline';
 import { TeamsPanel, ProgressCard } from './client/panel';
 import { cardSchema } from './shared/contracts';
 import { addThreadAccess } from './client/thread-access';
@@ -84,18 +86,24 @@ export default function contribute(client: PluginClientContext) {
         {...props}
         onOpenWorkflow={
           props.item.data.workspaceId
-            ? () =>
-                props.item.data.status === 'completed'
-                  ? client.openScreen({ screenId: HISTORY_SCREEN, params: { id: props.item.data.workflowId } })
-                  : client.openPanel('agent-teams', { workspaceId: props.item.data.workspaceId! })
+            ? () => {
+                if (props.item.data.status.split(' · ').at(-1) === 'completed')
+                  client.openScreen({ screenId: HISTORY_SCREEN, params: { id: props.item.data.workflowId } });
+                else {
+                  showTeamWorkflow(`${props.host.id}:${props.item.data.workspaceId}`, props.item.data.workflowId);
+                  client.openPanel('agent-teams', { workspaceId: props.item.data.workspaceId! });
+                }
+              }
             : undefined
         }
       />
     ),
   });
+  const removeNativeTimeline = addNativeTimeline(client);
   const removeCreationAccess = addCreationAccess(client);
   const removeThreadAccess = addThreadAccess(client, QuickStart);
   return () => {
+    removeNativeTimeline();
     removeCreationAccess();
     removeThreadAccess();
   };

@@ -465,7 +465,7 @@ test('hot selections must use a discovered model and retain read-only permission
   );
 });
 
-test('native stage cards use the plugin-owned connection and render the latest artifact', async () => {
+test('native progress uses the plugin connection without duplicating assistant artifacts', async () => {
   const items: unknown[] = [];
   const ordinary = {
     agents: {
@@ -505,10 +505,7 @@ test('native stage cards use the plugin-owned connection and render the latest a
   });
   await runtime.publish(w);
   assert.equal(items.length, 1);
-  assert.deepEqual((items[0] as { data: { artifact: unknown } }).data.artifact, {
-    role: 'planner',
-    text: w.events[0].text,
-  });
+  assert.equal((items[0] as { data: { artifact?: unknown } }).data.artifact, undefined);
 });
 
 test('skill discovery uses the selected role session and gracefully tolerates unavailable catalogs', async () => {

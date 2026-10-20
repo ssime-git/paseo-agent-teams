@@ -321,3 +321,18 @@ export const catalogRpc = defineRpc({
     ),
   }),
 });
+
+// Exact saved assistant responses let clients decorate only plugin-owned native messages.
+export const nativeArtifactSchema = z.object({
+  eventId: z.string(),
+  workflowId: z.string(),
+  workspaceId: z.string(),
+  role: roleSchema,
+  text: z.string(),
+});
+export const nativeArtifactsRpc = defineRpc({
+  name: 'teams.native_artifacts',
+  input: z.object({ revision: z.string().optional() }),
+  output: z.object({ revision: z.string(), records: z.array(nativeArtifactSchema).optional() }),
+});
+export const nativeBriefSchema = z.object({ text: z.string() });

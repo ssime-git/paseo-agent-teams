@@ -22,6 +22,12 @@ Real captures from an isolated Paseo installation and a demo repository. The mob
 
 ![Agent Teams workflow panel](docs/screenshots/team-workflow.png)
 
+A rendered result and the continuation action directly in a native agent thread:
+
+![Rendered native Builder thread with the goal continuation action](docs/screenshots/team-native-thread.png)
+
+<img src="docs/screenshots/team-native-mobile.png" alt="Rendered report and goal continuation on mobile" width="390" />
+
 **Quick start from a thread:** choose the discovered harness and model for each role.
 
 ![Team quick-start configuration](docs/screenshots/team-quick-start.png)
@@ -33,7 +39,7 @@ Real captures from an isolated Paseo installation and a demo repository. The mob
 <details>
 <summary>Mobile team configuration</summary>
 
-<img src="docs/screenshots/team-mobile.png" alt="Compact mobile team configuration" width="390" />
+<img src="docs/screenshots/team-mobile.png" alt="Compact mobile team workflow with visible continuation" width="390" />
 
 </details>
 
@@ -176,7 +182,7 @@ The message composer remains available after completion. At a stopped checkpoint
 
 Launch snapshots are retained after successful validation for delivery and are cleaned up on explicit closure. Older completed workflows may already have lost their snapshot; follow-up questions can still use saved artifacts and current Git context. If a snapshot is missing, the Builder must not stage uncommitted files whose ownership can no longer be proved; it reports the action needed instead. Already committed work can still be assessed for a PR.
 
-Stage results use one Markdown renderer in Team, saved history and plugin progress cards, including tasks, acceptance criteria, test commands, changes and review issues. HTTP(S) links can be opened. The original machine-readable assistant messages remain in native harness sessions; new plugin cards provide a readable projection beside them.
+Stage results are rendered directly in native Planner, Builder and Reviewer threads using Paseo's official timeline transformers, including existing saved responses. The transformer matches known plugin-owned reports, normalizes the SDK presentation separator and replaces their visible presentation with structured cards. Canonical messages remain unchanged for recovery. Machine handoff prompts are collapsed; summaries, changes, acceptance criteria and Markdown tables are readable, with details expandable on demand. At a stopped checkpoint, **Poursuivre jusqu’à l’objectif** is directly available under the latest role report and above the Team timeline. Native actions read live workflow state and use the same revision/idempotency checks as the panel. Technical logs and earlier iterations are collapsed by default.
 
 ### Restart recovery
 

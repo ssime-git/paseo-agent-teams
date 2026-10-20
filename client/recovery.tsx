@@ -50,16 +50,6 @@ export function WorkflowRecovery({ workflow, providers, colors: c, busy, onActio
         Conserve le contexte, les fichiers et les résultats. Un changement de harnais ou modèle crée une nouvelle
         session pour la phase concernée.
       </Text>
-      {workflow.config.mode === 'auto'
-        ? button('Poursuivre jusqu’à l’objectif', () => {
-            void onAction('start_goal');
-          })
-        : null}
-      <Text style={{ color: c.foregroundMuted }}>
-        La poursuite repart du Planner avec le contexte actuel : budget renouvelé de{' '}
-        {workflow.config.goalMaxTurns ?? 30} tours, replanification et commandes de test automatiques après approbation
-        initiale.
-      </Text>
       <CompactSelect
         colors={c}
         label="Phase à modifier ou reprendre"

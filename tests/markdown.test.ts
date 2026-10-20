@@ -60,3 +60,24 @@ test('Reviewer plan discussions and proposals render without raw JSON', () => {
   assert.match(result.text, /Critères d’acceptation/);
   assert.doesNotMatch(result.text, /"kind"/);
 });
+
+test('a completed report surrounded by prose uses the same structured presentation as plain JSON', () => {
+  const text =
+    'Les corrections sont prêtes.\n\n```json\n{"summary":"Corrigé","changes":["régression"],"remaining":[]}\n```';
+  const result = renderEvent('builder', text);
+  assert.equal(result.kind, 'build');
+});
+
+test('Markdown tables become structured rows instead of visible pipe-delimited text', () => {
+  const blocks = parseBlocks('| Étape | Résultat |\n| --- | --- |\n| Build | **Validé** |\n| Review | À corriger |');
+  assert.deepEqual(blocks, [
+    {
+      kind: 'table',
+      headers: ['Étape', 'Résultat'],
+      rows: [
+        ['Build', '**Validé**'],
+        ['Review', 'À corriger'],
+      ],
+    },
+  ]);
+});

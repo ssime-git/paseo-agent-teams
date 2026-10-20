@@ -389,6 +389,14 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   await act(async () => {
     renderer.update(React.createElement(TeamsPanel, props));
   });
+  assert.ok(renderer.root.findByProps({ accessibilityLabel: 'Poursuivre jusqu’à l’objectif' }));
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Poursuivre jusqu’à l’objectif' }).props.onPress();
+  });
+  assert.equal((registry.actions.at(-1) as { action: string }).action, 'start_goal');
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Changer de phase ou de modèle' }).props.onPress();
+  });
   assert.match(JSON.stringify(renderer.toJSON()), /Continuer le workflow/);
   await act(async () => {
     renderer.root.findByProps({ accessibilityLabel: 'Repasser par le Planner' }).props.onPress();
@@ -465,6 +473,11 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     await act(async () => {
       renderer.update(React.createElement(TeamsPanel, { ...props, layout: { ...props.layout, compact } }));
     });
+    const tasksDisclosure = renderer.root.findByProps({ accessibilityLabel: 'Tâches' });
+    if (!tasksDisclosure.props['aria-expanded'])
+      await act(async () => {
+        tasksDisclosure.props.onPress();
+      });
     assert.match(JSON.stringify(renderer.toJSON()), /Route dédiée/);
     assert.match(JSON.stringify(renderer.toJSON()), /Le plan courant reste inchangé/);
     assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Adopter ce plan' }).props.disabled, false);
@@ -515,6 +528,9 @@ test('compact panel discovers models, launches a workflow, renders approvals and
         },
       }),
     );
+  });
+  await act(async () => {
+    card.root.findByProps({ accessibilityLabel: 'Voir le compte rendu de l’étape' }).props.onPress();
   });
   assert.match(JSON.stringify(card.toJSON()), /Rendered plan/);
   assert.match(JSON.stringify(card.toJSON()), /Critères d’acceptation/);
