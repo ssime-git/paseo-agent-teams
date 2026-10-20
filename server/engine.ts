@@ -319,11 +319,13 @@ export class Engine {
         case 'approve':
           if (w.status === 'awaiting_plan') {
             if (!w.plan) throw new TeamError('PLAN_MISSING', 'No plan to approve');
-            if (input.tests) w.plan.tests = input.tests;
+            if (input.tests && JSON.stringify(input.tests) !== JSON.stringify(w.plan.tests)) {
+              this.recordPlan(w, { ...w.plan, tests: input.tests }, 'human');
+            }
             w.allowNoTests = input.allowNoTests ?? false;
             if (!w.plan.tests.length && !w.allowNoTests)
               throw new TeamError('NO_TESTS_APPROVAL_REQUIRED', 'Explicitly accept the absence of tests');
-            w.testsApproved = true;
+            this.approvePlan(w, 'human');
             w.phase = STAGE_TRANSITIONS.planner;
             w.status = 'ready';
           } else if (w.status === 'awaiting_final') {
@@ -685,7 +687,7 @@ export class Engine {
       return;
     }
     if (!this.applyHandoff(w, paused)) {
-      await this.applyStageResult(w, op.role, text, fingerprint);
+      await this.applyStageResult(w, op.role, text, fingerprint, op.id);
       if (paused && w.status !== 'completed') {
         w.resumeStatus = HUMAN_CHECKPOINTS.includes(w.status)
           ? (w.status as 'awaiting_plan' | 'awaiting_final' | 'attention')
@@ -711,10 +713,10 @@ export class Engine {
     } else w.status = 'paused';
     return true;
   }
-  private async applyStageResult(w: Workflow, role: Role, text: string, fingerprint?: string) {
+  private async applyStageResult(w: Workflow, role: Role, text: string, fingerprint?: string, operationId?: string) {
     try {
       const result = parseResult(role, text);
-      if (role === 'planner') this.applyPlan(w, result);
+      if (role === 'planner') this.applyPlan(w, result, operationId);
       else if (role === 'builder') {
         w.build = buildSchema.parse(result);
         w.phase = STAGE_TRANSITIONS.builder;
@@ -726,14 +728,57 @@ export class Engine {
       this.event(w, 'invalid', w.error);
     }
   }
-  private applyPlan(w: Workflow, result: unknown) {
-    w.plan = planSchema.parse(result);
+  private recordPlan(w: Workflow, plan: Workflow['plan'], source: 'planner' | 'human', operationId?: string) {
+    if (!plan) throw new TeamError('PLAN_MISSING', 'No plan to record');
+    // Seed records created before plan versioning without inventing a native provenance.
+    if (w.plan && !w.planVersions?.length) {
+      const at = w.events.at(-1)?.at ?? '1970-01-01T00:00:00.000Z';
+      w.planVersions = [
+        {
+          version: 1,
+          plan: structuredClone(w.plan),
+          source: 'legacy',
+          at,
+          ...(w.testsApproved ? { approval: { at, policy: 'legacy' as const, allowNoTests: w.allowNoTests } } : {}),
+        },
+      ];
+    }
+    const version = (w.planVersions?.at(-1)?.version ?? 0) + 1;
+    w.planVersions = [
+      ...(w.planVersions ?? []),
+      {
+        version,
+        plan: structuredClone(plan),
+        source,
+        at: new Date().toISOString(),
+        ...(source === 'planner'
+          ? { agentId: w.agents.planner, operationId, selection: structuredClone(w.config.roles.planner) }
+          : {}),
+      },
+    ];
+    w.plan = structuredClone(plan);
+    w.testsApproved = false;
+    w.allowNoTests = false;
+    delete w.testedFingerprint;
+    this.event(w, 'plan_version', `Plan v${version} enregistré (${source}). Une nouvelle approbation est requise.`);
+  }
+  private approvePlan(w: Workflow, policy: 'human' | 'configuration') {
+    const version = w.planVersions?.at(-1);
+    if (version) {
+      version.approval = { at: new Date().toISOString(), policy, allowNoTests: w.allowNoTests };
+      this.event(w, 'plan_approved', `Plan v${version.version} approuvé (${policy}).`);
+    }
+    w.testsApproved = true;
+  }
+  private applyPlan(w: Workflow, result: unknown, operationId?: string) {
+    const plan = planSchema.parse(result);
+    if (w.config.validation !== 'plan' && w.config.testCommands.length) plan.tests = w.config.testCommands;
+    this.recordPlan(w, plan, 'planner', operationId);
     w.phase = STAGE_TRANSITIONS.planner;
     if (w.config.validation === 'plan') w.status = 'awaiting_plan';
     else {
-      if (w.config.testCommands.length) w.plan.tests = w.config.testCommands;
       w.allowNoTests = w.config.allowNoTests;
-      if ((!w.config.testCommands.length && w.plan.tests.length > 0) || (!w.plan.tests.length && !w.allowNoTests)) {
+      if ((!w.config.testCommands.length && plan.tests.length > 0) || (!plan.tests.length && !w.allowNoTests)) {
         w.status = 'awaiting_plan';
         this.event(
           w,
@@ -741,7 +786,7 @@ export class Engine {
           'Approve planner test commands, or explicitly accept the absence of tests, before continuing.',
         );
       } else {
-        w.testsApproved = true;
+        this.approvePlan(w, 'configuration');
         w.status = 'ready';
         this.event(
           w,

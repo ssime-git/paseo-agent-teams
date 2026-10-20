@@ -204,6 +204,7 @@ test('no tests requires explicit acceptance and is recorded', async (t) => {
   w = await h.action(w, 'approve', { allowNoTests: true });
   assert.equal(w.status, 'completed');
   assert.equal(w.allowNoTests, true);
+  assert.equal(w.planVersions!.at(-1)!.approval?.allowNoTests, true);
 });
 test('invalid output suspends and never dispatches a builder', async (t) => {
   const h = await setup(t);
@@ -224,6 +225,9 @@ test('duplicate requests are idempotent; conflicting concurrent approvals are re
   await h.engine.settle();
   await h.engine.action(input);
   assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+  const persisted = await h.store.get(w.id);
+  assert.equal(persisted.planVersions?.length, 1);
+  assert.equal(persisted.events.filter((e) => e.kind === 'plan_approved').length, 1);
   await assert.rejects(h.engine.action({ ...input, action: 'pause' }), /reused/);
   const duplicate = await h.engine.create('workspace', 'Implement OAuth2', h.config, 'create-1');
   assert.equal(duplicate.id, w.id);
@@ -904,4 +908,61 @@ test('explicit closure cleans up the launch snapshot without deleting working fi
   w = await h.action(w, 'finish');
   assert.equal(w.status, 'completed');
   await assert.rejects(access(baseline), { code: 'ENOENT' });
+});
+
+test('plan versions preserve provenance, human test edits and historical approvals across replanning', async (t) => {
+  const h = await setup(t, { maxCorrections: 0 });
+  h.fake.responses.reviewer = [JSON.stringify(fail)];
+  let w = await h.create();
+  assert.equal(w.planVersions?.length, 1);
+  assert.equal(w.planVersions![0].agentId, w.agents.planner);
+  assert.equal(w.planVersions![0].operationId, h.fake.calls[0].id);
+  assert.deepEqual(w.planVersions![0].selection, h.config.roles.planner);
+  const original = structuredClone(w.planVersions![0]);
+  const tests = [{ command: 'npm run check', timeoutMs: 2000 }];
+  w = await h.action(w, 'approve', { tests });
+  assert.equal(w.planVersions?.length, 2);
+  assert.deepEqual(w.planVersions![0], original);
+  assert.deepEqual(w.planVersions![1].plan.tests, tests);
+  assert.equal(w.planVersions![1].source, 'human');
+  assert.equal(w.planVersions![1].approval?.policy, 'human');
+  const approved = structuredClone(w.planVersions![1]);
+  assert.equal(w.status, 'attention');
+  w = await h.action(w, 'continue', { role: 'planner', message: 'Revise the plan' });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.testsApproved, false);
+  assert.equal(w.testedFingerprint, undefined);
+  assert.equal(w.planVersions?.length, 3);
+  assert.deepEqual(w.planVersions![1], approved);
+  assert.equal(w.planVersions![2].approval, undefined);
+  const restarted = await new Store(h.store.directory).get(w.id);
+  assert.deepEqual(restarted.planVersions, w.planVersions);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+});
+
+test('automatic plan approval records the effective launch commands, not the proposed commands', async (t) => {
+  const commands = [{ command: 'npm run check', timeoutMs: 2000 }];
+  const h = await setup(t, { validation: 'autonomous', testCommands: commands });
+  const w = await h.create();
+  assert.equal(w.status, 'completed');
+  assert.equal(w.planVersions?.length, 1);
+  assert.deepEqual(w.planVersions![0].plan.tests, commands);
+  assert.equal(w.planVersions![0].approval?.policy, 'configuration');
+  assert.deepEqual(w.planVersions![0].plan, w.plan);
+});
+
+test('an invalid replacement keeps the recorded plan and approval history without starting another builder', async (t) => {
+  const h = await setup(t, { maxCorrections: 0 });
+  h.fake.responses.reviewer = [JSON.stringify(fail)];
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const history = structuredClone(w.planVersions);
+  const approvedPlan = structuredClone(w.plan);
+  h.fake.responses.planner = ['not a structured plan'];
+  w = await h.action(w, 'continue', { role: 'planner' });
+  assert.equal(w.status, 'attention');
+  assert.equal(w.testsApproved, false);
+  assert.deepEqual(w.planVersions, history);
+  assert.deepEqual(w.plan, approvedPlan);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
 });

@@ -56,3 +56,22 @@ test('partially readable corrupt state reserves its repository across restarts w
     await assert.rejects(store.assertCanCreate('/locked/.git'), /repository lock/);
   }
 });
+
+test('V1 plans gain an honest legacy version without changing approvals or pending operations', async () => {
+  const { workflowFixture } = await import('./fixtures');
+  const raw = workflowFixture();
+  raw.plan = { summary: 'Existing plan', tasks: ['Task'], acceptance: ['Pass'], tests: [] };
+  raw.testsApproved = true;
+  raw.operation = { id: 'pending', role: 'builder', phase: 'building', state: 'sent', startedAt: 'yesterday' };
+  const migrated = migrateWorkflow(raw);
+  assert.equal(migrated.planVersions?.length, 1);
+  assert.equal(migrated.planVersions![0].source, 'legacy');
+  assert.equal(migrated.planVersions![0].approval?.policy, 'legacy');
+  assert.equal(migrated.planVersions![0].agentId, undefined);
+  assert.equal(migrated.testsApproved, true);
+  assert.deepEqual(migrated.operation, raw.operation);
+  assert.deepEqual(migrateWorkflow(migrated), migrated);
+  assert.equal(raw.planVersions, undefined);
+  const unapproved = migrateWorkflow({ ...raw, testsApproved: false });
+  assert.equal(unapproved.planVersions![0].approval, undefined);
+});

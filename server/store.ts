@@ -6,6 +6,18 @@ import { workflowSchema, type Workflow } from '../shared/contracts';
 
 export function migrateWorkflow(raw: unknown): Workflow {
   const w = workflowSchema.parse(raw);
+  if (w.plan && !w.planVersions?.length) {
+    const at = w.events.at(-1)?.at ?? '1970-01-01T00:00:00.000Z';
+    w.planVersions = [
+      {
+        version: 1,
+        plan: structuredClone(w.plan),
+        source: 'legacy',
+        at,
+        ...(w.testsApproved ? { approval: { at, policy: 'legacy' as const, allowNoTests: w.allowNoTests } } : {}),
+      },
+    ];
+  }
   for (const event of w.events) {
     if (!event.kind.startsWith('receipt:')) continue;
     w.receipts ??= {};

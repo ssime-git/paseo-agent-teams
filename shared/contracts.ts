@@ -43,6 +43,18 @@ export const planSchema = z
     tests: z.array(commandSchema),
   })
   .strict();
+export const planVersionSchema = z.object({
+  version: z.number().int().positive(),
+  plan: planSchema,
+  source: z.enum(['planner', 'reviewer', 'human', 'legacy']),
+  at: z.string(),
+  operationId: z.string().optional(),
+  selection: selectionSchema.optional(),
+  agentId: z.string().optional(),
+  approval: z
+    .object({ at: z.string(), policy: z.enum(['human', 'configuration', 'legacy']), allowNoTests: z.boolean() })
+    .optional(),
+});
 export const buildSchema = z
   .object({ summary: z.string().min(1), changes: z.array(z.string()), remaining: z.array(z.string()) })
   .strict();
@@ -102,6 +114,7 @@ export const workflowSchema = z.object({
   resumeStatus: z.enum(['ready', 'awaiting_plan', 'awaiting_final', 'attention']).optional(),
   cycle: z.number(),
   plan: planSchema.optional(),
+  planVersions: z.array(planVersionSchema).optional(),
   build: buildSchema.optional(),
   review: reviewSchema.optional(),
   testedFingerprint: z.string().optional(),
@@ -222,6 +235,7 @@ export const workflowRecordRpc = defineRpc({
       phase: true,
       cycle: true,
       plan: true,
+      planVersions: true,
       build: true,
       review: true,
       tests: true,
