@@ -26,6 +26,7 @@ const base = () =>
     },
   });
 class Fake implements Runtime {
+  reviewerPlan?: NonNullable<Runtime['reviewerPlan']>;
   calls: { role: Role; id: string; prompt: string }[] = [];
   responses: Partial<Record<Role, string[]>> = {};
   reviewCount = 0;
@@ -1377,4 +1378,105 @@ test('starting goal execution recovers a legacy rejected fenced Builder report f
   w = await h.action(w, 'start_goal');
   assert.equal(w.status, 'completed');
   assert.match(h.fake.calls.filter((c) => c.role === 'planner')[1].prompt, /Only the real integration check remains/);
+});
+
+test('native Reviewer proposals retain cursor provenance, require adoption and survive reload without reimport', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w.agents.reviewer = 'native-reviewer';
+  await h.store.put(w);
+  const original = structuredClone(w.plan);
+  const version = w.planVersions!.at(-1)!.version;
+  const revised = { ...plan, summary: 'Native revision' };
+  const source = { epoch: 'native', seq: 42, turnId: 'native-turn' };
+  h.fake.reviewerPlan = async () => ({
+    source,
+    prompt: 'Native user decision',
+    text: JSON.stringify({
+      workflowId: w.id,
+      baseVersion: version,
+      kind: 'proposal',
+      summary: 'Native decision',
+      plan: revised,
+    }),
+  });
+  const calls = h.fake.calls.length;
+  w = await h.action(w, 'import_reviewer_plan');
+  assert.deepEqual(w.plan, original);
+  assert.equal(w.testsApproved, false);
+  assert.deepEqual(w.planProposal?.nativeSource, source);
+  assert.equal(w.planProposal?.selection, undefined);
+  const loaded = await new Store(h.store.directory).get(w.id);
+  assert.deepEqual(loaded.planProposal, w.planProposal);
+  w = await h.action(loaded, 'import_reviewer_plan');
+  assert.equal(w.events.filter((e) => e.kind === 'native_plan_imported').length, 1);
+  assert.equal(h.fake.calls.length, calls);
+  w = await h.action(w, 'adopt_plan');
+  assert.equal(w.plan?.summary, 'Native revision');
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.testsApproved, false);
+  assert.deepEqual(w.planVersions!.at(-1)!.nativeSource, source);
+  assert.equal(w.planVersions!.at(-1)!.selection, undefined);
+});
+
+test('native Reviewer import rejects stale, foreign and invalid responses without losing a pending proposal', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w.agents.reviewer = 'native-reviewer';
+  await h.store.put(w);
+  const source = { epoch: 'native', seq: 42, turnId: 'turn' };
+  const envelope = { workflowId: w.id, baseVersion: 1, kind: 'proposal', summary: 'Ready', plan };
+  h.fake.reviewerPlan = async () => ({ source, prompt: 'Native user decision', text: JSON.stringify(envelope) });
+  w = await h.action(w, 'import_reviewer_plan');
+  const proposal = structuredClone(w.planProposal);
+  for (const invalid of [
+    { ...envelope, baseVersion: 0 },
+    { ...envelope, workflowId: 'other' },
+    { ...envelope, plan: {} },
+    { kind: 'discussion', summary: 'Missing context' },
+  ]) {
+    h.fake.reviewerPlan = async () => ({ source, prompt: 'Native user decision', text: JSON.stringify(invalid) });
+    await assert.rejects(h.action(w, 'import_reviewer_plan'));
+    assert.deepEqual((await h.store.get(w.id)).planProposal, proposal);
+  }
+});
+
+test('native import stays paused and rejects a repository or session changing during retrieval', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w.agents.reviewer = 'native-reviewer';
+  w.status = 'paused';
+  await h.store.put(w);
+  const result = {
+    source: { epoch: 'native', seq: 1, turnId: 'turn' },
+    prompt: 'Clarify without assuming approval',
+    text: JSON.stringify({ workflowId: w.id, baseVersion: 1, kind: 'discussion', summary: 'En attente de décision' }),
+  };
+  let fingerprint = 'before';
+  h.fake.fingerprint = async () => fingerprint;
+  h.fake.reviewerPlan = async () => {
+    fingerprint = 'after';
+    return result;
+  };
+  await assert.rejects(h.action(w, 'import_reviewer_plan'), /changed during import/);
+  assert.equal(
+    (await h.store.get(w.id)).events.some((e) => e.kind === 'native_plan_imported'),
+    false,
+  );
+  h.fake.reviewerPlan = async () => result;
+  let checks = 0;
+  h.fake.canClose = async () => ++checks === 1;
+  await assert.rejects(h.action(w, 'import_reviewer_plan'), /changed during import/);
+  h.fake.canClose = async () => true;
+  let reads = 0;
+  h.fake.reviewerPlan = async () => ({ ...result, source: { ...result.source, seq: ++reads } });
+  await assert.rejects(h.action(w, 'import_reviewer_plan'), /reply changed during import/);
+  h.fake.reviewerPlan = async () => result;
+  const calls = h.fake.calls.length;
+  w = await h.action(w, 'import_reviewer_plan');
+  assert.equal(w.status, 'paused');
+  assert.equal(w.planVersions!.length, 1);
+  assert.equal(w.planProposal, undefined);
+  assert.equal(w.events.filter((e) => e.kind === 'user').at(-1)?.text, result.prompt);
+  assert.equal(h.fake.calls.length, calls);
 });

@@ -81,3 +81,22 @@ test('Markdown tables become structured rows instead of visible pipe-delimited t
     },
   ]);
 });
+
+test('native Reviewer context is rendered as a proposal without raw transport metadata', () => {
+  const rendered = renderEvent(
+    'reviewer',
+    JSON.stringify({
+      workflowId: 'native-workflow',
+      baseVersion: 7,
+      kind: 'proposal',
+      summary: 'Révision native',
+      plan: { summary: 'Plan complet', tasks: ['Lire'], acceptance: ['Vérifié'], tests: [] },
+    }),
+  );
+  assert.equal(rendered.kind, 'markdown');
+  if (rendered.kind === 'markdown') {
+    assert.match(rendered.text, /Proposition de plan/);
+    assert.match(rendered.text, /Révision native/);
+    assert.doesNotMatch(rendered.text, /workflowId|baseVersion|native-workflow/);
+  }
+});

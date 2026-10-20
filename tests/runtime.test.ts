@@ -530,3 +530,42 @@ test('skill discovery uses the selected role session and gracefully tolerates un
   });
   assert.match(await unavailable.runtime.skillContext(w, 'builder'), /unavailable/);
 });
+
+test('native Reviewer import reads only the final canonical native reply without sending or waiting', async () => {
+  const native = [
+    { item: { type: 'user_message', text: 'Propose a revised plan' }, turnId: 'native-turn', seqEnd: 1 },
+    { item: { type: 'assistant_message', text: 'Thinking about it' }, turnId: 'native-turn', seqEnd: 2 },
+    {
+      item: { type: 'assistant_message', text: '{"kind":"discussion","summary":"Ready"}' },
+      turnId: 'native-turn',
+      seqEnd: 3,
+    },
+  ];
+  const h = adapter({}, native);
+  const w = savedWorkflow();
+  w.agents.reviewer = 'reviewer';
+  const result = await h.runtime.reviewerPlan(w);
+  assert.equal(result.text, native[2].item.text);
+  assert.deepEqual(result.source, { epoch: 'epoch', seq: 3, turnId: 'native-turn' });
+  assert.deepEqual(h.counts(), { sends: 0, waits: 0, appends: 0 });
+});
+
+test('native import refuses busy, partial, workflow-owned and ambiguous timelines', async () => {
+  const w = savedWorkflow();
+  w.agents.reviewer = 'reviewer';
+  const prompt = { item: { type: 'user_message', text: 'Native question' }, seqEnd: 1 };
+  const answer = { item: { type: 'assistant_message', text: '{}' }, turnId: 'turn', seqEnd: 2 };
+  for (const h of [
+    adapter({ status: 'running' }, [prompt, answer]),
+    adapter({ activeTurn: { turnId: 'turn' } }, [prompt, answer]),
+    adapter({ pendingPermissions: [{}] }, [prompt, answer]),
+    adapter({}, [accepted, answer]),
+    adapter({}, [answer]),
+    adapter({}, [prompt]),
+    adapter({}, [prompt, answer, { ...answer, turnId: 'another' }]),
+    adapter({ timeline: { refetch: async () => ({ entries: [prompt, answer], gap: true }) } }),
+  ]) {
+    await assert.rejects(h.runtime.reviewerPlan(w));
+    assert.equal(h.counts().sends, 0);
+  }
+});

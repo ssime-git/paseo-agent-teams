@@ -463,6 +463,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   assert.equal(registry.openedUrl, 'https://github.com/example/project/pull/1');
   Object.assign(registry.workflows[0] as object, {
     status: 'awaiting_plan',
+    agents: { planner: 'native-planner', reviewer: 'native-reviewer' },
     planProposal: {
       baseVersion: 1,
       summary: 'Une route séparée clarifie le contrat.',
@@ -486,6 +487,11 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     });
     assert.equal((registry.actions.at(-1) as { action: string }).action, 'adopt_plan');
     await act(async () => {
+      renderer.root.findByProps({ accessibilityLabel: 'Récupérer le plan du thread Reviewer' }).props.onPress();
+    });
+    assert.equal((registry.actions.at(-1) as { action: string }).action, 'import_reviewer_plan');
+    assert.match(JSON.stringify(renderer.toJSON()), /Réponse native récupérée/);
+    await act(async () => {
       renderer.root
         .findByProps({ accessibilityLabel: 'Message à l’équipe' })
         .props.onChangeText('Propose une route dédiée');
@@ -502,6 +508,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.update(React.createElement(TeamsPanel, props));
   });
   assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Adopter ce plan' }).props.disabled, true);
+  assert.equal(renderer.root.findAllByProps({ accessibilityLabel: 'Récupérer le plan du thread Reviewer' }).length, 0);
   let card!: ReturnType<typeof create>;
   await act(async () => {
     card = create(

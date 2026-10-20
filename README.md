@@ -273,3 +273,22 @@ entries, bounded text sections, file hashes and bounded diffs rather than base64
 requires at least 65% line coverage for loaded modules; the report excludes unimported modules
 and the panel is exercised separately through its bundled renderer test. CI runs both commands
 on Node 22, 24 and 26. `npm run format` applies the repository formatting rules.
+
+At an idle plan checkpoint, **Récupérer le plan du thread Reviewer** reads the final reply to the latest native user prompt (within the last 100 canonical timeline entries). It never sends a prompt or approves a plan. Ask the Reviewer for the following JSON, using the workflow ID and current plan version shown in Team:
+
+```json
+{
+  "workflowId": "<workflow ID>",
+  "baseVersion": 1,
+  "kind": "proposal",
+  "summary": "Reason for this revision",
+  "plan": {
+    "summary": "Revised plan",
+    "tasks": ["Concrete task"],
+    "acceptance": ["Observable result"],
+    "tests": [{ "command": "npm test", "timeoutMs": 600000 }]
+  }
+}
+```
+
+For discussion, use `kind: "discussion"` and omit `plan`. Incomplete, ambiguous, foreign or stale replies are rejected. Team retains the source session, native turn and canonical cursor; repeated imports do not duplicate the decision. The native turn's model/permission selection is not asserted because the API snapshot does not prove its historical configuration. Review the imported proposal and choose **Adopter ce plan** separately; adoption invalidates current verification and follows the configured validation policy. Native import observes repository stability during retrieval; it does not certify that an earlier native conversation left the repository untouched.

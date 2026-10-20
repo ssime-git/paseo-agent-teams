@@ -251,6 +251,39 @@ export class PaseoRuntime implements Runtime {
       cursor,
     };
   }
+  async reviewerPlan(w: Workflow) {
+    const agent = this.api.agents.ref(w.agents.reviewer!);
+    if (!(await agent.refresh()) || agent.status !== 'idle' || agent.activeTurn || agent.pendingPermissions?.length)
+      throw new TeamError('ACTIVE_STEP', 'Reviewer must be idle without pending permissions');
+    // Native imports are explicit and bounded. Never reconcile or resend a workflow operation here.
+    const page = await agent.timeline.refetch({ direction: 'before', limit: 100, projection: 'canonical' });
+    if (page.reset || page.gap || page.staleCursor || !page.endCursor)
+      throw new TeamError('TIMELINE_CHANGED', 'Native timeline is incomplete or changed');
+    const promptIndex = page.entries.findLastIndex((e) => e.item.type === 'user_message');
+    const prompt = page.entries[promptIndex];
+    if (!prompt || prompt.item.type !== 'user_message' || prompt.item.text.includes('[agent-teams-operation:'))
+      throw new TeamError(
+        'NATIVE_TURN_REQUIRED',
+        'The latest prompt must be a native user turn visible in the last 100 entries',
+      );
+    const replies = page.entries.slice(promptIndex + 1).filter((e) => e.item.type === 'assistant_message');
+    const last = replies.at(-1);
+    if (
+      !last?.turnId ||
+      replies.some((e) => e.turnId !== last.turnId) ||
+      (prompt.turnId && prompt.turnId !== last.turnId)
+    )
+      throw new TeamError('NATIVE_RESULT_AMBIGUOUS', 'No uniquely identified native response');
+    // Accept the complete final object only. Earlier commentary is not a proposal.
+    if (last.item.type !== 'assistant_message') throw new TeamError('NATIVE_RESULT_MISSING', 'No native reply');
+    if (Buffer.byteLength(last.item.text) > 256 * 1024 || Buffer.byteLength(prompt.item.text) > 256 * 1024)
+      throw new TeamError('NATIVE_RESULT_TOO_LARGE', 'Native plan exchange exceeds 256 KiB per message');
+    return {
+      text: last.item.text,
+      prompt: prompt.item.text,
+      source: { epoch: page.endCursor.epoch, seq: last.seqEnd, turnId: last.turnId },
+    };
+  }
   private async history(agent: PaseoAgentHandle) {
     let page = await agent.timeline.refetch({ direction: 'before', limit: 100, projection: 'canonical' });
     let entries = [...page.entries];

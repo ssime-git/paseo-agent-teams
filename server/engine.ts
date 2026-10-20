@@ -5,6 +5,7 @@ import {
   buildSchema,
   planSchema,
   planRevisionSchema,
+  nativePlanRevisionSchema,
   reviewSchema,
   roles,
   type Action,
@@ -39,6 +40,9 @@ export interface Runtime {
   agent(w: Workflow, role: Role): Promise<string>;
   run(w: Workflow, role: Role, prompt: string, operationId: string): Promise<Outcome>;
   reconcile(w: Workflow): Promise<Outcome>;
+  reviewerPlan?(
+    w: Workflow,
+  ): Promise<{ text: string; prompt: string; source: { epoch: string; seq: number; turnId: string } }>;
   tests(w: Workflow, signal: AbortSignal): Promise<TestResult[]>;
   context(w: Workflow): Promise<string>;
   skillContext?(w: Workflow, role: Role): Promise<string>;
@@ -256,6 +260,63 @@ export class Engine {
             `Message transmis à ${w.activeRole} · ${w.config.roles[w.activeRole].provider}`,
             w.activeRole,
           );
+          break;
+        }
+        case 'import_reviewer_plan': {
+          if (
+            w.config.mode !== 'auto' ||
+            !w.plan ||
+            !w.agents.reviewer ||
+            w.operation ||
+            this.jobs.has(w.id) ||
+            w.phase === 'followup' ||
+            !['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(w.status)
+          )
+            throw new TeamError('CHECKPOINT_REQUIRED', 'A live plan and idle Reviewer checkpoint are required');
+          if (!this.runtime.reviewerPlan) throw new TeamError('NATIVE_IMPORT_UNAVAILABLE', 'Native import unavailable');
+          if (!(await this.runtime.canClose(w))) throw new TeamError('ACTIVE_STEP', 'A native agent is still active');
+          const fingerprint = await this.runtime.fingerprint(w);
+          const candidate = await this.runtime.reviewerPlan(w);
+          const envelope = nativePlanRevisionSchema.parse(parseJson(candidate.text));
+          if (envelope.workflowId !== w.id || envelope.baseVersion !== w.planVersions?.at(-1)?.version)
+            throw new TeamError(
+              'PLAN_PROPOSAL_STALE',
+              'Native response must identify this workflowId and current baseVersion',
+            );
+          const { workflowId: _, baseVersion: __, ...payload } = envelope;
+          const result = planRevisionSchema.parse(payload);
+          if (fingerprint !== (await this.runtime.fingerprint(w)) || !(await this.runtime.canClose(w)))
+            throw new TeamError('NATIVE_IMPORT_CHANGED', 'Repository or native session changed during import');
+          if (digest(candidate) !== digest(await this.runtime.reviewerPlan(w)))
+            throw new TeamError('TIMELINE_CHANGED', 'Native Reviewer reply changed during import');
+          const sourceId = `native:${w.agents.reviewer}:${candidate.source.epoch}:${candidate.source.seq}`;
+          if (!w.events.some((e) => e.kind === sourceId)) {
+            delete w.planProposal;
+            if (result.kind === 'proposal')
+              w.planProposal = {
+                plan: result.plan,
+                summary: result.summary,
+                baseVersion: envelope.baseVersion,
+                operationId: sourceId,
+                agentId: w.agents.reviewer,
+                nativeSource: candidate.source,
+                at: new Date().toISOString(),
+              };
+            this.event(
+              w,
+              sourceId,
+              `Thread Reviewer ${w.agents.reviewer} · tour ${candidate.source.turnId} · curseur ${candidate.source.epoch}:${candidate.source.seq} · plan v${envelope.baseVersion}`,
+              'reviewer',
+            );
+            this.event(w, 'user', candidate.prompt);
+            this.event(w, 'assistant', candidate.text, 'reviewer');
+            this.event(
+              w,
+              'native_plan_imported',
+              'Réponse native Reviewer récupérée ; adoption explicite requise.',
+              'reviewer',
+            );
+          }
           break;
         }
         case 'adopt_plan': {
@@ -949,7 +1010,9 @@ export class Engine {
           ? {
               agentId: provenance?.agentId ?? w.agents[source],
               operationId,
-              selection: structuredClone(provenance?.selection ?? w.config.roles[source]),
+              ...(provenance?.nativeSource
+                ? { nativeSource: provenance.nativeSource }
+                : { selection: structuredClone(provenance?.selection ?? w.config.roles[source]) }),
             }
           : {}),
       },

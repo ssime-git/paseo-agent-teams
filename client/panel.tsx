@@ -239,6 +239,10 @@ export function TeamsPanel(
         ...extra,
       });
       pendingRequests.current.delete(key);
+      if (action === 'import_reviewer_plan')
+        setNotice(
+          'Réponse native récupérée. Le plan courant reste conservé ; toute proposition doit être adoptée explicitement.',
+        );
       if (action === 'message' || action === 'followup') {
         setMessage((current) => (current === extra.message ? '' : current));
         setNotice(
@@ -1229,6 +1233,26 @@ export function TeamsPanel(
                   'secondary',
                 )
               : null}
+            {workflow.config.mode === 'auto' &&
+            workflow.plan &&
+            workflow.agents.reviewer &&
+            !workflow.operation &&
+            workflow.phase !== 'followup' &&
+            ['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
+              ? button(
+                  'Récupérer le plan du thread Reviewer',
+                  () => void act('import_reviewer_plan'),
+                  false,
+                  'secondary',
+                )
+              : null}
+            {workflow.config.mode === 'auto' && workflow.plan && workflow.agents.reviewer && !workflow.operation ? (
+              <Text selectable style={{ color: c.foregroundMuted, flexBasis: '100%' }}>
+                Pour récupérer une réponse native : demander un JSON discussion/proposal avec workflowId « {workflow.id}{' '}
+                » et baseVersion {workflow.planVersions?.at(-1)?.version ?? 1}. La récupération ne remplace pas le plan
+                ; adopter ensuite la proposition affichée.
+              </Text>
+            ) : null}
             {workflow.status !== 'completed' ? (
               <>
                 {!['paused', 'attention'].includes(workflow.status)

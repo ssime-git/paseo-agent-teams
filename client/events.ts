@@ -1,4 +1,12 @@
-import { buildSchema, planSchema, planRevisionSchema, reviewSchema, type Plan, type Role } from '../shared/contracts';
+import {
+  buildSchema,
+  planSchema,
+  planRevisionSchema,
+  nativePlanRevisionSchema,
+  reviewSchema,
+  type Plan,
+  type Role,
+} from '../shared/contracts';
 import { parseResult } from '../shared/artifacts';
 import { z } from 'zod';
 
@@ -72,7 +80,8 @@ export function renderEvent(role: Role | undefined, text: string): Rendered {
     } catch {
       value = role ? parseResult(role, text) : undefined;
     }
-    const revision = role === 'reviewer' ? planRevisionSchema.safeParse(value) : undefined;
+    const revision =
+      role === 'reviewer' ? z.union([planRevisionSchema, nativePlanRevisionSchema]).safeParse(value) : undefined;
     if (revision?.success)
       return {
         kind: 'markdown',

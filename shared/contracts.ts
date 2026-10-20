@@ -53,6 +53,7 @@ export const planVersionSchema = z.object({
   source: z.enum(['planner', 'builder', 'reviewer', 'human', 'legacy']),
   at: z.string(),
   operationId: z.string().optional(),
+  nativeSource: z.object({ epoch: z.string(), seq: z.number().int(), turnId: z.string() }).optional(),
   selection: selectionSchema.optional(),
   agentId: z.string().optional(),
   approval: z
@@ -76,13 +77,20 @@ export const planRevisionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('discussion'), summary: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('proposal'), summary: z.string().min(1), plan: planSchema }).strict(),
 ]);
+// Native replies carry their own base context; a session alone cannot prove freshness.
+const nativePlanContext = { workflowId: z.string().min(1), baseVersion: z.number().int().positive() };
+export const nativePlanRevisionSchema = z.discriminatedUnion('kind', [
+  planRevisionSchema.options[0].extend(nativePlanContext),
+  planRevisionSchema.options[1].extend(nativePlanContext),
+]);
 export const planProposalSchema = z.object({
   plan: planSchema,
   summary: z.string(),
   baseVersion: z.number().int().positive(),
   operationId: z.string(),
   agentId: z.string(),
-  selection: selectionSchema,
+  selection: selectionSchema.optional(),
+  nativeSource: z.object({ epoch: z.string(), seq: z.number().int(), turnId: z.string() }).optional(),
   at: z.string(),
 });
 export type Review = z.infer<typeof reviewSchema>;
@@ -217,6 +225,7 @@ export const actionInput = z.object({
     'reconfigure',
     'followup',
     'adopt_plan',
+    'import_reviewer_plan',
     'start_goal',
   ]),
   purpose: z.enum(['message', 'pull_request', 'plan_revision']).optional(),
