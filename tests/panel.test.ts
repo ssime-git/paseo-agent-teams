@@ -264,6 +264,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
       config: { maxCorrections: 2, mode: 'auto' },
       agents: { planner: 'native-planner' },
       plan: { summary: 'Plan', tests: [] },
+      planVersions: [{ version: 1, source: 'planner' }],
       tests: [],
       events: [],
     },
@@ -272,6 +273,27 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.update(React.createElement(TeamsPanel, props));
   });
   assert.ok(renderer.root.findByProps({ accessibilityLabel: 'Approuver le plan et les tests' }));
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Commandes de test à approuver' }).props.onChangeText('draft test');
+  });
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  assert.equal(
+    renderer.root.findByProps({ accessibilityLabel: 'Commandes de test à approuver' }).props.value,
+    'draft test',
+  );
+  Object.assign(registry.workflows[0] as object, {
+    plan: { summary: 'Plan', tests: [{ command: 'node smoke.js', timeoutMs: 1000 }] },
+    planVersions: [{ version: 2, source: 'reviewer' }],
+  });
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  assert.equal(
+    renderer.root.findByProps({ accessibilityLabel: 'Commandes de test à approuver' }).props.value,
+    'node smoke.js',
+  );
   await act(async () => {
     renderer.root.findByProps({ accessibilityLabel: 'Ouvrir planner' }).props.onPress();
   });
@@ -402,6 +424,42 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.root.findAllByProps({ accessibilityRole: 'link' })[0].props.onPress();
   });
   assert.equal(registry.openedUrl, 'https://github.com/example/project/pull/1');
+  Object.assign(registry.workflows[0] as object, {
+    status: 'awaiting_plan',
+    planProposal: {
+      baseVersion: 1,
+      summary: 'Une route séparée clarifie le contrat.',
+      plan: { summary: 'Plan révisé', tasks: ['Route dédiée'], acceptance: ['Test vérifiable'], tests: [] },
+    },
+  });
+  for (const compact of [true, false]) {
+    await act(async () => {
+      renderer.update(React.createElement(TeamsPanel, { ...props, layout: { ...props.layout, compact } }));
+    });
+    assert.match(JSON.stringify(renderer.toJSON()), /Route dédiée/);
+    assert.match(JSON.stringify(renderer.toJSON()), /Le plan courant reste inchangé/);
+    assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Adopter ce plan' }).props.disabled, false);
+    await act(async () => {
+      renderer.root.findByProps({ accessibilityLabel: 'Adopter ce plan' }).props.onPress();
+    });
+    assert.equal((registry.actions.at(-1) as { action: string }).action, 'adopt_plan');
+    await act(async () => {
+      renderer.root
+        .findByProps({ accessibilityLabel: 'Message à l’équipe' })
+        .props.onChangeText('Propose une route dédiée');
+    });
+    await act(async () => {
+      renderer.root.findByProps({ accessibilityLabel: 'Réviser le plan avec le Reviewer' }).props.onPress();
+    });
+    assert.equal((registry.actions.at(-1) as { purpose: string }).purpose, 'plan_revision');
+    assert.equal((registry.actions.at(-1) as { role: string }).role, 'reviewer');
+    assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Message à l’équipe' }).props.value, '');
+  }
+  Object.assign(registry.workflows[0] as object, { phase: 'followup', operation: { role: 'reviewer' } });
+  await act(async () => {
+    renderer.update(React.createElement(TeamsPanel, props));
+  });
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Adopter ce plan' }).props.disabled, true);
   let card!: ReturnType<typeof create>;
   await act(async () => {
     card = create(

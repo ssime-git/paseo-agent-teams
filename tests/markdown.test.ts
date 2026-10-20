@@ -40,3 +40,23 @@ test('provider separators and schema variants render readable stage fields witho
   assert.match(r.text, /Prochaines étapes/);
   assert.doesNotMatch(r.text, /"summary":/);
 });
+
+test('Reviewer plan discussions and proposals render without raw JSON', () => {
+  assert.deepEqual(renderEvent('reviewer', '{"kind":"discussion","summary":"Une question ?"}'), {
+    kind: 'markdown',
+    text: 'Une question ?',
+  });
+  const result = renderEvent(
+    'reviewer',
+    JSON.stringify({
+      kind: 'proposal',
+      summary: 'Décision',
+      plan: { summary: 'Nouveau plan', tasks: ['Une tâche'], acceptance: ['Vérifiable'], tests: [] },
+    }),
+  );
+  assert.equal(result.kind, 'markdown');
+  if (result.kind !== 'markdown') return;
+  assert.match(result.text, /Proposition de plan/);
+  assert.match(result.text, /Critères d’acceptation/);
+  assert.doesNotMatch(result.text, /"kind"/);
+});

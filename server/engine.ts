@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   buildSchema,
   planSchema,
+  planRevisionSchema,
   reviewSchema,
   roles,
   type Action,
@@ -48,14 +49,15 @@ export interface Runtime {
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const schemaFor = (role: Role) => (role === 'planner' ? planSchema : role === 'builder' ? buildSchema : reviewSchema);
 export function parseResult(role: Role, text: string) {
-  return schemaFor(role).parse(
-    JSON.parse(
-      text
-        .trim()
-        .replace(/^(?:---[ \t]*\r?\n\s*)+/, '')
-        .replace(/^```(?:json)?\s*\n?/, '')
-        .replace(/\n?```$/, ''),
-    ),
+  return schemaFor(role).parse(parseJson(text));
+}
+function parseJson(text: string): unknown {
+  return JSON.parse(
+    text
+      .trim()
+      .replace(/^(?:---[ \t]*\r?\n\s*)+/, '')
+      .replace(/^```(?:json)?\s*\n?/, '')
+      .replace(/\n?```$/, ''),
   );
 }
 type Work = { w: Workflow; role?: Role; prompt?: string; reconcile?: boolean };
@@ -213,6 +215,8 @@ export class Engine {
           if (!(await this.runtime.canClose(w)))
             throw new TeamError('ACTIVE_STEP', 'A native agent is still active or awaiting permissions.');
           const purpose = input.purpose ?? 'message';
+          if (purpose === 'plan_revision' && (w.config.mode !== 'auto' || !w.plan || w.status === 'completed'))
+            throw new TeamError('PLAN_REVISION_UNAVAILABLE', 'A live automatic workflow with a plan is required');
           const testsPassed =
             w.plan &&
             w.testsApproved &&
@@ -239,7 +243,12 @@ export class Engine {
             previousResumeStatus: w.resumeStatus,
           };
           w.phase = 'followup';
-          w.activeRole = purpose === 'pull_request' ? 'builder' : (input.role ?? 'planner');
+          w.activeRole =
+            purpose === 'plan_revision'
+              ? 'reviewer'
+              : purpose === 'pull_request'
+                ? 'builder'
+                : (input.role ?? 'planner');
           w.status = 'ready';
           delete w.error;
           this.event(w, 'user', input.message.trim());
@@ -248,6 +257,34 @@ export class Engine {
             'message_accepted',
             `Message transmis à ${w.activeRole} · ${w.config.roles[w.activeRole].provider}`,
             w.activeRole,
+          );
+          break;
+        }
+        case 'adopt_plan': {
+          if (
+            w.operation ||
+            this.jobs.has(w.id) ||
+            w.phase === 'followup' ||
+            !['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(w.status)
+          )
+            throw new TeamError('CHECKPOINT_REQUIRED', 'Wait for the current turn before adopting a plan');
+          const proposal = w.planProposal;
+          if (!proposal || proposal.baseVersion !== w.planVersions?.at(-1)?.version)
+            throw new TeamError('PLAN_PROPOSAL_STALE', 'No current Reviewer proposal to adopt');
+          if (!(await this.runtime.canClose(w)))
+            throw new TeamError('ACTIVE_STEP', 'A native agent is still active or awaiting permissions.');
+          const paused = w.status === 'paused';
+          this.applyPlan(w, proposal.plan, proposal.operationId, 'reviewer', proposal);
+          delete w.resumeStatus;
+          if (paused) {
+            w.resumeStatus = w.status === 'awaiting_plan' ? 'awaiting_plan' : 'ready';
+            w.status = 'paused';
+          }
+          this.event(
+            w,
+            'plan_adopted',
+            `Proposition Reviewer adoptée depuis le plan v${proposal.baseVersion}.`,
+            'reviewer',
           );
           break;
         }
@@ -536,7 +573,7 @@ export class Engine {
     const prompt = buildPrompt(w, role, context);
     const fingerprint =
       w.config.roles[role].modeId === INSTRUCTION_READ_ONLY ||
-      (w.phase === 'followup' && w.followup?.purpose === 'message')
+      (w.phase === 'followup' && w.followup?.purpose !== 'pull_request')
         ? await this.runtime.fingerprint(w)
         : undefined;
     return this.serial(id, async () => {
@@ -673,6 +710,7 @@ export class Engine {
     delete w.operation;
     delete w.error;
     if (op.phase === 'followup' && w.followup) {
+      const revision = w.followup.purpose === 'plan_revision';
       w.followupResult = text;
       w.phase = w.followup.returnPhase;
       w.status = w.followup.returnStatus === 'completed' ? 'completed' : paused ? 'paused' : w.followup.returnStatus;
@@ -683,6 +721,32 @@ export class Engine {
           : undefined);
       if (w.followup.previousError) w.error = w.followup.previousError;
       delete w.followup;
+      if (revision) {
+        delete w.planProposal;
+        try {
+          const result = planRevisionSchema.parse(parseJson(text));
+          if (result.kind === 'proposal') {
+            w.planProposal = {
+              plan: result.plan,
+              summary: result.summary,
+              baseVersion: w.planVersions!.at(-1)!.version,
+              operationId: op.id,
+              agentId: w.agents.reviewer!,
+              selection: structuredClone(w.config.roles.reviewer),
+              at: new Date().toISOString(),
+            };
+            this.event(
+              w,
+              'plan_proposed',
+              'Proposition Reviewer enregistrée ; adoption explicite requise.',
+              'reviewer',
+            );
+          }
+        } catch (error) {
+          w.error = `Invalid plan revision: ${String(error)}`;
+          this.event(w, 'invalid', w.error, 'reviewer');
+        }
+      }
       await this.save(w);
       return;
     }
@@ -728,7 +792,13 @@ export class Engine {
       this.event(w, 'invalid', w.error);
     }
   }
-  private recordPlan(w: Workflow, plan: Workflow['plan'], source: 'planner' | 'human', operationId?: string) {
+  private recordPlan(
+    w: Workflow,
+    plan: Workflow['plan'],
+    source: 'planner' | 'human' | 'reviewer',
+    operationId?: string,
+    provenance?: Workflow['planProposal'],
+  ) {
     if (!plan) throw new TeamError('PLAN_MISSING', 'No plan to record');
     // Seed records created before plan versioning without inventing a native provenance.
     if (w.plan && !w.planVersions?.length) {
@@ -751,12 +821,17 @@ export class Engine {
         plan: structuredClone(plan),
         source,
         at: new Date().toISOString(),
-        ...(source === 'planner'
-          ? { agentId: w.agents.planner, operationId, selection: structuredClone(w.config.roles.planner) }
+        ...(source !== 'human'
+          ? {
+              agentId: provenance?.agentId ?? w.agents[source],
+              operationId,
+              selection: structuredClone(provenance?.selection ?? w.config.roles[source]),
+            }
           : {}),
       },
     ];
     w.plan = structuredClone(plan);
+    delete w.planProposal;
     w.testsApproved = false;
     w.allowNoTests = false;
     delete w.testedFingerprint;
@@ -770,10 +845,16 @@ export class Engine {
     }
     w.testsApproved = true;
   }
-  private applyPlan(w: Workflow, result: unknown, operationId?: string) {
+  private applyPlan(
+    w: Workflow,
+    result: unknown,
+    operationId?: string,
+    source: 'planner' | 'reviewer' = 'planner',
+    provenance?: Workflow['planProposal'],
+  ) {
     const plan = planSchema.parse(result);
     if (w.config.validation !== 'plan' && w.config.testCommands.length) plan.tests = w.config.testCommands;
-    this.recordPlan(w, plan, 'planner', operationId);
+    this.recordPlan(w, plan, source, operationId, provenance);
     w.phase = STAGE_TRANSITIONS.planner;
     if (w.config.validation === 'plan') w.status = 'awaiting_plan';
     else {

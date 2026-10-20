@@ -1,4 +1,4 @@
-import { buildSchema, planSchema, reviewSchema, type Plan, type Role } from '../shared/contracts';
+import { buildSchema, planSchema, planRevisionSchema, reviewSchema, type Plan, type Role } from '../shared/contracts';
 import { z } from 'zod';
 
 export type Rendered =
@@ -66,6 +66,15 @@ export function eventMarkdown(rendered: Rendered) {
 export function renderEvent(role: Role | undefined, text: string): Rendered {
   try {
     const value: unknown = JSON.parse(unfence(text));
+    const revision = role === 'reviewer' ? planRevisionSchema.safeParse(value) : undefined;
+    if (revision?.success)
+      return {
+        kind: 'markdown',
+        text:
+          revision.data.kind === 'discussion'
+            ? revision.data.summary
+            : `## Proposition de plan\n\n${revision.data.summary}\n\n${artifactMarkdown(revision.data.plan)}`,
+      };
     const schema =
       role === 'planner'
         ? planSchema

@@ -202,6 +202,19 @@ Mutating RPCs carry a request ID and expected workflow revision. Repeated identi
 
 The plugin directly uses SDK methods and lifecycle hooks. It does not need the Paseo handoff/advisor/committee skills to be installed. Native sessions remain separate; their histories are not physically merged.
 
+At a checkpoint in an automatic workflow, enter a message and choose **Réviser le plan avec le Reviewer**.
+The persistent Reviewer session can discuss the plan or return a complete proposal. The current plan and
+its approval stay intact during that conversation. **Adopter ce plan** creates a new version with the
+Reviewer session, model and operation as provenance, invalidates the current approval and applies the
+configured validation policy. A paused workflow stays paused. Earlier versions and approval decisions
+remain in the saved record; proposals survive plugin and daemon restarts. The plan checkpoint identifies
+the current version and its source.
+
+This explicit revision flow starts from Team. Importing additional conversations initiated directly in
+the native Reviewer thread is still pending; the engine retains ambiguous native operations for inspection
+instead of guessing a final plan. Discussion replies and proposals use distinct validated JSON contracts,
+rendered as readable text and plan fields in Team and native progress cards.
+
 Snapshot capture currently rejects repositories whose captured files and diffs exceed 20 MiB. Generated ignored files are excluded. A snapshot failure is explicit rather than silently losing context.
 
 ## Verification status

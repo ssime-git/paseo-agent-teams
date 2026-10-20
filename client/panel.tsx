@@ -182,7 +182,7 @@ export function TeamsPanel(
   useEffect(() => {
     setTestText(workflow?.plan?.tests.map((t) => t.command).join('\n') ?? '');
     setAllowNoTests(workflow?.allowNoTests ?? false);
-  }, [workflow?.id, workflow?.plan?.summary]);
+  }, [workflow?.id, workflow?.plan?.summary, workflow?.planVersions?.at(-1)?.version]);
   useEffect(() => {
     if (!catalog.data) return;
     setConfig((current) => ({ ...current, roles: defaultRoles(catalog.data.providers, current.roles) }));
@@ -232,7 +232,7 @@ export function TeamsPanel(
         setMessage((current) => (current === extra.message ? '' : current));
         setNotice(
           action === 'followup'
-            ? `Message transmis à ${extra.purpose === 'pull_request' ? 'builder' : (extra.role ?? 'planner')}. Réponse à suivre dans la timeline.`
+            ? `Message transmis à ${extra.purpose === 'plan_revision' ? 'reviewer' : extra.purpose === 'pull_request' ? 'builder' : (extra.role ?? 'planner')}. Réponse à suivre dans la timeline.`
             : 'Message enregistré. Sa transmission est indiquée dans la timeline ; une pause ou une permission doit être résolue pour continuer.',
         );
       }
@@ -719,6 +719,24 @@ export function TeamsPanel(
 
         {workflow && !creating ? (
           <>
+            {workflow.planProposal
+              ? card(
+                  <>
+                    {caption(`Proposition Reviewer · plan v${workflow.planProposal.baseVersion}`)}
+                    <Text style={{ color: c.foregroundMuted }}>Le plan courant reste inchangé jusqu’à l’adoption.</Text>
+                    <Markdown source={workflow.planProposal.summary} colors={c} />
+                    <StageResult role="planner" text={JSON.stringify(workflow.planProposal.plan)} colors={c} />
+                    {button(
+                      'Adopter ce plan',
+                      () => void act('adopt_plan'),
+                      !!workflow.operation ||
+                        workflow.phase === 'followup' ||
+                        !['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status),
+                    )}
+                  </>,
+                  'plan-proposal',
+                )
+              : null}
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
                 correction {workflow.cycle}/{workflow.config.maxCorrections}
@@ -885,7 +903,9 @@ export function TeamsPanel(
             {workflow.status === 'awaiting_plan'
               ? card(
                   <>
-                    {caption('Plan à approuver')}
+                    {caption(
+                      `Plan à approuver${workflow.planVersions?.length ? ` · v${workflow.planVersions.at(-1)!.version} · ${workflow.planVersions.at(-1)!.source}` : ''}`,
+                    )}
                     {workflow.plan ? (
                       <>
                         <Markdown source={workflow.plan.summary} colors={c} />
@@ -1092,6 +1112,18 @@ export function TeamsPanel(
             onChangeText={setMessage}
           />
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {workflow.config.mode === 'auto' &&
+            workflow.plan &&
+            !workflow.operation &&
+            workflow.phase !== 'followup' &&
+            ['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
+              ? button(
+                  'Réviser le plan avec le Reviewer',
+                  () => void act('followup', { purpose: 'plan_revision', message, role: 'reviewer' }),
+                  !message.trim(),
+                  'secondary',
+                )
+              : null}
             {workflow.status !== 'completed' ? (
               <>
                 {button('Mettre en pause', () => void act('pause'), false, 'ghost')}

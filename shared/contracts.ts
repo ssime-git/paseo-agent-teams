@@ -63,6 +63,19 @@ export const reviewSchema = z
   .strict()
   .refine((v) => v.verdict !== 'fail' || v.issues.length > 0, 'A failed review needs actionable issues');
 export type Plan = z.infer<typeof planSchema>;
+export const planRevisionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('discussion'), summary: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('proposal'), summary: z.string().min(1), plan: planSchema }).strict(),
+]);
+export const planProposalSchema = z.object({
+  plan: planSchema,
+  summary: z.string(),
+  baseVersion: z.number().int().positive(),
+  operationId: z.string(),
+  agentId: z.string(),
+  selection: selectionSchema,
+  at: z.string(),
+});
 export type Review = z.infer<typeof reviewSchema>;
 export const testResultSchema = commandSchema.extend({
   stdout: z.string(),
@@ -115,6 +128,7 @@ export const workflowSchema = z.object({
   cycle: z.number(),
   plan: planSchema.optional(),
   planVersions: z.array(planVersionSchema).optional(),
+  planProposal: planProposalSchema.optional(),
   build: buildSchema.optional(),
   review: reviewSchema.optional(),
   testedFingerprint: z.string().optional(),
@@ -144,7 +158,7 @@ export const workflowSchema = z.object({
   handoffTokens: z.number().int().nonnegative().optional(),
   followup: z
     .object({
-      purpose: z.enum(['message', 'pull_request']),
+      purpose: z.enum(['message', 'pull_request', 'plan_revision']),
       returnPhase: z.enum(['planning', 'building', 'testing', 'reviewing', 'manual', 'done']),
       returnStatus: z.enum(['paused', 'attention', 'awaiting_plan', 'awaiting_final', 'completed']),
       previousError: z.string().optional(),
@@ -177,8 +191,9 @@ export const actionInput = z.object({
     'continue',
     'reconfigure',
     'followup',
+    'adopt_plan',
   ]),
-  purpose: z.enum(['message', 'pull_request']).optional(),
+  purpose: z.enum(['message', 'pull_request', 'plan_revision']).optional(),
   selection: selectionSchema.optional(),
   extraCorrections: z.number().int().min(1).max(10).optional(),
   permissionId: z.string().optional(),
@@ -236,6 +251,7 @@ export const workflowRecordRpc = defineRpc({
       cycle: true,
       plan: true,
       planVersions: true,
+      planProposal: true,
       build: true,
       review: true,
       tests: true,

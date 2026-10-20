@@ -21,6 +21,8 @@ const messages: Record<string, string> = {
   REVISION_CONFLICT: 'Le workflow a changé. Actualisez avant de réessayer.',
   WORKFLOW_COMPLETED: 'Le workflow est déjà terminé.',
   PLAN_MISSING: 'Aucun plan à approuver.',
+  PLAN_REVISION_UNAVAILABLE: 'La révision nécessite un workflow automatique en cours avec un plan enregistré.',
+  PLAN_PROPOSAL_STALE: 'Aucune proposition Reviewer applicable au plan courant. Demandez une nouvelle révision.',
   NO_TESTS_APPROVAL_REQUIRED: 'Acceptez explicitement l’absence de tests.',
   APPROVAL_NOT_PENDING: 'Aucune approbation en attente.',
   HANDOFF_ROLE_REQUIRED: 'Choisissez un rôle pour le transfert manuel.',

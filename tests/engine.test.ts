@@ -966,3 +966,186 @@ test('an invalid replacement keeps the recorded plan and approval history withou
   assert.deepEqual(w.plan, approvedPlan);
   assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
 });
+
+test('Reviewer discussions and proposals preserve the approved plan until explicit adoption', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  // Keep a previously approved plan at a safe checkpoint, without starting a Builder.
+  w.testsApproved = true;
+  w.planVersions![0].approval = { at: 'original', policy: 'human', allowNoTests: false };
+  w.testedFingerprint = 'old-validation';
+  await h.store.put(w);
+  h.fake.responses.reviewer = [
+    JSON.stringify({ kind: 'discussion', summary: 'Prefer a dedicated callback?' }),
+    JSON.stringify({ kind: 'proposal', summary: 'Dedicated route', plan: { ...plan, tasks: ['Dedicated callback'] } }),
+  ];
+  w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Discuss the callback' });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.testsApproved, true);
+  assert.equal(w.planProposal, undefined);
+  assert.deepEqual(w.plan, plan);
+  w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Yes, propose it' });
+  assert.match(h.fake.calls.at(-1)!.prompt, /Prefer a dedicated callback/);
+  assert.equal(w.planVersions?.length, 1);
+  assert.deepEqual(w.plan, plan);
+  assert.equal(w.planProposal?.baseVersion, 1);
+  const proposal = structuredClone(w.planProposal!);
+  const reloaded = new Store(h.store.directory);
+  assert.deepEqual((await reloaded.get(w.id)).planProposal, proposal);
+  // A model change after proposal must not rewrite its provenance.
+  w = await h.action(w, 'pause');
+  w = await h.action(w, 'reconfigure', {
+    role: 'reviewer',
+    selection: { provider: 'codex/other', modeId: 'read-only' },
+  });
+  w = await h.action(w, 'adopt_plan');
+  assert.equal(w.status, 'paused');
+  assert.equal(w.resumeStatus, 'awaiting_plan');
+  assert.equal(w.testsApproved, false);
+  assert.equal(w.testedFingerprint, undefined);
+  assert.equal(w.planProposal, undefined);
+  assert.deepEqual(w.plan?.tasks, ['Dedicated callback']);
+  assert.equal(w.planVersions?.length, 2);
+  assert.equal(w.planVersions![0].approval?.at, 'original');
+  assert.equal(w.planVersions![1].source, 'reviewer');
+  assert.equal(w.planVersions![1].agentId, proposal.agentId);
+  assert.deepEqual(w.planVersions![1].selection, proposal.selection);
+  assert.equal(w.planVersions![1].operationId, proposal.operationId);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 0);
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'awaiting_plan');
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'completed');
+});
+
+test('invalid Reviewer proposals never mutate or approve the current plan', async (t) => {
+  for (const text of [
+    'not JSON',
+    JSON.stringify({ kind: 'proposal', summary: 'Incomplete', plan: {} }),
+    JSON.stringify(pass),
+  ]) {
+    const h = await setup(t);
+    let w = await h.create();
+    h.fake.responses.reviewer = [text];
+    w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Revise' });
+    assert.equal(w.status, 'awaiting_plan');
+    assert.match(w.error!, /Invalid plan revision/);
+    assert.equal(w.planProposal, undefined);
+    assert.equal(w.testsApproved, false);
+    assert.deepEqual(w.plan, plan);
+    await assert.rejects(h.action(w, 'adopt_plan'), /No current Reviewer proposal/);
+    assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 0);
+  }
+});
+
+test('plan proposal adoption is idempotent, rejects stale clients and applies configured validation policies', async (t) => {
+  for (const validation of ['plan', 'final', 'autonomous'] as const) {
+    const h = await setup(t, { validation, testCommands: validation === 'plan' ? [] : plan.tests });
+    let w = await h.create();
+    // final/autonomous complete normally first; restore a live paused checkpoint for this test.
+    w.status = 'paused';
+    w.phase = 'building';
+    await h.store.put(w);
+    h.fake.responses.reviewer = [
+      JSON.stringify({ kind: 'proposal', summary: 'Revised', plan: { ...plan, summary: 'Revised plan' } }),
+    ];
+    w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Revise' });
+    const input = { id: w.id, expectedRevision: w.revision, requestId: 'adoption', action: 'adopt_plan' as const };
+    const results = await Promise.allSettled([
+      h.engine.action(input),
+      h.engine.action(input),
+      h.engine.action({ ...input, requestId: 'stale-client' }),
+    ]);
+    assert.equal(results[0].status, 'fulfilled');
+    assert.equal(results[1].status, 'fulfilled');
+    assert.equal(results[2].status, 'rejected');
+    await h.engine.settle();
+    w = await h.store.get(w.id);
+    assert.equal(w.status, 'paused');
+    assert.equal(w.planVersions?.length, 2);
+    assert.equal(w.planVersions![1].approval?.policy, validation === 'plan' ? undefined : 'configuration');
+    assert.equal(w.resumeStatus, validation === 'plan' ? 'awaiting_plan' : 'ready');
+    assert.equal(w.events.filter((e) => e.kind === 'plan_adopted').length, 1);
+  }
+});
+
+test('a plan change invalidates a pending Reviewer proposal', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  h.fake.responses.reviewer = [JSON.stringify({ kind: 'proposal', summary: 'Proposal', plan })];
+  w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Revise' });
+  assert.ok(w.planProposal);
+  w = await h.action(w, 'message', { message: 'New requirement for the Planner' });
+  assert.equal(w.planVersions?.length, 2);
+  assert.equal(w.planProposal, undefined);
+  await assert.rejects(h.action(w, 'adopt_plan'), /No current Reviewer proposal/);
+});
+
+test('Reviewer revision survives pause and restart with native reconciliation and no second send', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  let release!: () => void;
+  h.fake.gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const response = JSON.stringify({
+    kind: 'proposal',
+    summary: 'Native proposal',
+    plan: { ...plan, summary: 'Native plan' },
+  });
+  h.fake.responses.reviewer = [response];
+  await h.engine.action({
+    id: w.id,
+    expectedRevision: w.revision,
+    requestId: 'native-revision',
+    action: 'followup',
+    purpose: 'plan_revision',
+    message: 'Revise via native thread',
+  });
+  for (let i = 0; i < 100 && h.fake.calls.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 2));
+  w = await h.store.get(w.id);
+  assert.equal(w.operation?.role, 'reviewer');
+  await assert.rejects(
+    h.engine.action({
+      id: w.id,
+      expectedRevision: w.revision,
+      requestId: 'second-turn',
+      action: 'followup',
+      purpose: 'plan_revision',
+      message: 'Too soon',
+    }),
+    /Wait for the current turn/,
+  );
+  await h.engine.action({ id: w.id, expectedRevision: w.revision, requestId: 'pause-native', action: 'pause' });
+  h.engine.close();
+  release();
+  await h.engine.settle();
+  const store = new Store(h.store.directory);
+  const resumed = new Engine(store, h.fake);
+  t.after(() => resumed.close());
+  w = await store.get(w.id);
+  assert.ok(w.operation);
+  h.fake.nextRecovery = { status: 'idle', text: response };
+  await resumed.action({ id: w.id, expectedRevision: w.revision, requestId: 'resume-native', action: 'resume' });
+  await resumed.settle();
+  w = await store.get(w.id);
+  assert.equal(h.fake.calls.length, 2);
+  assert.equal(h.fake.recoveryCount, 1);
+  assert.equal(w.planProposal?.plan.summary, 'Native plan');
+  assert.equal(w.plan?.summary, plan.summary);
+  assert.equal(w.status, 'awaiting_plan');
+});
+
+test('Reviewer revision detects repository edits even in native read-only modes', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  let fingerprints = 0;
+  h.fake.fingerprint = async () => (++fingerprints === 1 ? 'before' : 'after');
+  h.fake.responses.reviewer = [JSON.stringify({ kind: 'proposal', summary: 'Proposal', plan })];
+  w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Revise' });
+  assert.equal(w.status, 'attention');
+  assert.match(w.error!, /Repository changed during a read-only turn/);
+  assert.ok(w.operation);
+  assert.equal(w.planProposal, undefined);
+  assert.deepEqual(w.plan, plan);
+});
