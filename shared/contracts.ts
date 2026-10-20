@@ -47,6 +47,66 @@ export const planSchema = z
     tests: z.array(commandSchema),
   })
   .strict();
+// A clarification is an alternative to a final plan, never an implicit approval.
+export const clarificationSchema = z
+  .object({
+    kind: z.literal('clarification'),
+    summary: z.string().min(1).max(4000),
+    questions: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(100),
+            title: z.string().min(1).max(2000),
+            options: z
+              .array(
+                z
+                  .object({
+                    id: z.string().min(1).max(100),
+                    label: z.string().min(1).max(500),
+                    tradeoff: z.string().min(1).max(2000),
+                  })
+                  .strict(),
+              )
+              .min(2)
+              .max(3),
+            recommendedOptionId: z.string().min(1).max(100),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const ids = value.questions.map((q) => q.id);
+    if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', message: 'Duplicate question IDs' });
+    for (const q of value.questions) {
+      if (
+        new Set(q.options.map((o) => o.id)).size !== q.options.length ||
+        !q.options.some((o) => o.id === q.recommendedOptionId)
+      )
+        ctx.addIssue({ code: 'custom', message: 'Options must be unique and include the recommendation' });
+    }
+  });
+export const plannerResultSchema = z.union([planSchema, clarificationSchema]);
+export const clarificationAnswerSchema = z
+  .object({
+    questionId: z.string().min(1),
+    optionId: z.string().min(1).optional(),
+    text: z.string().trim().min(1).max(8000).optional(),
+  })
+  .strict()
+  .refine((a) => !!a.optionId || !!a.text, 'Choose an option or provide a free response');
+export const clarificationRecordSchema = z.object({
+  id: z.string(),
+  request: clarificationSchema,
+  operationId: z.string().optional(),
+  agentId: z.string().optional(),
+  at: z.string(),
+  answers: z.array(clarificationAnswerSchema.extend({ at: z.string() })),
+  resolvedAt: z.string().optional(),
+});
 export const planVersionSchema = z.object({
   version: z.number().int().positive(),
   plan: planSchema,
@@ -151,6 +211,7 @@ export const workflowSchema = z.object({
   plan: planSchema.optional(),
   planVersions: z.array(planVersionSchema).optional(),
   planProposal: planProposalSchema.optional(),
+  clarifications: z.array(clarificationRecordSchema).optional(),
   build: buildSchema.optional(),
   review: reviewSchema.optional(),
   testedFingerprint: z.string().optional(),
@@ -227,7 +288,10 @@ export const actionInput = z.object({
     'adopt_plan',
     'import_reviewer_plan',
     'start_goal',
+    'answer_clarification',
   ]),
+  clarificationId: z.string().optional(),
+  answers: z.array(clarificationAnswerSchema).min(1).max(10).optional(),
   purpose: z.enum(['message', 'pull_request', 'plan_revision']).optional(),
   selection: selectionSchema.optional(),
   extraCorrections: z.number().int().min(1).max(10).optional(),
@@ -287,6 +351,7 @@ export const workflowRecordRpc = defineRpc({
       plan: true,
       planVersions: true,
       planProposal: true,
+      clarifications: true,
       build: true,
       review: true,
       tests: true,

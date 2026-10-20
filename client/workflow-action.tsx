@@ -6,6 +6,7 @@ import { actionRpc, listRpc, type Workflow } from '../shared/contracts';
 import { errorMessage } from './errors';
 
 export function workflowHeadline(w: Workflow) {
+  if (w.status !== 'completed' && w.clarifications?.some((v) => !v.resolvedAt)) return 'En attente de réponse';
   if (w.status === 'attention') return w.error?.includes('Budget') ? 'Budget atteint' : 'L’équipe peut reprendre';
   if (w.status === 'paused') return 'Workflow en pause';
   if (w.status === 'permission') return 'Une autorisation est attendue';
@@ -33,7 +34,7 @@ export function GoalAction({
   busy: boolean;
   onContinue(): void;
 }) {
-  const checkpoint = ['attention', 'paused'].includes(w.status);
+  const checkpoint = ['attention', 'paused'].includes(w.status) && !w.clarifications?.some((v) => !v.resolvedAt);
   return (
     <View style={{ gap: 9 }}>
       <Text style={{ color: c.foreground, fontWeight: '600', fontSize: 14 }}>{workflowHeadline(w)}</Text>

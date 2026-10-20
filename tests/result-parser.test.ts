@@ -29,3 +29,23 @@ test('ambiguous keys, conflicting reports and incomplete results are not silentl
   );
   assert.throws(() => parseResult('builder', '{"summary":"Done"}'));
 });
+test('Planner clarification requires concrete unique choices and a valid recommendation', () => {
+  const q = {
+    id: 'scope',
+    title: 'Quelle portée ?',
+    options: [
+      { id: 'a', label: 'Ciblée', tradeoff: 'Moins de changements' },
+      { id: 'b', label: 'Complète', tradeoff: 'Plus de travail' },
+    ],
+    recommendedOptionId: 'a',
+  };
+  const value = { kind: 'clarification', summary: 'Décision nécessaire', questions: [q] };
+  assert.deepEqual(parseResult('planner', JSON.stringify(value)), value);
+  for (const questions of [
+    [q, q],
+    [{ ...q, recommendedOptionId: 'unknown' }],
+    [{ ...q, options: [q.options[0], q.options[0]] }],
+    [{ ...q, options: [q.options[0]] }],
+  ])
+    assert.throws(() => parseResult('planner', JSON.stringify({ ...value, questions })));
+});

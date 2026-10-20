@@ -1,5 +1,5 @@
 import {
-  planSchema,
+  plannerResultSchema,
   planRevisionSchema,
   buildSchema,
   reviewSchema,
@@ -8,7 +8,8 @@ import {
 } from '../shared/contracts';
 import { HANDOFF_BUDGET } from '../shared/context';
 export { HANDOFF_BUDGET } from '../shared/context';
-const schemaFor = (role: Role) => (role === 'planner' ? planSchema : role === 'builder' ? buildSchema : reviewSchema);
+const schemaFor = (role: Role) =>
+  role === 'planner' ? plannerResultSchema : role === 'builder' ? buildSchema : reviewSchema;
 export function boundedText(text: string, limit = 32 * 1024) {
   if (Buffer.byteLength(text) <= limit) return text;
   return Buffer.from(text).subarray(0, limit).toString('utf8') + '\n[Truncated]';
@@ -103,7 +104,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
     : [];
   const instructions = {
     planner:
-      'Analyze the repository and available tools before proposing architecture, tasks, acceptance criteria and test commands. Do not edit files. Verify paths and commands against the actual checkout; avoid invented requirements or a large speculative plan. Tests must exercise behavior and realistic failure cases, not merely compile files or assert the implementation. Never mask failures with ; true, || true or a final successful command. Prefer existing tests and a focused integration check. On a replan, diagnose the actual failed commands, review and Builder blockers; fix incorrect assumptions and verification paths instead of repeating the same instructions. Preserve the original user goal and previously accepted requirements; do not remove a check just to get green results. Distinguish reproducible defects from external dependencies and describe a feasible way forward.',
+      'When a decision requires user input, return kind=clarification instead of a plan: ask focused questions with 2–3 concrete options, explain each tradeoff and recommend one. Free responses are always allowed. Never infer an answer from silence or a timeout. Use the persisted answers below; do not repeat resolved questions. Analyze the repository and available tools before proposing architecture, tasks, acceptance criteria and test commands. Do not edit files. Verify paths and commands against the actual checkout; avoid invented requirements or a large speculative plan. Tests must exercise behavior and realistic failure cases, not merely compile files or assert the implementation. Never mask failures with ; true, || true or a final successful command. Prefer existing tests and a focused integration check. On a replan, diagnose the actual failed commands, review and Builder blockers; fix incorrect assumptions and verification paths instead of repeating the same instructions. Preserve the original user goal and previously accepted requirements; do not remove a check just to get green results. Distinguish reproducible defects from external dependencies and describe a feasible way forward.',
     builder:
       'Work as a developer: inspect, implement, run relevant commands and tests, inspect failures, fix and rerun within this turn until your changes are ready for independent review. The later plugin test stage is an independent verification, not a reason to skip testing now. Address the actual review defects and failed tests; preserve pre-existing user changes. Test observable behavior, regression cases and realistic integrations; do not weaken assertions to fit your implementation. Do not claim mocked tests prove real integration. If the approved verification command contains a wrong path or invocation, explain the evidence and include corrected complete commands in the optional tests field; never drop failing coverage or remove accepted requirements. Report unresolved work and precise external blockers honestly. Do not automatically commit, stage or publish changes.',
     reviewer:
@@ -132,6 +133,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
       : []),
     `Trusted launch test commands: ${serialize(w.config.testCommands, 8 * 1024)}`,
     `Task: ${boundedText(w.task, 16 * 1024)}`,
+    `Persisted clarification questions and answers: ${serialize(w.clarifications ?? [], 16 * 1024)}`,
     'Recent decisions and messages:',
     serialize(conversation(w), 8 * 1024),
     ...artifacts(w, role),

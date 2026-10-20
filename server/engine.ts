@@ -2,6 +2,8 @@ import { TeamError } from '../shared/errors';
 import { rm } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  clarificationSchema,
+  clarificationAnswerSchema,
   buildSchema,
   planSchema,
   planRevisionSchema,
@@ -195,7 +197,62 @@ export class Engine {
         throw new TeamError('REVISION_CONFLICT', 'Workflow changed. Refresh before retrying.');
       if (w.status === 'completed' && input.action !== 'followup')
         throw new TeamError('WORKFLOW_COMPLETED', 'Workflow already completed');
+      const pending = w.clarifications?.find((c) => !c.resolvedAt);
+      if (pending && !['answer_clarification', 'pause', 'reconfigure', 'finish'].includes(input.action))
+        throw new TeamError('CLARIFICATION_PENDING', 'En attente de réponse : répondez aux questions du Planner.');
       switch (input.action) {
+        case 'answer_clarification': {
+          if (!pending || pending.id !== input.clarificationId || w.operation || this.jobs.has(w.id))
+            throw new TeamError(
+              'CLARIFICATION_UNAVAILABLE',
+              'The pending clarification changed. Refresh before answering.',
+            );
+          if (!input.answers?.length) throw new TeamError('ANSWER_REQUIRED', 'Provide at least one answer');
+          if (!(await this.runtime.canClose(w))) throw new TeamError('ACTIVE_STEP', 'A native agent is still active');
+          const incoming = input.answers.map((a) => clarificationAnswerSchema.parse(a));
+          if (new Set(incoming.map((a) => a.questionId)).size !== incoming.length)
+            throw new TeamError('ANSWER_CONFLICT', 'Duplicate question answers');
+          for (const a of incoming) {
+            const q = pending.request.questions.find((q) => q.id === a.questionId);
+            if (!q || (a.optionId && !q.options.some((o) => o.id === a.optionId)))
+              throw new TeamError('ANSWER_INVALID', 'Unknown question or option');
+            const previous = pending.answers.find((v) => v.questionId === a.questionId);
+            if (previous && (previous.optionId !== a.optionId || previous.text !== a.text))
+              throw new TeamError('ANSWER_CONFLICT', 'An answered question cannot be silently overwritten');
+          }
+          for (const a of incoming) {
+            if (!pending.answers.some((v) => v.questionId === a.questionId)) {
+              pending.answers.push({ ...a, at: new Date().toISOString() });
+              const question = pending.request.questions.find((q) => q.id === a.questionId)!;
+              const label = question.options.find((o) => o.id === a.optionId)?.label;
+              this.event(
+                w,
+                'clarification_answer',
+                `${question.title} : ${[label, a.text].filter(Boolean).join(' — ')}`,
+              );
+            }
+          }
+          if (pending.answers.length === pending.request.questions.length) {
+            pending.resolvedAt = new Date().toISOString();
+            w.phase = 'planning';
+            delete w.error;
+            delete w.resumeStatus;
+            if (w.status !== 'paused') w.status = 'ready';
+            else w.resumeStatus = 'ready';
+            // Human waiting time does not consume the execution time budget.
+            if (w.goal)
+              w.goal.startedAt = new Date(
+                Date.parse(w.goal.startedAt) + Math.max(0, Date.now() - Date.parse(pending.at)),
+              ).toISOString();
+            this.event(
+              w,
+              'clarification_resolved',
+              'Réponses enregistrées ; reprise du Planner, sans approbation du plan.',
+              'planner',
+            );
+          }
+          break;
+        }
         case 'followup': {
           if (
             !['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(w.status) ||
@@ -667,7 +724,7 @@ export class Engine {
   }
   private async dispatchNext(id: string): Promise<Work | undefined> {
     const w = await this.serial(id, async () => this.store.get(id));
-    if (DISPATCH_BLOCKED.includes(w.status)) return;
+    if (DISPATCH_BLOCKED.includes(w.status) || w.clarifications?.some((c) => !c.resolvedAt)) return;
     if (w.operation) return { w, reconcile: true };
     if (w.status !== 'ready') return;
     if (w.config.goalMode && w.phase !== 'followup') {
@@ -936,8 +993,26 @@ export class Engine {
     try {
       const result = parseResult(role, text);
       delete w.resultRepair;
-      if (role === 'planner') this.applyPlan(w, result, operationId);
-      else if (role === 'builder') {
+      if (role === 'planner') {
+        if ('kind' in result && result.kind === 'clarification') {
+          const request = clarificationSchema.parse(result);
+          w.clarifications ??= [];
+          w.clarifications.push({
+            id: randomUUID(),
+            request,
+            operationId,
+            agentId: w.agents.planner,
+            at: new Date().toISOString(),
+            answers: [],
+          });
+          w.testsApproved = false;
+          delete w.testedFingerprint;
+          w.phase = 'planning';
+          w.status = 'attention';
+          w.error = 'En attente de réponse';
+          this.event(w, 'clarification_requested', request.summary, 'planner');
+        } else this.applyPlan(w, result, operationId);
+      } else if (role === 'builder') {
         w.build = buildSchema.parse(result);
         if (
           w.config.goalMode &&

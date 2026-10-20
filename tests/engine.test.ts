@@ -1480,3 +1480,133 @@ test('native import stays paused and rejects a repository or session changing du
   assert.equal(w.events.filter((e) => e.kind === 'user').at(-1)?.text, result.prompt);
   assert.equal(h.fake.calls.length, calls);
 });
+
+const clarification = {
+  kind: 'clarification',
+  summary: 'Choisir la portée avant de planifier',
+  questions: ['scope', 'style'].map((id) => ({
+    id,
+    title: `Quelle ${id} ?`,
+    options: [
+      { id: 'small', label: 'Ciblée', tradeoff: 'Moins de changements' },
+      { id: 'large', label: 'Complète', tradeoff: 'Plus de couverture et de travail' },
+    ],
+    recommendedOptionId: 'small',
+  })),
+};
+for (const validation of ['plan', 'final', 'autonomous'] as const) {
+  test(`clarifications persist and block every dispatch until all explicit answers (${validation})`, async (t) => {
+    const h = await setup(t, { validation, recovery: 'automatic', testCommands: plan.tests });
+    h.fake.responses.planner = [JSON.stringify(clarification), JSON.stringify(plan)];
+    let w = await h.create();
+    assert.equal(w.status, 'attention');
+    assert.equal(w.error, 'En attente de réponse');
+    assert.equal(w.testsApproved, false);
+    const id = w.clarifications![0].id;
+    for (const action of ['approve', 'resume', 'continue', 'start_goal', 'message', 'followup'] as const) {
+      await assert.rejects(h.action(w, action, { role: 'builder', message: 'silence' }), /En attente de réponse/);
+    }
+    w = await h.action(w, 'answer_clarification', {
+      clarificationId: id,
+      answers: [{ questionId: 'scope', optionId: 'small' }],
+    });
+    assert.equal(w.status, 'attention');
+    assert.equal(h.fake.calls.length, 1);
+    const restarted = new Engine(new Store(h.store.directory), h.fake);
+    t.after(() => restarted.close());
+    await restarted.recoverAutomatic();
+    await restarted.settle();
+    const restored = await restarted.store.get(w.id);
+    assert.deepEqual(restored.clarifications, w.clarifications);
+    assert.equal(h.fake.calls.length, 1);
+    // A duplicate semantic answer does not append another decision.
+    w = await h.action(w, 'answer_clarification', {
+      clarificationId: id,
+      answers: [{ questionId: 'scope', optionId: 'small' }],
+    });
+    assert.equal(w.clarifications![0].answers.length, 1);
+    await assert.rejects(
+      h.action(w, 'answer_clarification', {
+        clarificationId: id,
+        answers: [{ questionId: 'scope', optionId: 'large' }],
+      }),
+      /silently overwritten/,
+    );
+    await assert.rejects(
+      h.action(w, 'answer_clarification', {
+        clarificationId: id,
+        answers: [{ questionId: 'style', optionId: 'unknown' }],
+      }),
+      /Unknown question/,
+    );
+    w = await h.action(w, 'answer_clarification', {
+      clarificationId: id,
+      answers: [{ questionId: 'style', text: 'Je préfère conserver le style actuel' }],
+    });
+    assert.ok(w.clarifications![0].resolvedAt);
+    assert.ok(h.fake.calls[1].prompt.includes('Je préfère conserver le style actuel'));
+    assert.equal(h.fake.calls[1].role, 'planner');
+    if (validation === 'plan') {
+      assert.equal(w.status, 'awaiting_plan');
+      assert.equal(h.fake.calls.length, 2);
+      assert.equal(w.testsApproved, false);
+    } else {
+      assert.equal(w.status, validation === 'final' ? 'awaiting_final' : 'completed');
+      assert.deepEqual(
+        h.fake.calls.map((c) => c.role),
+        ['planner', 'planner', 'builder', 'reviewer'],
+      );
+    }
+  });
+}
+test('paused clarification accepts later answers without dispatch, and concurrent answers are serialized', async (t) => {
+  const h = await setup(t);
+  h.fake.responses.planner = [JSON.stringify(clarification)];
+  let w = await h.create();
+  w = await h.action(w, 'pause');
+  const input = {
+    id: w.id,
+    expectedRevision: w.revision,
+    action: 'answer_clarification' as const,
+    clarificationId: w.clarifications![0].id,
+    answers: [
+      { questionId: 'scope', text: 'Refus des choix proposés : documentation seule' },
+      { questionId: 'style', optionId: 'small' },
+    ],
+  };
+  const results = await Promise.allSettled(['one', 'two'].map((requestId) => h.engine.action({ ...input, requestId })));
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'paused');
+  assert.equal(w.resumeStatus, 'ready');
+  assert.equal(h.fake.calls.length, 1);
+  assert.equal(w.clarifications![0].answers.length, 2);
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 2);
+});
+test('goal replanning cannot reuse a prior plan approval to bypass an unanswered clarification', async (t) => {
+  const h = await setup(t, { goalMode: true, validation: 'autonomous', testCommands: plan.tests, maxCorrections: 0 });
+  h.fake.responses.planner = [JSON.stringify(plan), JSON.stringify(clarification), JSON.stringify(plan)];
+  h.fake.responses.reviewer = [JSON.stringify(fail), JSON.stringify(pass)];
+  let w = await h.create();
+  assert.equal(w.status, 'attention');
+  assert.ok(w.planVersions![0].approval);
+  assert.equal(w.testsApproved, false);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+  await h.engine.recoverAutomatic();
+  await h.engine.settle();
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+  const extra = {
+    clarificationId: w.clarifications![0].id,
+    answers: clarification.questions.map((q) => ({ questionId: q.id, optionId: 'small' })),
+  };
+  h.fake.canClose = async () => false;
+  await assert.rejects(h.action(w, 'answer_clarification', extra), /native agent is still active/);
+  assert.equal((await h.store.get(w.id)).clarifications![0].answers.length, 0);
+  h.fake.canClose = async () => true;
+  w = await h.action(w, 'answer_clarification', extra);
+  assert.equal(w.status, 'completed');
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 2);
+});

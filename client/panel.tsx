@@ -1,3 +1,4 @@
+import { Clarifications } from './clarifications';
 import { Disclosure } from './disclosure';
 import { LiveWorkflowAction, GoalAction } from './workflow-action';
 import { errorMessage } from './errors';
@@ -761,6 +762,15 @@ export function TeamsPanel(
           <Text accessibilityRole="alert" style={{ color: c.statusDanger }}>
             {error || errorMessage(catalog.error ?? workflows.error)}
           </Text>
+        ) : null}
+        {workflow && !creating ? (
+          <Clarifications
+            key={workflow.id}
+            workflow={workflow}
+            colors={c}
+            busy={busy}
+            onAnswer={(extra) => void act('answer_clarification', extra)}
+          />
         ) : null}
         {creating ? (
           <LockNotice

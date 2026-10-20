@@ -1,4 +1,4 @@
-import { planSchema, buildSchema, reviewSchema, type Role } from './contracts';
+import { plannerResultSchema, buildSchema, reviewSchema, type Role } from './contracts';
 
 /** Normalize harmless key whitespace; collisions must never silently overwrite values. */
 function normalized(value: unknown): unknown {
@@ -23,7 +23,7 @@ export function parseJson(text: string): unknown {
   );
 }
 export function parseResult(role: Role, text: string) {
-  const schema = role === 'planner' ? planSchema : role === 'builder' ? buildSchema : reviewSchema;
+  const schema = role === 'planner' ? plannerResultSchema : role === 'builder' ? buildSchema : reviewSchema;
   try {
     return schema.parse(parseJson(text));
   } catch {

@@ -1,4 +1,5 @@
 import {
+  clarificationSchema,
   buildSchema,
   planSchema,
   planRevisionSchema,
@@ -80,6 +81,19 @@ export function renderEvent(role: Role | undefined, text: string): Rendered {
     } catch {
       value = role ? parseResult(role, text) : undefined;
     }
+    const clarification = role === 'planner' ? clarificationSchema.safeParse(value) : undefined;
+    if (clarification?.success)
+      return {
+        kind: 'markdown',
+        text: [
+          '## En attente de réponse',
+          clarification.data.summary,
+          ...clarification.data.questions.map(
+            (q) =>
+              `### ${q.title}\n\n${q.options.map((o) => `- **${o.label}${o.id === q.recommendedOptionId && !/\((?:recommandé|recommended)\)/i.test(o.label) ? ' (recommandé)' : ''}** : ${o.tradeoff}`).join('\n')}\n\nRéponse libre possible dans Team.`,
+          ),
+        ].join('\n\n'),
+      };
     const revision =
       role === 'reviewer' ? z.union([planRevisionSchema, nativePlanRevisionSchema]).safeParse(value) : undefined;
     if (revision?.success)
