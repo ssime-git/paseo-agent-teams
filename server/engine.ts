@@ -21,7 +21,7 @@ import {
   PHASE_ROLES,
   STAGE_TRANSITIONS,
 } from '../shared/state-machine';
-import { buildPrompt, estimateTokens } from './prompt';
+import { buildPrompt, repairPrompt, estimateTokens } from './prompt';
 import { Store } from './store';
 import { repositoryLocks, scopesOverlap, type RepositoryTarget } from './scopes';
 import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
@@ -41,6 +41,7 @@ export interface Runtime {
   reconcile(w: Workflow): Promise<Outcome>;
   tests(w: Workflow, signal: AbortSignal): Promise<TestResult[]>;
   context(w: Workflow): Promise<string>;
+  skillContext?(w: Workflow, role: Role): Promise<string>;
   publish(w: Workflow): Promise<void>;
   canClose(w: Workflow): Promise<boolean>;
   fingerprint(w: Workflow): Promise<string>;
@@ -50,19 +51,8 @@ export interface Runtime {
   validateSelection?(w: Workflow, role: Role, selection: Config['roles'][Role]): Promise<void>;
 }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const schemaFor = (role: Role) => (role === 'planner' ? planSchema : role === 'builder' ? buildSchema : reviewSchema);
-export function parseResult(role: Role, text: string) {
-  return schemaFor(role).parse(parseJson(text));
-}
-function parseJson(text: string): unknown {
-  return JSON.parse(
-    text
-      .trim()
-      .replace(/^(?:---[ \t]*\r?\n\s*)+/, '')
-      .replace(/^```(?:json)?\s*\n?/, '')
-      .replace(/\n?```$/, ''),
-  );
-}
+export { parseResult } from './result-parser';
+import { parseResult, parseJson } from './result-parser';
 type Work = { w: Workflow; role?: Role; prompt?: string; reconcile?: boolean };
 export class Engine {
   private queues = new Map<string, Promise<unknown>>();
@@ -296,6 +286,42 @@ export class Engine {
           );
           break;
         }
+        case 'start_goal': {
+          if (
+            w.config.mode !== 'auto' ||
+            !['paused', 'attention'].includes(w.status) ||
+            w.operation ||
+            this.jobs.has(w.id)
+          )
+            throw new TeamError('CHECKPOINT_REQUIRED', 'Wait for a safe checkpoint before starting goal execution');
+          if (!(await this.runtime.canClose(w))) throw new TeamError('ACTIVE_STEP', 'A native agent is still active');
+          // Older plugin versions rejected otherwise valid fenced reports. Recover their facts
+          // for diagnosis without treating them as tested work or replaying the Builder turn.
+          const lastBuild = w.events.filter((e) => e.kind === 'assistant' && e.role === 'builder').at(-1);
+          if (lastBuild) {
+            try {
+              w.build = buildSchema.parse(parseResult('builder', lastBuild.text));
+            } catch {
+              /* The Planner still has the actual repository and previous validated artifacts. */
+            }
+          }
+          w.config.goalMode = true;
+          w.config.autoFix = true;
+          w.config.recovery = 'automatic';
+          w.config.freshSessionPerCycle = true;
+          w.goal = { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: 0 };
+          delete w.resultRepair;
+          delete w.error;
+          delete w.resumeStatus;
+          w.phase = 'planning';
+          w.status = 'ready';
+          this.event(
+            w,
+            'goal_started',
+            'Poursuite de l’objectif : diagnostic Planner, développement, tests et revue indépendants.',
+          );
+          break;
+        }
         case 'reconfigure':
         case 'continue': {
           if (!['paused', 'attention'].includes(w.status) || w.operation || this.jobs.has(w.id))
@@ -323,6 +349,9 @@ export class Engine {
           }
           if (w.config.mode === 'auto' && role !== 'planner' && (!w.plan || !w.testsApproved))
             throw new TeamError('APPROVAL_REQUIRED', 'Approve the plan and tests before restarting this phase');
+          delete w.resultRepair;
+          if (w.config.goalMode)
+            w.goal = { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: w.goal?.replans ?? 0 };
           w.config.maxCorrections = Math.max(w.config.maxCorrections, w.cycle + (input.extraCorrections ?? 2));
           if (input.message?.trim()) this.event(w, 'user', input.message.trim());
           if (w.config.mode === 'manual') {
@@ -371,6 +400,7 @@ export class Engine {
             if (!w.plan.tests.length && !w.allowNoTests)
               throw new TeamError('NO_TESTS_APPROVAL_REQUIRED', 'Explicitly accept the absence of tests');
             this.approvePlan(w, 'human');
+            if (w.config.goalMode && w.goal?.turns === 1) w.goal.startedAt = new Date().toISOString();
             w.phase = STAGE_TRANSITIONS.planner;
             w.status = 'ready';
           } else if (w.status === 'awaiting_final') {
@@ -521,9 +551,21 @@ export class Engine {
         await this.serial(id, async () => {
           if (this.closed) return;
           const w = await this.store.get(id);
-          w.status = 'attention';
+          const reconnect =
+            w.config.goalMode &&
+            w.config.recovery === 'automatic' &&
+            w.operation &&
+            w.status !== 'paused' &&
+            /connection|disconnect|socket|ECONN|EPIPE|network|transport/i.test(String(e));
+          w.status = w.status === 'paused' ? 'paused' : reconnect ? 'running' : 'attention';
           w.error = String(e);
-          this.event(w, 'error', String(e));
+          this.event(
+            w,
+            reconnect ? 'reconnecting' : 'error',
+            reconnect
+              ? 'Connexion interrompue : réconciliation automatique de l’opération enregistrée, sans renvoi de la tâche.'
+              : String(e),
+          );
           await this.save(w);
         });
       })
@@ -567,6 +609,19 @@ export class Engine {
     if (DISPATCH_BLOCKED.includes(w.status)) return;
     if (w.operation) return { w, reconcile: true };
     if (w.status !== 'ready') return;
+    if (w.config.goalMode && w.phase !== 'followup') {
+      const elapsed = Date.now() - Date.parse(w.goal?.startedAt ?? new Date().toISOString());
+      if (
+        (w.phase !== 'testing' && (w.goal?.turns ?? 0) >= (w.config.goalMaxTurns ?? 30)) ||
+        elapsed >= (w.config.goalTimeBudgetMs ?? 7_200_000)
+      ) {
+        await this.fail(
+          id,
+          'Budget de poursuite de l’objectif atteint. Consultez le bilan puis prolongez explicitement.',
+        );
+        return;
+      }
+    }
     if (w.phase === 'testing') return this.prepareTests(w);
     const role: Role = w.phase === 'manual' || w.phase === 'followup' ? w.activeRole : PHASE_ROLES[w.phase];
     const revision = w.revision;
@@ -577,9 +632,13 @@ export class Engine {
       w.agents[r] = await this.runtime.agent(w, r);
       w.agentCycles = { ...w.agentCycles, [r]: w.cycle };
     }
-    const context = await this.runtime.context(w);
-    const prompt = buildPrompt(w, role, context);
+    const [context, skillContext] = await Promise.all([
+      w.resultRepair ? '' : this.runtime.context(w),
+      w.resultRepair ? '' : (this.runtime.skillContext?.(w, role) ?? ''),
+    ]);
+    const prompt = w.resultRepair ? repairPrompt(w) : buildPrompt(w, role, context, skillContext);
     const fingerprint =
+      w.resultRepair ||
       w.config.roles[role].modeId === INSTRUCTION_READ_ONLY ||
       (w.phase === 'followup' && w.followup?.purpose !== 'pull_request')
         ? await this.runtime.fingerprint(w)
@@ -597,6 +656,10 @@ export class Engine {
         startedAt: new Date().toISOString(),
         readOnlyFingerprint: fingerprint,
       };
+      if (current.config.goalMode && current.phase !== 'followup') {
+        current.goal ??= { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: 0 };
+        current.goal.turns++;
+      }
       current.status = 'running';
       current.handoffTokens = estimateTokens(prompt);
       delete current.error;
@@ -645,7 +708,22 @@ export class Engine {
         results.map((r) => `${r.command} → ${r.exitCode ?? 'interrompu'}`).join('\n') || 'No tests',
       );
       w.phase = controller.signal.aborted ? STAGE_TRANSITIONS.builder : STAGE_TRANSITIONS.tests;
-      if (w.status !== 'paused') w.status = 'ready';
+      if (w.status !== 'paused') {
+        w.status = 'ready';
+        if (
+          w.config.goalMode &&
+          w.config.autoFix &&
+          !controller.signal.aborted &&
+          results.some((r) => r.exitCode !== 0 || r.timedOut)
+        ) {
+          this.retryGoal(w);
+          this.event(
+            w,
+            'verification_failed',
+            'Vérification échouée : diagnostic et correction avant de demander une revue indépendante.',
+          );
+        }
+      }
       await this.save(w);
     });
   }
@@ -681,14 +759,22 @@ export class Engine {
     if (outcome.status === 'error') delete w.operation;
     if (outcome.status === 'timeout' && w.operation) {
       w.operation.consecutiveTimeouts = (w.operation.consecutiveTimeouts ?? 0) + 1;
-      if (w.operation.consecutiveTimeouts >= (w.config.maxConsecutiveTimeouts ?? 3) && w.status !== 'paused') {
+      if (
+        (w.config.goalMode
+          ? Date.now() - Date.parse(w.goal?.startedAt ?? w.operation.startedAt) >=
+            (w.config.goalTimeBudgetMs ?? 7_200_000)
+          : w.operation.consecutiveTimeouts >= (w.config.maxConsecutiveTimeouts ?? 3)) &&
+        w.status !== 'paused'
+      ) {
         w.status = 'attention';
       }
     }
     w.error =
       outcome.error ??
       (w.status === 'attention' && outcome.status === 'timeout'
-        ? 'Timeout limit reached; inspect the retained operation before resuming'
+        ? w.config.goalMode
+          ? 'Budget de temps atteint ; opération conservée, sans renvoi automatique.'
+          : 'Timeout limit reached; inspect the retained operation before resuming'
         : outcome.status);
     if (outcome.status !== 'permission' || w.events.at(-1)?.kind !== 'permission')
       this.event(
@@ -788,22 +874,52 @@ export class Engine {
   private async applyStageResult(w: Workflow, role: Role, text: string, fingerprint?: string, operationId?: string) {
     try {
       const result = parseResult(role, text);
+      delete w.resultRepair;
       if (role === 'planner') this.applyPlan(w, result, operationId);
       else if (role === 'builder') {
         w.build = buildSchema.parse(result);
+        if (
+          w.config.goalMode &&
+          w.build.tests &&
+          !w.config.testCommands.length &&
+          JSON.stringify(w.build.tests) !== JSON.stringify(w.plan!.tests)
+        ) {
+          w.plan!.tests = w.build.tests;
+          this.recordPlan(w, w.plan, 'builder');
+          this.approvePlan(w, 'configuration');
+          this.event(
+            w,
+            'verification_updated',
+            'Commandes de vérification mises à jour par le Builder ; contrôle indépendant à suivre.',
+            'builder',
+          );
+        }
         w.phase = STAGE_TRANSITIONS.builder;
         w.status = 'ready';
       } else this.applyReview(w, result, fingerprint);
     } catch (e) {
-      w.status = 'attention';
+      const attempts = (w.resultRepair?.attempts ?? 0) + 1;
       w.error = `Invalid ${role} result: ${String(e)}`;
-      this.event(w, 'invalid', w.error);
+      if (attempts <= 2) {
+        w.resultRepair = { role, attempts, error: w.error, text: text.slice(-32 * 1024) };
+        w.status = 'ready';
+        this.event(
+          w,
+          'result_repair',
+          `Rapport ${role} illisible : remise en forme automatique ${attempts}/2, sans réexécuter le travail.`,
+          role,
+        );
+      } else {
+        delete w.resultRepair;
+        w.status = 'attention';
+        this.event(w, 'invalid', w.error);
+      }
     }
   }
   private recordPlan(
     w: Workflow,
     plan: Workflow['plan'],
-    source: 'planner' | 'human' | 'reviewer',
+    source: 'planner' | 'builder' | 'human' | 'reviewer',
     operationId?: string,
     provenance?: Workflow['planProposal'],
   ) {
@@ -861,13 +977,19 @@ export class Engine {
     provenance?: Workflow['planProposal'],
   ) {
     const plan = planSchema.parse(result);
+    const acceptedNoTests = w.allowNoTests || w.config.allowNoTests;
+    const goalApproved =
+      w.config.goalMode && (w.config.validation !== 'plan' || !!w.planVersions?.some((v) => v.approval));
     if (w.config.validation !== 'plan' && w.config.testCommands.length) plan.tests = w.config.testCommands;
     this.recordPlan(w, plan, source, operationId, provenance);
     w.phase = STAGE_TRANSITIONS.planner;
-    if (w.config.validation === 'plan') w.status = 'awaiting_plan';
+    if (w.config.validation === 'plan' && !goalApproved) w.status = 'awaiting_plan';
     else {
-      w.allowNoTests = w.config.allowNoTests;
-      if ((!w.config.testCommands.length && plan.tests.length > 0) || (!plan.tests.length && !w.allowNoTests)) {
+      w.allowNoTests = goalApproved ? acceptedNoTests : w.config.allowNoTests;
+      if (
+        (!w.config.goalMode && !w.config.testCommands.length && plan.tests.length > 0) ||
+        (!plan.tests.length && !w.allowNoTests)
+      ) {
         w.status = 'awaiting_plan';
         this.event(
           w,
@@ -898,6 +1020,8 @@ export class Engine {
     if (w.review.verdict === 'pass' && testsPass) {
       w.phase = STAGE_TRANSITIONS.reviewer;
       w.status = w.config.validation === 'final' ? 'awaiting_final' : 'completed';
+    } else if (w.config.goalMode && w.config.autoFix) {
+      this.retryGoal(w);
     } else if (w.config.autoFix && w.cycle < w.config.maxCorrections) {
       w.cycle++;
       w.phase = STAGE_TRANSITIONS.planner;
@@ -912,6 +1036,30 @@ export class Engine {
       w.status = 'attention';
       w.error = 'Correction limit reached, or automatic correction disabled';
     }
+  }
+  private retryGoal(w: Workflow) {
+    w.goal ??= { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: 0 };
+    w.cycle++;
+    w.goal.corrections++;
+    const replan = w.goal.corrections >= Math.max(1, w.config.maxCorrections);
+    w.phase = replan ? 'planning' : 'building';
+    if (replan) {
+      w.goal.replans++;
+      w.goal.corrections = 0;
+    }
+    // Each review gets an independent session and the current artifact, not its previous conversation.
+    delete w.agents.reviewer;
+    delete w.cursors.reviewer;
+    w.agentGenerations = { ...w.agentGenerations, reviewer: (w.agentGenerations?.reviewer ?? 0) + 1 };
+    w.status = 'ready';
+    this.event(
+      w,
+      replan ? 'goal_replan' : 'correction',
+      replan
+        ? 'Blocage persistant : retour au Planner pour diagnostiquer le plan, les commandes et les dépendances, puis poursuivre.'
+        : 'Revue ou tests non validés : correction et vérification par le Builder.',
+      replan ? 'planner' : 'builder',
+    );
   }
   private async fail(id: string, message: string, clearOperation = false) {
     await this.serial(id, async () => {

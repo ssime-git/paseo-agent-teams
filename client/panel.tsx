@@ -413,6 +413,34 @@ export function TeamsPanel(
       />
       <SettingsSwitch
         colors={c}
+        label="Poursuivre jusqu’à l’objectif"
+        value={config.goalMode ?? false}
+        onValueChange={(goalMode) =>
+          setConfig((cur) => ({
+            ...cur,
+            goalMode,
+            ...(goalMode ? { autoFix: true, recovery: 'automatic' as const, freshSessionPerCycle: true } : {}),
+          }))
+        }
+      />
+      {config.goalMode ? (
+        <>
+          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
+            Développer et tester, corriger, puis revoir le plan si nécessaire. Après la première approbation, les
+            commandes peuvent évoluer automatiquement. Les permissions et blocages externes restent visibles. Budget de
+            2 h ; pause possible à tout moment.
+          </Text>
+          <SettingsSelect
+            colors={c}
+            label="Budget de tours d’agents"
+            value={String(config.goalMaxTurns ?? 30)}
+            options={[10, 20, 30, 50, 100].map((n) => ({ label: String(n), value: String(n) }))}
+            onValueChange={(v) => setConfig((cur) => ({ ...cur, goalMaxTurns: Number(v) }))}
+          />
+        </>
+      ) : null}
+      <SettingsSwitch
+        colors={c}
         label="Auto-accept du Builder"
         value={config.builderAutoAccept}
         onValueChange={(builderAutoAccept) => setConfig((cur) => ({ ...cur, builderAutoAccept }))}
@@ -435,7 +463,7 @@ export function TeamsPanel(
       />
       <SettingsSelect
         colors={c}
-        label="Cycles maximum"
+        label={config.goalMode ? 'Corrections avant retour au Planner' : 'Cycles maximum'}
         value={String(config.maxCorrections)}
         options={Array.from({ length: 11 }, (_, i) => ({ label: String(i), value: String(i) }))}
         onValueChange={(v) => setConfig((cur) => ({ ...cur, maxCorrections: Number(v) }))}
@@ -761,7 +789,9 @@ export function TeamsPanel(
               : null}
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-                correction {workflow.cycle}/{workflow.config.maxCorrections}
+                {workflow.config.goalMode
+                  ? `Objectif · ${workflow.goal?.turns ?? 0}/${workflow.config.goalMaxTurns ?? 30} tours · ${workflow.goal?.replans ?? 0} replanifications`
+                  : `correction ${workflow.cycle}/${workflow.config.maxCorrections}`}
               </Text>
               {workflow.handoffTokens ? badge(`Handoff ≈ ${(workflow.handoffTokens / 1000).toFixed(1)}k tokens`) : null}
               <View style={{ marginLeft: 'auto' }}>

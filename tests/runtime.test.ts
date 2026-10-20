@@ -510,3 +510,26 @@ test('native stage cards use the plugin-owned connection and render the latest a
     text: w.events[0].text,
   });
 });
+
+test('skill discovery uses the selected role session and gracefully tolerates unavailable catalogs', async () => {
+  const w = savedWorkflow();
+  w.task = 'normalizeLabel using team-live-verification';
+  let calls = 0;
+  const h = adapter({
+    commands: async () => {
+      calls++;
+      return {
+        commands: [{ name: 'team-live-verification', description: 'Behavior tests', kind: 'skill' }],
+        error: null,
+      };
+    },
+  });
+  assert.match(await h.runtime.skillContext(w, 'builder'), /team-live-verification/);
+  assert.equal(calls, 1);
+  const unavailable = adapter({
+    commands: async () => {
+      throw new Error('unsupported');
+    },
+  });
+  assert.match(await unavailable.runtime.skillContext(w, 'builder'), /unavailable/);
+});

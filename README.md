@@ -92,6 +92,8 @@ Choose each role's harness, discovered model and permission mode. Planner and Re
 
 Defaults for new teams: Auto Workflow, human approval after the plan, Builder auto-accept, automatic corrections, two correction cycles and explicit restart recovery.
 
+Enable **Poursuivre jusqu’à l’objectif** for continuous execution: the Builder develops **and tests**, failed verification returns for correction, and persistent review failures return to the Planner before execution continues. The default budget is 30 model turns / 2 hours, with compact context, independent review sessions, automatic recovery and per-harness native skill discovery. Goal mode authorizes verification command evolution after the first plan approval; explicit launch commands remain fixed. Existing stopped workflows offer the same button to start a diagnosis with a renewed budget. See [behavior, budgets and real mixed-provider validation](docs/goal-execution.md).
+
 Providers without discovered model IDs offer an explicit **harness default (not advertised)** choice. It leaves model selection to that harness; the plugin never sends a made-up model ID. Providers with no mode catalog can likewise retain their native default permissions. Authentication, connected accounts and configured model catalogs remain the harness's responsibility. Unavailable/error providers cannot be launched; discovering a model does not guarantee access or credits.
 
 ### Separate Claude accounts

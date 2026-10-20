@@ -206,12 +206,12 @@ test('no tests requires explicit acceptance and is recorded', async (t) => {
   assert.equal(w.allowNoTests, true);
   assert.equal(w.planVersions!.at(-1)!.approval?.allowNoTests, true);
 });
-test('invalid output suspends and never dispatches a builder', async (t) => {
+test('persistently invalid output stops after two formatting repairs and never dispatches a builder', async (t) => {
   const h = await setup(t);
-  h.fake.responses.planner = ['not JSON'];
+  h.fake.responses.planner = ['not JSON', 'not JSON', 'not JSON'];
   const w = await h.create();
   assert.equal(w.status, 'attention');
-  assert.equal(h.fake.calls.length, 1);
+  assert.equal(h.fake.calls.length, 3);
 });
 test('duplicate requests are idempotent; conflicting concurrent approvals are rejected', async (t) => {
   const h = await setup(t);
@@ -958,7 +958,7 @@ test('an invalid replacement keeps the recorded plan and approval history withou
   w = await h.action(w, 'approve');
   const history = structuredClone(w.planVersions);
   const approvedPlan = structuredClone(w.plan);
-  h.fake.responses.planner = ['not a structured plan'];
+  h.fake.responses.planner = ['not a structured plan', 'not a structured plan', 'not a structured plan'];
   w = await h.action(w, 'continue', { role: 'planner' });
   assert.equal(w.status, 'attention');
   assert.equal(w.testsApproved, false);
@@ -1214,4 +1214,167 @@ test('overlapping creation checks locks before snapshots while retaining atomic 
   assert.equal(results[1].status, 'rejected');
   assert.equal(captures, 1);
   if (results[1].status === 'rejected') assert.match(String(results[1].reason), /Another workflow holds/);
+});
+
+test('goal execution replans after correction failures and completes without another manual approval', async (t) => {
+  const h = await setup(t, { goalMode: true, maxCorrections: 1, goalMaxTurns: 12 });
+  h.fake.responses.reviewer = [JSON.stringify(fail), JSON.stringify(pass)];
+  let w = await h.create();
+  assert.equal(w.status, 'awaiting_plan');
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.goal?.replans, 1);
+  assert.equal(w.goal?.turns, 6);
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'builder', 'reviewer', 'planner', 'builder', 'reviewer'],
+  );
+  assert.equal(w.planVersions?.length, 2);
+  assert.equal(w.planVersions?.[1].approval?.policy, 'configuration');
+  assert.match(h.fake.calls[3].prompt, /Missing state verification/);
+  assert.equal(w.agentGenerations?.reviewer, 1);
+});
+
+test('goal execution repairs verification commands, runs them and reviews independently', async (t) => {
+  const h = await setup(t, { goalMode: true, validation: 'autonomous' });
+  const corrected = [{ command: 'node --test tests/real.test.js', timeoutMs: 1000 }];
+  h.fake.responses.builder = [JSON.stringify({ ...build, tests: corrected })];
+  const w = await h.create();
+  assert.equal(w.status, 'completed');
+  assert.deepEqual(
+    w.tests.map((t) => t.command),
+    corrected.map((t) => t.command),
+  );
+  assert.equal(w.planVersions?.at(-1)?.source, 'builder');
+  assert.match(h.fake.calls.at(-1)!.prompt, /Verified working artifact fingerprint: snapshot-fingerprint/);
+});
+
+test('goal execution sends failing verification back for diagnosis before spending a Reviewer turn', async (t) => {
+  const h = await setup(t, { goalMode: true, validation: 'autonomous', maxCorrections: 1 });
+  const successful = h.fake.tests.bind(h.fake);
+  let calls = 0;
+  h.fake.tests = async (w) =>
+    (await successful(w)).map((r) => ({ ...r, exitCode: ++calls === 1 ? 1 : 0, stderr: 'bad verification path' }));
+  const w = await h.create();
+  assert.equal(w.status, 'completed');
+  assert.equal(h.fake.calls.filter((c) => c.role === 'reviewer').length, 1);
+  assert.match(h.fake.calls.filter((c) => c.role === 'planner')[1].prompt, /bad verification path/);
+});
+
+test('goal execution respects its total turn budget instead of looping forever', async (t) => {
+  const h = await setup(t, { goalMode: true, validation: 'autonomous', maxCorrections: 1, goalMaxTurns: 5 });
+  h.fake.responses.reviewer = Array(5).fill(JSON.stringify(fail));
+  const w = await h.create();
+  assert.equal(w.status, 'attention');
+  assert.equal(h.fake.calls.length, 5);
+  assert.match(w.error!, /Budget/);
+  assert.equal(w.operation, undefined);
+});
+
+test('completed malformed reports get a formatting-only repair instead of reimplementing', async (t) => {
+  const h = await setup(t);
+  h.fake.responses.builder = ['Implementation is complete but report is not JSON', JSON.stringify(build)];
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.cycle, 0);
+  assert.equal(h.fake.testCount, 1);
+  const repairs = h.fake.calls.filter((c) => c.prompt.includes('Repair only the report format'));
+  assert.equal(repairs.length, 1);
+  assert.match(repairs[0].prompt, /Do not use tools/);
+  assert.equal(w.resultRepair, undefined);
+});
+
+test('a paused legacy workflow can explicitly opt into goal execution with a fresh budget', async (t) => {
+  const h = await setup(t, { maxCorrections: 0 });
+  h.fake.responses.reviewer = [JSON.stringify(fail), JSON.stringify(pass)];
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'attention');
+  w = await h.action(w, 'start_goal');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.config.goalMode, true);
+  assert.equal(w.config.recovery, 'automatic');
+});
+
+test('goal time budget retains an active operation without replaying it', async (t) => {
+  const h = await setup(t, { goalMode: true, validation: 'autonomous', goalTimeBudgetMs: 60000 });
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    const stored = (await h.store.all())[0];
+    stored.goal!.startedAt = new Date(Date.now() - 60001).toISOString();
+    await h.store.put(stored);
+    return { status: 'timeout' };
+  };
+  const w = await h.create();
+  assert.equal(w.status, 'attention');
+  assert.ok(w.operation);
+  assert.equal(h.fake.calls.length, 1);
+  assert.equal(h.fake.recoveryCount, 0);
+});
+
+test('goal reconnect reconciles the saved operation without resending a lost accepted prompt', async (t) => {
+  const h = await setup(t, { goalMode: true, recovery: 'automatic' });
+  h.fake.lost = true;
+  let w = await h.create();
+  assert.equal(w.status, 'running');
+  const operationId = w.operation?.id;
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
+  await h.engine.recoverAutomatic();
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 1);
+  assert.equal(h.fake.calls[0].id, operationId);
+  assert.equal(h.fake.recoveryCount, 1);
+});
+
+test('an exhausted goal can explicitly renew its budget and finish without discarding prior evidence', async (t) => {
+  const h = await setup(t, { goalMode: true, validation: 'autonomous', maxCorrections: 1, goalMaxTurns: 3 });
+  h.fake.responses.reviewer = [JSON.stringify(fail), JSON.stringify(pass)];
+  let w = await h.create();
+  assert.equal(w.status, 'attention');
+  const previousEvents = w.events.length;
+  w = await h.action(w, 'start_goal');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.goal?.turns, 3);
+  assert.ok(w.events.length > previousEvents);
+  assert.equal(w.planVersions?.filter((v) => v.approval).length, 2);
+});
+
+test('goal command evolution preserves explicit launch verification commands', async (t) => {
+  const h = await setup(t, {
+    goalMode: true,
+    validation: 'autonomous',
+    testCommands: [{ command: 'trusted-behavior-check', timeoutMs: 1000 }],
+  });
+  h.fake.responses.builder = [JSON.stringify({ ...build, tests: [{ command: 'echo success', timeoutMs: 1000 }] })];
+  const w = await h.create();
+  assert.equal(w.status, 'completed');
+  assert.deepEqual(
+    w.tests.map((t) => t.command),
+    ['trusted-behavior-check'],
+  );
+  assert.equal(w.planVersions?.length, 1);
+});
+
+test('starting goal execution recovers a legacy rejected fenced Builder report for Planner diagnosis', async (t) => {
+  const h = await setup(t, { maxCorrections: 0 });
+  h.fake.responses.reviewer = [JSON.stringify(fail), JSON.stringify(pass)];
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  w.events.push({
+    id: 'legacy-invalid-reply',
+    at: new Date().toISOString(),
+    kind: 'assistant',
+    role: 'builder',
+    text:
+      'Latest fixes are done.\n```json\n' +
+      JSON.stringify({ ...build, remaining: ['Only the real integration check remains'] }) +
+      '\n```',
+  });
+  await h.store.put(w);
+  w = await h.action(w, 'start_goal');
+  assert.equal(w.status, 'completed');
+  assert.match(h.fake.calls.filter((c) => c.role === 'planner')[1].prompt, /Only the real integration check remains/);
 });

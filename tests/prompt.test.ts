@@ -53,3 +53,19 @@ test('hand-offs are role-specific and stay within the role budget', async () => 
   assert.doesNotMatch(buildPrompt(w, 'reviewer', ''), /fix-me/);
   assert.doesNotMatch(buildPrompt(w, 'builder', ''), /(ok\n){100}/);
 });
+
+test('long plan prose never hides acceptance, verification or the developer testing responsibility', () => {
+  const w = workflowFixture();
+  w.plan = {
+    summary: 'x'.repeat(30000),
+    tasks: ['Implement the behavior'],
+    acceptance: ['Preserve 4xx regression coverage'],
+    tests: [{ command: 'node --test', timeoutMs: 1000 }],
+  };
+  const prompt = buildPrompt(w, 'builder', '');
+  assert.match(prompt, /Preserve 4xx regression coverage/);
+  assert.match(prompt, /node --test/);
+  assert.match(prompt, /run relevant commands and tests/);
+  assert.match(prompt, /not a reason to skip testing/);
+  assert.match(prompt, /skills available in your own harness/);
+});

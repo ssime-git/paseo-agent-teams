@@ -25,6 +25,9 @@ export const configSchema = z
     roles: z.object({ planner: selectionSchema, builder: selectionSchema, reviewer: selectionSchema }).strict(),
     validation: z.enum(['plan', 'final', 'autonomous']).default('plan'),
     autoFix: z.boolean().default(true),
+    goalMode: z.boolean().optional(),
+    goalMaxTurns: z.number().int().min(3).max(200).optional(),
+    goalTimeBudgetMs: z.number().int().min(60_000).max(86_400_000).optional(),
     builderAutoAccept: z.boolean().default(false),
     freshSessionPerCycle: z.boolean().default(false),
     maxCorrections: z.number().int().min(0).default(2),
@@ -47,7 +50,7 @@ export const planSchema = z
 export const planVersionSchema = z.object({
   version: z.number().int().positive(),
   plan: planSchema,
-  source: z.enum(['planner', 'reviewer', 'human', 'legacy']),
+  source: z.enum(['planner', 'builder', 'reviewer', 'human', 'legacy']),
   at: z.string(),
   operationId: z.string().optional(),
   selection: selectionSchema.optional(),
@@ -57,7 +60,12 @@ export const planVersionSchema = z.object({
     .optional(),
 });
 export const buildSchema = z
-  .object({ summary: z.string().min(1), changes: z.array(z.string()), remaining: z.array(z.string()) })
+  .object({
+    summary: z.string().min(1),
+    changes: z.array(z.string()),
+    remaining: z.array(z.string()),
+    tests: z.array(commandSchema).min(1).optional(),
+  })
   .strict();
 export const reviewSchema = z
   .object({ verdict: z.enum(['pass', 'fail']), summary: z.string().min(1), issues: z.array(z.string()) })
@@ -138,6 +146,17 @@ export const workflowSchema = z.object({
   build: buildSchema.optional(),
   review: reviewSchema.optional(),
   testedFingerprint: z.string().optional(),
+  goal: z
+    .object({
+      startedAt: z.string(),
+      turns: z.number().int().nonnegative(),
+      corrections: z.number().int().nonnegative(),
+      replans: z.number().int().nonnegative(),
+    })
+    .optional(),
+  resultRepair: z
+    .object({ role: roleSchema, attempts: z.number().int().positive(), error: z.string(), text: z.string() })
+    .optional(),
   tests: z.array(testResultSchema),
   testsApproved: z.boolean(),
   allowNoTests: z.boolean(),
@@ -198,6 +217,7 @@ export const actionInput = z.object({
     'reconfigure',
     'followup',
     'adopt_plan',
+    'start_goal',
   ]),
   purpose: z.enum(['message', 'pull_request', 'plan_revision']).optional(),
   selection: selectionSchema.optional(),

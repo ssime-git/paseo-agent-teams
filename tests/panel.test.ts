@@ -194,6 +194,21 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   });
   assert.equal((launched as { task: string }).task, 'OAuth2');
   await act(async () => {
+    renderer.root
+      .findAll((node) => String(node.type) === 'SettingsSwitch')
+      .find((node) => node.props.label === 'Poursuivre jusqu’à l’objectif')!
+      .props.onValueChange(true);
+  });
+  await act(async () => {
+    renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress();
+  });
+  const goalConfig = (launched as { config: { goalMode: boolean; recovery: string; freshSessionPerCycle: boolean } })
+    .config;
+  assert.equal(goalConfig.goalMode, true);
+  assert.equal(goalConfig.recovery, 'automatic');
+  assert.equal(goalConfig.freshSessionPerCycle, true);
+
+  await act(async () => {
     renderer.root.findByProps({ accessibilityLabel: 'Chemins des dépôts' }).props.onChangeText('/repo/api\n/repo/web');
   });
   await act(async () => {

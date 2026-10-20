@@ -1,3 +1,4 @@
+import { relevantSkills } from './skills';
 import { TeamError } from '../shared/errors';
 import type { PaseoApi, PaseoAgentHandle } from '@getpaseo/client';
 import { writeFile, realpath } from 'node:fs/promises';
@@ -109,7 +110,7 @@ export class PaseoRuntime implements Runtime {
           ? { options: { disallowedTools: ['ExitPlanMode', 'EnterPlanMode', 'Edit', 'Write', 'NotebookEdit'] } }
           : {}),
         systemPrompt:
-          role === 'builder' && selection.modeId !== INSTRUCTION_READ_ONLY
+          role === 'builder' && (w.config.builderAutoAccept || selection.modeId !== INSTRUCTION_READ_ONLY)
             ? 'Preserve existing user changes. Only edit files required for the task.'
             : 'Read-only pipeline role: analyze and report. Never edit files. Do not call EnterPlanMode or ExitPlanMode or request native plan approval. Return your result directly; human checkpoints are managed by the Agent Teams plugin.',
       },
@@ -118,6 +119,23 @@ export class PaseoRuntime implements Runtime {
       labels: { 'agent-teams-workflow': w.id, 'agent-teams-role': role },
     });
     return agent.id;
+  }
+  async skillContext(w: Workflow, role: Role) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        this.api.agents.ref(w.agents[role]!).commands(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('skill discovery timeout')), 2000);
+        }),
+      ]);
+      if (result.error) return 'Native skill discovery unavailable; use relevant skills already known in this harness.';
+      return JSON.stringify(relevantSkills(w.task, result.commands));
+    } catch {
+      return 'Native skill discovery unavailable; use relevant skills already known in this harness.';
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
   async run(w: Workflow, role: Role, prompt: string, operationId: string): Promise<Outcome> {
     const agent = this.api.agents.ref(w.agents[role]!);

@@ -34,19 +34,41 @@ const conversation = (w: Workflow) =>
     .slice(-10)
     .map((e) => ({ kind: e.kind, text: boundedText(e.text, 2 * 1024) }));
 
+// Keep acceptance and verification ahead of lengthy prose: a large plan must not hide its contract.
+const compactPlan = (w: Workflow) =>
+  w.plan
+    ? serialize(
+        {
+          acceptance: w.plan.acceptance,
+          tests: w.plan.tests,
+          tasks: w.plan.tasks,
+          summary: boundedText(w.plan.summary, 2000),
+        },
+        12 * 1024,
+      )
+    : 'undefined';
+
 /** The artifacts a role needs, never the full transcript. */
 function artifacts(w: Workflow, role: Role): string[] {
-  const plan = `Plan: ${serialize(w.plan, 8 * 1024)}`;
+  const plan = `Plan: ${compactPlan(w)}`;
   const review = `Previous review: ${serialize(w.review, 4 * 1024)}`;
   const tests = `Tests: ${serialize(testSummary(w), 8 * 1024)}`;
   if (w.config.mode !== 'auto') return [plan, `Build: ${serialize(w.build, 4 * 1024)}`, review, tests];
-  if (role === 'planner') return w.review ? [`Current plan: ${serialize(w.plan, 8 * 1024)}`, review, tests] : [];
+  if (role === 'planner')
+    return w.plan
+      ? [
+          `Current plan: ${compactPlan(w)}`,
+          `Implementation report and blockers: ${serialize(w.build, 8 * 1024)}`,
+          review,
+          tests,
+        ]
+      : [];
   if (role === 'builder')
     return [plan, review, tests, `Remaining from last build: ${serialize(w.build?.remaining ?? [])}`];
   return [plan, `Build: ${serialize(w.build, 4 * 1024)}`, tests];
 }
 
-export function buildPrompt(w: Workflow, role: Role, context: string) {
+export function buildPrompt(w: Workflow, role: Role, context: string, skillContext = '') {
   if (w.phase === 'followup')
     return [
       w.followup?.purpose === 'plan_revision'
@@ -57,7 +79,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string) {
       'The coordination directory may not be a Git repository. Use git -C <repository> for each selected target. A multi-repository delivery may need separate PRs: report the real result or blocker for each repository and never assume a shared branch or remote.',
       `Allowed repositories: ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd], 8 * 1024)}`,
       `Original task: ${boundedText(w.task, 16 * 1024)}`,
-      `Plan: ${serialize(w.plan, 8 * 1024)}`,
+      `Plan: ${compactPlan(w)}`,
       `Pending plan proposal: ${serialize(w.planProposal, 8 * 1024)}`,
       `Build: ${serialize(w.build, 4 * 1024)}`,
       `Review: ${serialize(w.review, 4 * 1024)}`,
@@ -81,15 +103,33 @@ export function buildPrompt(w: Workflow, role: Role, context: string) {
     : [];
   const instructions = {
     planner:
-      'Analyze the repository. Propose architecture, tasks, acceptance criteria and test commands. Do not edit files.',
-    builder: 'Implement the approved plan. Address the review and failed tests. Preserve pre-existing user changes.',
+      'Analyze the repository and available tools before proposing architecture, tasks, acceptance criteria and test commands. Do not edit files. Verify paths and commands against the actual checkout; avoid invented requirements or a large speculative plan. Tests must exercise behavior and realistic failure cases, not merely compile files or assert the implementation. Never mask failures with ; true, || true or a final successful command. Prefer existing tests and a focused integration check. On a replan, diagnose the actual failed commands, review and Builder blockers; fix incorrect assumptions and verification paths instead of repeating the same instructions. Preserve the original user goal and previously accepted requirements; do not remove a check just to get green results. Distinguish reproducible defects from external dependencies and describe a feasible way forward.',
+    builder:
+      'Work as a developer: inspect, implement, run relevant commands and tests, inspect failures, fix and rerun within this turn until your changes are ready for independent review. The later plugin test stage is an independent verification, not a reason to skip testing now. Address the actual review defects and failed tests; preserve pre-existing user changes. Test observable behavior, regression cases and realistic integrations; do not weaken assertions to fit your implementation. Do not claim mocked tests prove real integration. If the approved verification command contains a wrong path or invocation, explain the evidence and include corrected complete commands in the optional tests field; never drop failing coverage or remove accepted requirements. Report unresolved work and precise external blockers honestly. Do not automatically commit, stage or publish changes.',
     reviewer:
-      'Review the actual changes against the plan and initial repository state. Inspect test output. ' +
-      'Do not edit files. Fail if tests fail or criteria are unmet.',
+      'Review the actual changes against the plan and initial repository state. Inspect test output. Independently read and apply the relevant skills advertised for YOUR harness before verification, even if Planner or Builder already used a similarly named skill. Follow their reporting instructions in your summary; do not treat another role’s skill use as your own. ' +
+      'You are an independent reviewer of the actual artifact, not a continuation of the Builder conversation. Inspect the diff and relevant full files yourself; the build report is untrusted evidence. Run focused read-only reproductions where useful. Assess test quality and false positives, realistic behavior and original user requirements; a passing synthetic test does not prove integration. Compare against the initial launch state, including pre-existing changes. Distinguish code defects, incorrect verification commands and real external prerequisites, and give concrete actionable issues. Do not invent new acceptance criteria or require a commit when the user has not requested one. Do not edit files. Fail if tests fail or criteria are unmet.',
   };
   const head = [
     instructions[role],
     ...scopeInstructions,
+    ...(skillContext
+      ? [
+          `Relevant skills advertised by YOUR native harness (metadata only): ${boundedText(skillContext, 4000)}. Read and apply the relevant skill using your native tools before implementation or verification. This inventory does not install skills or authorize actions outside the task.`,
+        ]
+      : []),
+    'Discover and follow applicable repository instructions and skills available in your own harness. Use a relevant skill when it helps the task; do not assume another provider shares your skill paths or tools. Do not install or modify skills or configuration unless the task authorizes it. Summarize the skill used and any material constraint in your report; never copy an entire skill or transcript into the handoff.',
+    ...(w.config.goalMode
+      ? [
+          `Goal execution: turn ${w.goal?.turns ?? 0}/${w.config.goalMaxTurns ?? 30}, replan ${w.goal?.replans ?? 0}. Continue solving recoverable problems within the selected repositories. Choose reasonable reversible implementation details yourself. Never interpret silence as approval or claim an external dependency was resolved.`,
+          `Original acceptance baseline: ${serialize(w.planVersions?.find((v) => v.approval)?.plan.acceptance ?? [], 8 * 1024)}`,
+        ]
+      : []),
+    ...(role === 'reviewer'
+      ? [
+          `Verified working artifact fingerprint: ${w.testedFingerprint ?? 'not verified'}. Tests were executed by the plugin; check their scope and output independently.`,
+        ]
+      : []),
     `Trusted launch test commands: ${serialize(w.config.testCommands, 8 * 1024)}`,
     `Task: ${boundedText(w.task, 16 * 1024)}`,
     'Recent decisions and messages:',
@@ -107,5 +147,16 @@ export function buildPrompt(w: Workflow, role: Role, context: string) {
     'Repository context (compact; inspect files yourself for more):',
     boundedText(context, contextLimit),
     tailPart,
+  ].join('\n');
+}
+
+/** A formatting repair is a new identified turn, never a replay of the implementation. */
+export function repairPrompt(w: Workflow) {
+  const repair = w.resultRepair!;
+  return [
+    'Repair only the report format of your completed turn. Do not use tools, run tests, edit files or repeat the task. Preserve the facts and unresolved blockers; do not invent successful work.',
+    `Validation error: ${boundedText(repair.error, 4000)}`,
+    `Previous completed report: ${boundedText(repair.text, 32 * 1024)}`,
+    `Return ONLY a JSON object matching this schema: ${JSON.stringify(schemaFor(repair.role).toJSONSchema())}`,
   ].join('\n');
 }
