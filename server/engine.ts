@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   clarificationSchema,
   clarificationAnswerSchema,
+  nativeClarificationAnswersSchema,
   buildSchema,
   planSchema,
   planRevisionSchema,
@@ -45,6 +46,7 @@ export interface Runtime {
   reviewerPlan?(
     w: Workflow,
   ): Promise<{ text: string; prompt: string; source: { epoch: string; seq: number; turnId: string } }>;
+  plannerAnswers?: Runtime['reviewerPlan'];
   tests(w: Workflow, signal: AbortSignal): Promise<TestResult[]>;
   context(w: Workflow): Promise<string>;
   skillContext?(w: Workflow, role: Role): Promise<string>;
@@ -198,18 +200,47 @@ export class Engine {
       if (w.status === 'completed' && input.action !== 'followup')
         throw new TeamError('WORKFLOW_COMPLETED', 'Workflow already completed');
       const pending = w.clarifications?.find((c) => !c.resolvedAt);
-      if (pending && !['answer_clarification', 'pause', 'reconfigure', 'finish'].includes(input.action))
+      if (
+        pending &&
+        !['answer_clarification', 'import_planner_answers', 'pause', 'reconfigure', 'finish'].includes(input.action)
+      )
         throw new TeamError('CLARIFICATION_PENDING', 'En attente de réponse : répondez aux questions du Planner.');
       switch (input.action) {
-        case 'answer_clarification': {
-          if (!pending || pending.id !== input.clarificationId || w.operation || this.jobs.has(w.id))
+        case 'answer_clarification':
+        case 'import_planner_answers': {
+          if (
+            !pending ||
+            (input.action === 'answer_clarification' && pending.id !== input.clarificationId) ||
+            w.operation ||
+            this.jobs.has(w.id)
+          )
             throw new TeamError(
               'CLARIFICATION_UNAVAILABLE',
               'The pending clarification changed. Refresh before answering.',
             );
-          if (!input.answers?.length) throw new TeamError('ANSWER_REQUIRED', 'Provide at least one answer');
           if (!(await this.runtime.canClose(w))) throw new TeamError('ACTIVE_STEP', 'A native agent is still active');
-          const incoming = input.answers.map((a) => clarificationAnswerSchema.parse(a));
+          let answers = input.answers;
+          let native: Awaited<ReturnType<NonNullable<Runtime['plannerAnswers']>>> | undefined;
+          if (input.action === 'import_planner_answers') {
+            if (!w.agents.planner || !this.runtime.plannerAnswers)
+              throw new TeamError('NATIVE_IMPORT_UNAVAILABLE', 'Native Planner import unavailable');
+            const fingerprint = await this.runtime.fingerprint(w);
+            native = await this.runtime.plannerAnswers(w);
+            // The human's JSON is the authority; the assistant's interpretation is not consent.
+            const envelope = nativeClarificationAnswersSchema.parse(parseJson(native.prompt));
+            if (envelope.workflowId !== w.id || envelope.clarificationId !== pending.id)
+              throw new TeamError(
+                'CLARIFICATION_UNAVAILABLE',
+                'Native answers must identify this pending clarification',
+              );
+            if (fingerprint !== (await this.runtime.fingerprint(w)) || !(await this.runtime.canClose(w)))
+              throw new TeamError('NATIVE_IMPORT_CHANGED', 'Repository or native session changed during import');
+            if (digest(native) !== digest(await this.runtime.plannerAnswers(w)))
+              throw new TeamError('TIMELINE_CHANGED', 'Native Planner exchange changed during import');
+            answers = envelope.answers;
+          }
+          if (!answers?.length) throw new TeamError('ANSWER_REQUIRED', 'Provide at least one answer');
+          const incoming = answers.map((a) => clarificationAnswerSchema.parse(a));
           if (new Set(incoming.map((a) => a.questionId)).size !== incoming.length)
             throw new TeamError('ANSWER_CONFLICT', 'Duplicate question answers');
           for (const a of incoming) {
@@ -219,6 +250,18 @@ export class Engine {
             const previous = pending.answers.find((v) => v.questionId === a.questionId);
             if (previous && (previous.optionId !== a.optionId || previous.text !== a.text))
               throw new TeamError('ANSWER_CONFLICT', 'An answered question cannot be silently overwritten');
+          }
+          if (native) {
+            const sourceId = `native:${w.agents.planner}:${native.source.epoch}:${native.source.seq}`;
+            if (!w.events.some((e) => e.kind === sourceId)) {
+              this.event(
+                w,
+                sourceId,
+                `Réponses natives Planner · clarification ${pending.id} · tour ${native.source.turnId} · curseur ${native.source.epoch}:${native.source.seq}`,
+                'planner',
+              );
+              this.event(w, 'user', native.prompt);
+            }
           }
           for (const a of incoming) {
             if (!pending.answers.some((v) => v.questionId === a.questionId)) {

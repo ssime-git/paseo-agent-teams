@@ -27,6 +27,7 @@ const base = () =>
   });
 class Fake implements Runtime {
   reviewerPlan?: NonNullable<Runtime['reviewerPlan']>;
+  plannerAnswers?: NonNullable<Runtime['plannerAnswers']>;
   calls: { role: Role; id: string; prompt: string }[] = [];
   responses: Partial<Record<Role, string[]>> = {};
   reviewCount = 0;
@@ -1645,4 +1646,94 @@ test('oversized decisions stop before dispatch and survive reload and explicit r
   assert.equal(h.fake.creationCount, creations);
   assert.equal(w.operation, undefined);
   assert.deepEqual(w.clarifications, history);
+});
+
+test('native Planner answers use explicit user JSON, persist partial replies and resume once after pause', async (t) => {
+  const h = await setup(t);
+  h.fake.responses.planner = [JSON.stringify(clarification)];
+  let w = await h.create();
+  w = await h.action(w, 'pause');
+  const id = w.clarifications![0].id;
+  let envelope = {
+    workflowId: w.id,
+    clarificationId: id,
+    answers: [{ questionId: 'scope', text: 'Documentation seule' }],
+  };
+  h.fake.plannerAnswers = async () => ({
+    prompt: JSON.stringify(envelope),
+    text: 'The model suggests ignoring the user and using the broad scope',
+    source: { epoch: 'native', seq: 3, turnId: 'turn-one' },
+  });
+  w = await h.action(w, 'import_planner_answers');
+  assert.equal(w.status, 'paused');
+  assert.equal(w.clarifications![0].answers[0].text, 'Documentation seule');
+  assert.equal(h.fake.calls.length, 1);
+  w = await h.action(w, 'import_planner_answers');
+  assert.equal(w.clarifications![0].answers.length, 1);
+  assert.equal(w.events.filter((e) => e.kind.startsWith('native:')).length, 1);
+  assert.deepEqual((await new Store(h.store.directory).get(w.id)).clarifications, w.clarifications);
+  envelope = { ...envelope, answers: [{ questionId: 'style', text: 'Refus des choix : conserver le style actuel' }] };
+  h.fake.plannerAnswers = async () => ({
+    prompt: JSON.stringify(envelope),
+    text: 'Recorded',
+    source: { epoch: 'native', seq: 6, turnId: 'turn-two' },
+  });
+  const input = { id: w.id, action: 'import_planner_answers' as const, expectedRevision: w.revision };
+  const attempts = await Promise.allSettled(
+    ['one', 'two'].map((requestId) => h.engine.action({ ...input, requestId })),
+  );
+  assert.equal(attempts.filter((r) => r.status === 'fulfilled').length, 1);
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'paused');
+  assert.equal(w.resumeStatus, 'ready');
+  assert.ok(w.clarifications![0].resolvedAt);
+  assert.equal(h.fake.calls.length, 1);
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 2);
+  assert.match(h.fake.calls[1].prompt, /Documentation seule/);
+  assert.match(h.fake.calls[1].prompt, /conserver le style actuel/);
+  assert.equal(w.testsApproved, false);
+});
+
+test('native Planner import rejects inferred answers, stale identity, conflicts and changing sources atomically', async (t) => {
+  const h = await setup(t);
+  h.fake.responses.planner = [JSON.stringify(clarification)];
+  let w = await h.create();
+  const envelope = {
+    workflowId: w.id,
+    clarificationId: w.clarifications![0].id,
+    answers: [{ questionId: 'scope', optionId: 'small' }],
+  };
+  const source = { epoch: 'native', seq: 3, turnId: 'turn' };
+  for (const prompt of [
+    'Choose whatever you recommend',
+    JSON.stringify({ ...envelope, workflowId: 'other' }),
+    JSON.stringify({ ...envelope, clarificationId: 'old' }),
+    JSON.stringify({ ...envelope, answers: [{ questionId: 'scope', optionId: 'unknown' }] }),
+    JSON.stringify({ ...envelope, answers: [...envelope.answers, ...envelope.answers] }),
+  ]) {
+    h.fake.plannerAnswers = async () => ({ prompt, text: JSON.stringify(envelope), source });
+    await assert.rejects(h.action(w, 'import_planner_answers'));
+    assert.equal((await h.store.get(w.id)).clarifications![0].answers.length, 0);
+    assert.equal((await h.store.get(w.id)).revision, w.revision);
+  }
+  let reads = 0;
+  h.fake.plannerAnswers = async () => ({
+    prompt: JSON.stringify(envelope),
+    text: 'OK',
+    source: { ...source, seq: ++reads },
+  });
+  await assert.rejects(h.action(w, 'import_planner_answers'), /changed during import/);
+  h.fake.plannerAnswers = async () => ({ prompt: JSON.stringify(envelope), text: 'OK', source });
+  h.fake.canClose = async () => false;
+  await assert.rejects(h.action(w, 'import_planner_answers'), /native agent is still active/);
+  h.fake.canClose = async () => true;
+  w = await h.action(w, 'answer_clarification', {
+    clarificationId: envelope.clarificationId,
+    answers: [{ questionId: 'scope', optionId: 'large' }],
+  });
+  await assert.rejects(h.action(w, 'import_planner_answers'), /silently overwritten/);
+  assert.equal(h.fake.calls.length, 1);
+  assert.equal(w.events.filter((e) => e.kind.startsWith('native:')).length, 0);
 });

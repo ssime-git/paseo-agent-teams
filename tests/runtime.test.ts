@@ -569,3 +569,27 @@ test('native import refuses busy, partial, workflow-owned and ambiguous timeline
     assert.equal(h.counts().sends, 0);
   }
 });
+
+test('native Planner answers share canonical completeness and permission safeguards without dispatch', async () => {
+  const w = savedWorkflow();
+  w.agents.planner = 'planner';
+  const prompt = {
+    item: { type: 'user_message', text: '{"workflowId":"workflow","clarificationId":"batch","answers":[]}' },
+    seqEnd: 1,
+  };
+  const answer = { item: { type: 'assistant_message', text: 'Recorded' }, turnId: 'native-turn', seqEnd: 2 };
+  const h = adapter({}, [prompt, answer]);
+  assert.equal((await h.runtime.plannerAnswers(w)).prompt, prompt.item.text);
+  for (const bad of [
+    adapter({ status: 'running' }, [prompt, answer]),
+    adapter({ pendingPermissions: [{}] }, [prompt, answer]),
+    adapter({}, [accepted, answer]),
+    adapter({}, [prompt]),
+    adapter({}, [prompt, answer, { ...answer, turnId: 'other' }]),
+    adapter({ timeline: { refetch: async () => ({ entries: [prompt, answer], gap: true }) } }),
+  ]) {
+    await assert.rejects(bad.runtime.plannerAnswers(w));
+    assert.equal(bad.counts().sends, 0);
+  }
+  assert.deepEqual(h.counts(), { sends: 0, waits: 0, appends: 0 });
+});

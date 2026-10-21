@@ -98,6 +98,14 @@ export const clarificationAnswerSchema = z
   })
   .strict()
   .refine((a) => !!a.optionId || !!a.text, 'Choose an option or provide a free response');
+// Import only explicit native user answers, never a model-inferred preference.
+export const nativeClarificationAnswersSchema = z
+  .object({
+    workflowId: z.string().min(1),
+    clarificationId: z.string().min(1),
+    answers: z.array(clarificationAnswerSchema).min(1).max(10),
+  })
+  .strict();
 export const clarificationRecordSchema = z.object({
   id: z.string(),
   request: clarificationSchema,
@@ -289,6 +297,7 @@ export const actionInput = z.object({
     'import_reviewer_plan',
     'start_goal',
     'answer_clarification',
+    'import_planner_answers',
   ]),
   clarificationId: z.string().optional(),
   answers: z.array(clarificationAnswerSchema).min(1).max(10).optional(),

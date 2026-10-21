@@ -252,9 +252,15 @@ export class PaseoRuntime implements Runtime {
     };
   }
   async reviewerPlan(w: Workflow) {
-    const agent = this.api.agents.ref(w.agents.reviewer!);
+    return this.nativeExchange(w, 'reviewer');
+  }
+  async plannerAnswers(w: Workflow) {
+    return this.nativeExchange(w, 'planner');
+  }
+  private async nativeExchange(w: Workflow, role: Role) {
+    const agent = this.api.agents.ref(w.agents[role]!);
     if (!(await agent.refresh()) || agent.status !== 'idle' || agent.activeTurn || agent.pendingPermissions?.length)
-      throw new TeamError('ACTIVE_STEP', 'Reviewer must be idle without pending permissions');
+      throw new TeamError('ACTIVE_STEP', 'Native role must be idle without pending permissions');
     // Native imports are explicit and bounded. Never reconcile or resend a workflow operation here.
     const page = await agent.timeline.refetch({ direction: 'before', limit: 100, projection: 'canonical' });
     if (page.reset || page.gap || page.staleCursor || !page.endCursor)
@@ -277,7 +283,7 @@ export class PaseoRuntime implements Runtime {
     // Accept the complete final object only. Earlier commentary is not a proposal.
     if (last.item.type !== 'assistant_message') throw new TeamError('NATIVE_RESULT_MISSING', 'No native reply');
     if (Buffer.byteLength(last.item.text) > 256 * 1024 || Buffer.byteLength(prompt.item.text) > 256 * 1024)
-      throw new TeamError('NATIVE_RESULT_TOO_LARGE', 'Native plan exchange exceeds 256 KiB per message');
+      throw new TeamError('NATIVE_RESULT_TOO_LARGE', 'Native exchange exceeds 256 KiB per message');
     return {
       text: last.item.text,
       prompt: prompt.item.text,
