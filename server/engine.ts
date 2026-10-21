@@ -237,6 +237,8 @@ export class Engine {
               throw new TeamError('NATIVE_IMPORT_CHANGED', 'Repository or native session changed during import');
             if (digest(native) !== digest(await this.runtime.plannerAnswers(w)))
               throw new TeamError('TIMELINE_CHANGED', 'Native Planner exchange changed during import');
+            if (!(await this.runtime.canClose(w)))
+              throw new TeamError('ACTIVE_STEP', 'A native agent became active during import');
             answers = envelope.answers;
           }
           if (!answers?.length) throw new TeamError('ANSWER_REQUIRED', 'Provide at least one answer');
@@ -389,6 +391,8 @@ export class Engine {
             throw new TeamError('NATIVE_IMPORT_CHANGED', 'Repository or native session changed during import');
           if (digest(candidate) !== digest(await this.runtime.reviewerPlan(w)))
             throw new TeamError('TIMELINE_CHANGED', 'Native Reviewer reply changed during import');
+          if (!(await this.runtime.canClose(w)))
+            throw new TeamError('ACTIVE_STEP', 'A native agent became active during import');
           const sourceId = `native:${w.agents.reviewer}:${candidate.source.epoch}:${candidate.source.seq}`;
           if (!w.events.some((e) => e.kind === sourceId)) {
             delete w.planProposal;

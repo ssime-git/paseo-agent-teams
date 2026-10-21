@@ -1737,3 +1737,47 @@ test('native Planner import rejects inferred answers, stale identity, conflicts 
   assert.equal(h.fake.calls.length, 1);
   assert.equal(w.events.filter((e) => e.kind.startsWith('native:')).length, 0);
 });
+
+test('native imports remain atomic when another role starts during the final timeline read', async (t) => {
+  for (const role of ['planner', 'reviewer'] as const) {
+    const h = await setup(t);
+    if (role === 'planner') h.fake.responses.planner = [JSON.stringify(clarification)];
+    const w = await h.create();
+    w.agents[role] = `native-${role}`;
+    await h.store.put(w);
+    const before = await h.store.get(w.id);
+    let active = false;
+    let reads = 0;
+    h.fake.canClose = async () => !active;
+    const exchange = async () => {
+      if (++reads === 2) active = true;
+      return {
+        source: { epoch: 'native', seq: 42, turnId: 'turn' },
+        prompt: JSON.stringify({
+          workflowId: w.id,
+          clarificationId: w.clarifications?.[0].id,
+          answers: [{ questionId: 'scope', optionId: 'small' }],
+        }),
+        text: JSON.stringify({
+          workflowId: w.id,
+          baseVersion: w.planVersions?.at(-1)?.version,
+          kind: 'proposal',
+          summary: 'Native decision',
+          plan: { ...plan, summary: 'Native revision' },
+        }),
+      };
+    };
+    h.fake.plannerAnswers = exchange;
+    h.fake.reviewerPlan = exchange;
+    const calls = h.fake.calls.length;
+    const action = role === 'planner' ? 'import_planner_answers' : 'import_reviewer_plan';
+    await assert.rejects(h.action(w, action), /became active during import/);
+    assert.equal(reads, 2);
+    assert.deepEqual(await h.store.get(w.id), before);
+    assert.equal(h.fake.calls.length, calls);
+    active = false;
+    const imported = await h.action(w, action);
+    if (role === 'planner') assert.equal(imported.clarifications![0].answers.length, 1);
+    else assert.equal(imported.planProposal?.plan.summary, 'Native revision');
+  }
+});

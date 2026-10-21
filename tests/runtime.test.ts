@@ -593,3 +593,24 @@ test('native Planner answers share canonical completeness and permission safegua
   }
   assert.deepEqual(h.counts(), { sends: 0, waits: 0, appends: 0 });
 });
+
+test('checkpoint inactivity checks every role including active turns with an idle status', async () => {
+  const w = savedWorkflow();
+  w.agents = { planner: 'planner', builder: 'builder', reviewer: 'reviewer' };
+  for (const role of Object.values(w.agents)) {
+    for (const state of [
+      { status: 'running' },
+      { status: 'initializing' },
+      { activeTurn: { turnId: 'native-turn' } },
+      { pendingPermissions: [{}] },
+      { refresh: async () => null },
+    ]) {
+      const idle = { status: 'idle', activeTurn: null, pendingPermissions: [], refresh: async () => ({}) };
+      const api = {
+        agents: { ref: (id: string) => (id === role ? { ...idle, ...state } : idle) },
+      } as unknown as PaseoApi;
+      assert.equal(await new PaseoRuntime(api, '/unused').canClose(w), false, `${role}: ${JSON.stringify(state)}`);
+    }
+  }
+  assert.equal(await adapter().runtime.canClose(w), true);
+});

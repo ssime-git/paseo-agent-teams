@@ -330,6 +330,7 @@ export class PaseoRuntime implements Runtime {
         !(await handle.refresh()) ||
         handle.status === 'running' ||
         handle.status === 'initializing' ||
+        handle.activeTurn ||
         handle.pendingPermissions?.length
       )
         return false;
