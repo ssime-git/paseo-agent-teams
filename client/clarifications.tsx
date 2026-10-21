@@ -8,13 +8,18 @@ export function Clarifications({
   colors: c,
   busy,
   onAnswer,
+  onImport,
+  onOpenPlanner,
 }: {
   workflow: Workflow;
   colors: PluginHostProps['theme']['colors'];
   busy: boolean;
   onAnswer(extra: Partial<Action>): void;
+  onImport(): void;
+  onOpenPlanner?: () => void;
 }) {
   const pending = workflow.clarifications?.find((v) => !v.resolvedAt);
+  const [showNative, setShowNative] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   if (!pending || workflow.status === 'completed') return null;
   return (
@@ -24,6 +29,65 @@ export function Clarifications({
       <Text style={{ color: c.foregroundMuted }}>
         Aucun choix n’est appliqué automatiquement. Le Planner reprendra après toutes les réponses.
       </Text>
+      {workflow.agents.planner ? (
+        <View style={{ gap: 8 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Préparer une réponse native"
+            onPress={() => setShowNative((v) => !v)}
+            style={{ padding: 12, minHeight: 44 }}
+          >
+            <Text style={{ color: c.accent }}>Préparer une réponse native</Text>
+          </Pressable>
+          {showNative ? (
+            <>
+              <Text style={{ color: c.foregroundMuted }}>
+                Copiez ce modèle dans la session du Planner. Pour chaque question, remplacez le texte vide par votre
+                réponse, ou remplacez « text » par « optionId » avec un identifiant proposé ci-dessous. Vous pouvez
+                retirer les questions auxquelles vous répondrez plus tard. Attendez la fin du tour natif puis importez
+                explicitement les réponses. Un modèle vide ne vaut pas réponse.
+              </Text>
+              <Text selectable style={{ color: c.foreground }}>
+                {JSON.stringify(
+                  {
+                    workflowId: workflow.id,
+                    clarificationId: pending.id,
+                    answers: pending.request.questions
+                      .filter((q) => !pending.answers.some((a) => a.questionId === q.id))
+                      .map((q) => ({ questionId: q.id, text: '' })),
+                  },
+                  null,
+                  2,
+                )}
+              </Text>
+              {pending.request.questions.map((q) => (
+                <Text key={q.id} selectable style={{ color: c.foregroundMuted }}>
+                  {q.title} : {q.options.map((o) => `${o.id} = ${o.label}`).join(' ; ')}
+                </Text>
+              ))}
+              {onOpenPlanner ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ouvrir la session du Planner"
+                  onPress={onOpenPlanner}
+                  style={{ padding: 12, minHeight: 44 }}
+                >
+                  <Text style={{ color: c.accent }}>Ouvrir la session du Planner</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Importer les réponses natives du Planner"
+                disabled={busy || !!workflow.operation}
+                onPress={onImport}
+                style={{ padding: 12, minHeight: 44, opacity: busy || workflow.operation ? 0.5 : 1 }}
+              >
+                <Text style={{ color: c.accent }}>Importer les réponses natives du Planner</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+      ) : null}
       {pending.request.questions.map((q) => {
         const answer = pending.answers.find((a) => a.questionId === q.id);
         const key = `${pending.id}:${q.id}`;

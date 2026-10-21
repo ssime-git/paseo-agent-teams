@@ -240,6 +240,10 @@ export function TeamsPanel(
         ...extra,
       });
       pendingRequests.current.delete(key);
+      if (action === 'import_planner_answers')
+        setNotice(
+          'Réponses natives importées. Le Planner reprend après résolution de toutes les questions, sauf en pause.',
+        );
       if (action === 'import_reviewer_plan')
         setNotice(
           'Réponse native récupérée. Le plan courant reste conservé ; toute proposition doit être adoptée explicitement.',
@@ -770,6 +774,12 @@ export function TeamsPanel(
             colors={c}
             busy={busy}
             onAnswer={(extra) => void act('answer_clarification', extra)}
+            onImport={() => void act('import_planner_answers')}
+            onOpenPlanner={
+              navigation && workflow.agents.planner
+                ? () => navigation.openAgent({ agentId: workflow.agents.planner! })
+                : undefined
+            }
           />
         ) : null}
         {creating ? (

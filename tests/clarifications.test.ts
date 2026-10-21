@@ -60,8 +60,18 @@ test('clarification UI never selects the recommendation and permits explicit fre
       },
     },
   ];
+  w.agents.planner = 'native-planner';
+  let imports = 0;
+  let opens = 0;
   const answers: unknown[] = [];
-  const props = { workflow: w, colors: {}, busy: false, onAnswer: (value: unknown) => answers.push(value) };
+  const props = {
+    workflow: w,
+    colors: {},
+    busy: false,
+    onAnswer: (value: unknown) => answers.push(value),
+    onImport: () => imports++,
+    onOpenPlanner: () => opens++,
+  };
   let renderer!: ReturnType<typeof create>;
   await act(() => {
     renderer = create(React.createElement(Clarifications, props));
@@ -69,6 +79,27 @@ test('clarification UI never selects the recommendation and permits explicit fre
   t.after(() => act(() => renderer.unmount()));
   assert.equal(answers.length, 0);
   assert.match(JSON.stringify(renderer.toJSON()), /recommandé/);
+  assert.equal(imports, 0);
+  await act(() => renderer.root.findByProps({ accessibilityLabel: 'Préparer une réponse native' }).props.onPress());
+  const template = renderer.root
+    .findAll((node) => String(node.type) === 'Text')
+    .map((node) => node.props.children)
+    .find((value) => typeof value === 'string' && value.startsWith('{'));
+  assert.deepEqual(JSON.parse(template), {
+    workflowId: w.id,
+    clarificationId: 'batch',
+    answers: [{ questionId: 'scope', text: '' }],
+  });
+  assert.equal(answers.length, 0);
+  await act(() => renderer.root.findByProps({ accessibilityLabel: 'Ouvrir la session du Planner' }).props.onPress());
+  assert.equal(opens, 1);
+  const importButton = () =>
+    renderer.root.findByProps({ accessibilityLabel: 'Importer les réponses natives du Planner' });
+  await act(() => importButton().props.onPress());
+  assert.equal(imports, 1);
+  await act(() => renderer.update(React.createElement(Clarifications, { ...props, busy: true })));
+  assert.equal(importButton().props.disabled, true);
+  await act(() => renderer.update(React.createElement(Clarifications, props)));
   const send = () => renderer.root.findByProps({ accessibilityLabel: 'Envoyer la réponse : Quelle portée ?' });
   assert.equal(send().props.disabled, true);
   await act(() =>
@@ -88,4 +119,16 @@ test('clarification UI never selects the recommendation and permits explicit fre
   await act(() => renderer.update(React.createElement(Clarifications, { ...props, workflow: structuredClone(w) })));
   assert.equal(renderer.root.findAll((node) => String(node.type) === 'TextInput').length, 0);
   assert.match(JSON.stringify(renderer.toJSON()), /Réponse enregistrée/);
+  const remainingTemplate = renderer.root
+    .findAll((node) => String(node.type) === 'Text')
+    .map((node) => node.props.children)
+    .find((value) => typeof value === 'string' && value.startsWith('{'));
+  assert.deepEqual(JSON.parse(remainingTemplate).answers, []);
+  const withoutPlanner = structuredClone(w);
+  delete withoutPlanner.agents.planner;
+  await act(() => renderer.update(React.createElement(Clarifications, { ...props, workflow: withoutPlanner })));
+  assert.equal(renderer.root.findAllByProps({ accessibilityLabel: 'Préparer une réponse native' }).length, 0);
+  w.clarifications[0].resolvedAt = 'later';
+  await act(() => renderer.update(React.createElement(Clarifications, { ...props, workflow: structuredClone(w) })));
+  assert.equal(renderer.toJSON(), null);
 });
