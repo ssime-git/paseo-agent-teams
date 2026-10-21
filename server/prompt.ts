@@ -7,6 +7,7 @@ import {
   type Role,
 } from '../shared/contracts';
 import { HANDOFF_BUDGET } from '../shared/context';
+import { TeamError } from '../shared/errors';
 export { HANDOFF_BUDGET } from '../shared/context';
 const schemaFor = (role: Role) =>
   role === 'planner' ? plannerResultSchema : role === 'builder' ? buildSchema : reviewSchema;
@@ -15,6 +16,18 @@ export function boundedText(text: string, limit = 32 * 1024) {
   return Buffer.from(text).subarray(0, limit).toString('utf8') + '\n[Truncated]';
 }
 const serialize = (value: unknown, limit?: number) => boundedText(JSON.stringify(value) ?? 'undefined', limit);
+// Decisions are mandatory context, including in follow-ups. Never send a partial JSON
+// history or silently forget an older answer to fit the advisory hand-off budget.
+export const CLARIFICATION_CONTEXT_BYTES = 128 * 1024;
+function clarificationContext(w: Workflow) {
+  const history = JSON.stringify(w.clarifications ?? []);
+  if (Buffer.byteLength(history) > CLARIFICATION_CONTEXT_BYTES)
+    throw new TeamError(
+      'CLARIFICATION_CONTEXT_LIMIT',
+      'Historique des clarifications trop volumineux (limite 128 Kio). Aucun tour envoyé ; toutes les réponses restent conservées. Réduisez explicitement le périmètre dans un nouveau workflow en y reportant les décisions applicables.',
+    );
+  return `Persisted clarification questions and answers: ${history}`;
+}
 /** Rough token estimate (~4 bytes per token). */
 export const estimateTokens = (text: string) => Math.ceil(Buffer.byteLength(text) / 4);
 /** Hand-off budget per role, in tokens. */
@@ -80,6 +93,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
       'The coordination directory may not be a Git repository. Use git -C <repository> for each selected target. A multi-repository delivery may need separate PRs: report the real result or blocker for each repository and never assume a shared branch or remote.',
       `Allowed repositories: ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd], 8 * 1024)}`,
       `Original task: ${boundedText(w.task, 16 * 1024)}`,
+      clarificationContext(w),
       `Plan: ${compactPlan(w)}`,
       `Pending plan proposal: ${serialize(w.planProposal, 8 * 1024)}`,
       `Build: ${serialize(w.build, 4 * 1024)}`,
@@ -133,7 +147,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
       : []),
     `Trusted launch test commands: ${serialize(w.config.testCommands, 8 * 1024)}`,
     `Task: ${boundedText(w.task, 16 * 1024)}`,
-    `Persisted clarification questions and answers: ${serialize(w.clarifications ?? [], 16 * 1024)}`,
+    clarificationContext(w),
     'Recent decisions and messages:',
     serialize(conversation(w), 8 * 1024),
     ...artifacts(w, role),

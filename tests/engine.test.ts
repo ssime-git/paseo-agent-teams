@@ -1610,3 +1610,39 @@ test('goal replanning cannot reuse a prior plan approval to bypass an unanswered
   assert.equal(w.status, 'completed');
   assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 2);
 });
+
+test('oversized decisions stop before dispatch and survive reload and explicit resume', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  const history = Array.from({ length: 10 }, (_, i) => ({
+    id: `batch-${i}`,
+    at: '2026-10-21T00:00:00Z',
+    resolvedAt: '2026-10-21T00:01:00Z',
+    request: { ...clarification, kind: 'clarification' as const },
+    answers: clarification.questions.map((q) => ({
+      questionId: q.id,
+      text: 'é'.repeat(7000 / 2),
+      at: '2026-10-21T00:01:00Z',
+    })),
+  }));
+  w.clarifications = history;
+  await h.store.put(w);
+  const calls = h.fake.calls.length;
+  const creations = h.fake.creationCount;
+  w.agents = {};
+  await h.store.put(w);
+  w = await h.action(w, 'followup', { message: 'Explain the saved decisions', role: 'planner' });
+  assert.equal(w.status, 'attention');
+  assert.match(w.error!, /CLARIFICATION_CONTEXT_LIMIT/);
+  assert.equal(w.operation, undefined);
+  assert.equal(h.fake.calls.length, calls);
+  assert.equal(h.fake.creationCount, creations);
+  const restored = await new Store(h.store.directory).get(w.id);
+  assert.deepEqual(restored.clarifications, history);
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'attention');
+  assert.equal(h.fake.calls.length, calls);
+  assert.equal(h.fake.creationCount, creations);
+  assert.equal(w.operation, undefined);
+  assert.deepEqual(w.clarifications, history);
+});

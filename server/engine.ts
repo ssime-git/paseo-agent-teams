@@ -743,6 +743,11 @@ export class Engine {
     if (w.phase === 'testing') return this.prepareTests(w);
     const role: Role = w.phase === 'manual' || w.phase === 'followup' ? w.activeRole : PHASE_ROLES[w.phase];
     const revision = w.revision;
+    const [context, skillContext] = await Promise.all([
+      w.resultRepair ? '' : this.runtime.context(w),
+      w.resultRepair ? '' : (this.runtime.skillContext?.(w, role) ?? ''),
+    ]);
+    const prompt = w.resultRepair ? repairPrompt(w) : buildPrompt(w, role, context, skillContext);
     for (const r of roles) {
       // Opt-in: a role dispatched in a later correction cycle restarts from a clean session to bound its history.
       const stale = w.config.freshSessionPerCycle && r === role && (w.agentCycles?.[r] ?? 0) < w.cycle;
@@ -750,11 +755,6 @@ export class Engine {
       w.agents[r] = await this.runtime.agent(w, r);
       w.agentCycles = { ...w.agentCycles, [r]: w.cycle };
     }
-    const [context, skillContext] = await Promise.all([
-      w.resultRepair ? '' : this.runtime.context(w),
-      w.resultRepair ? '' : (this.runtime.skillContext?.(w, role) ?? ''),
-    ]);
-    const prompt = w.resultRepair ? repairPrompt(w) : buildPrompt(w, role, context, skillContext);
     const fingerprint =
       w.resultRepair ||
       w.config.roles[role].modeId === INSTRUCTION_READ_ONLY ||

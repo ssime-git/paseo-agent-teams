@@ -69,3 +69,75 @@ test('long plan prose never hides acceptance, verification or the developer test
   assert.match(prompt, /not a reason to skip testing/);
   assert.match(prompt, /skills available in your own harness/);
 });
+
+test('clarification decisions survive long histories and every role including follow-up', () => {
+  const w = workflowFixture();
+  w.clarifications = Array.from({ length: 4 }, (_, i) => ({
+    id: `batch-${i}`,
+    at: '2026-10-21T00:00:00Z',
+    resolvedAt: '2026-10-21T00:01:00Z',
+    request: {
+      kind: 'clarification' as const,
+      summary: `Decision ${i}`,
+      questions: [
+        {
+          id: 'scope',
+          title: `Scope ${i}`,
+          options: [
+            { id: 'a', label: 'Focused', tradeoff: 'Less work' },
+            { id: 'b', label: 'Full', tradeoff: 'More work' },
+          ],
+          recommendedOptionId: 'a',
+        },
+      ],
+    },
+    answers: [{ questionId: 'scope', text: `Début-${i} ${'é'.repeat(5000)} Fin-${i}`, at: '2026-10-21T00:01:00Z' }],
+  }));
+  const expected = JSON.stringify(w.clarifications);
+  assert.ok(Buffer.byteLength(expected) > 16 * 1024);
+  for (const phase of ['planning', 'followup'] as const) {
+    w.phase = phase;
+    for (const role of ['planner', 'builder', 'reviewer'] as const) {
+      const prompt = buildPrompt(w, role, 'repository '.repeat(10000));
+      const line = prompt
+        .split('\n')
+        .find((line) => line.startsWith('Persisted clarification questions and answers: '))!;
+      assert.deepEqual(
+        JSON.parse(line.slice('Persisted clarification questions and answers: '.length)),
+        w.clarifications,
+      );
+    }
+  }
+});
+
+test('oversized clarification history explicitly blocks rather than sending partial decisions', async () => {
+  const { CLARIFICATION_CONTEXT_BYTES } = await import('../server/prompt');
+  const w = workflowFixture();
+  w.clarifications = Array.from({ length: 20 }, (_, i) => ({
+    id: `batch-${i}`,
+    at: '2026-10-21T00:00:00Z',
+    resolvedAt: '2026-10-21T00:01:00Z',
+    request: {
+      kind: 'clarification' as const,
+      summary: 'Scope',
+      questions: [
+        {
+          id: 'scope',
+          title: 'Which scope?',
+          recommendedOptionId: 'a',
+          options: [
+            { id: 'a', label: 'Focused', tradeoff: 'Less work' },
+            { id: 'b', label: 'Full', tradeoff: 'More work' },
+          ],
+        },
+      ],
+    },
+    answers: [{ questionId: 'scope', text: 'é'.repeat(4000), at: '2026-10-21T00:01:00Z' }],
+  }));
+  assert.ok(JSON.stringify(w.clarifications).length < CLARIFICATION_CONTEXT_BYTES);
+  assert.ok(Buffer.byteLength(JSON.stringify(w.clarifications)) > CLARIFICATION_CONTEXT_BYTES);
+  for (const phase of ['planning', 'followup'] as const) {
+    w.phase = phase;
+    assert.throws(() => buildPrompt(w, 'planner', ''), { name: 'CLARIFICATION_CONTEXT_LIMIT' });
+  }
+});
