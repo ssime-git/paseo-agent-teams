@@ -22,6 +22,29 @@ export class GraphCheckpoints {
   }
 
   async get(id: string, workspaceId: string): Promise<GraphCheckpoint> {
+    const state = await this.read(id);
+    if (state.source.workspaceId !== workspaceId)
+      throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Workspace access denied');
+    return state;
+  }
+
+  // Admission must inspect every workspace; this is internal, never an unscoped RPC.
+  async all(): Promise<GraphCheckpoint[]> {
+    let entries;
+    try {
+      entries = await readdir(this.directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    try {
+      return await Promise.all(entries.map((id) => this.read(id)));
+    } catch (error) {
+      throw new TeamError('CORRUPT_GRAPH', `Graph state may hold a repository lock: ${String(error)}`);
+    }
+  }
+
+  private async read(id: string): Promise<GraphCheckpoint> {
     const directory = this.path(id);
     const files = (await readdir(directory)).filter((file) => !file.endsWith('.tmp'));
     if (!files.length) throw new TeamError('GRAPH_NOT_FOUND', 'Graph checkpoint not found');
@@ -33,8 +56,6 @@ export class GraphCheckpoints {
     const state = graphCheckpointSchema.parse(JSON.parse(await readFile(join(directory, files.at(-1)!), 'utf8')));
     if (state.id !== id || state.revision !== files.length)
       throw new TeamError('CORRUPT_GRAPH', 'Graph checkpoint identity mismatch');
-    if (state.source.workspaceId !== workspaceId)
-      throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Workspace access denied');
     return state;
   }
 

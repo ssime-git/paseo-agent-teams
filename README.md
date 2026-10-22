@@ -348,5 +348,16 @@ Human steps remain pending until an explicit approve/reject result. Exhausting t
 activation budget stops the graph without approval, while a terminal failure stays
 a failure. On load, the transition ledger is replayed and checked against the saved
 status, budget, revision and next step; malformed files remain available for repair.
-Repository locking, provider permissions, native result parsing, dispatch/recovery,
-tests and human-action authorization must be connected before exposing execution.
+The plugin's single `Store` now coordinates V1 creation, completed-workflow
+follow-ups and internal `createGraph` admission through the same queue. Graph
+checkpoints live in its `graphs/` subdirectory. Ready, running and waiting-human
+graphs reserve their canonical Git common-directory identity across reloads;
+succeeded, failed and exhausted graphs release that reservation. V1 multi-repository
+targets are checked before admitting a graph. Unreadable graph state blocks new
+admissions without deleting or rewriting evidence. This is the existing single
+plugin writer model, not a lock between independent plugin processes; low-level
+`GraphCheckpoints.create` is storage only and must not be used by a launcher to
+bypass admission. The future launcher must resolve the repository identity,
+validate provider permissions and use this Store's admission entry point.
+Native result parsing, dispatch/recovery, tests and human-action authorization
+must still be connected before exposing execution.

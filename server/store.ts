@@ -2,6 +2,9 @@ import { TeamError } from '../shared/errors';
 import { mkdir, readFile, readdir, rename, writeFile, rm } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { GraphCheckpoints } from './graph-checkpoints';
+import { scopesOverlap } from './scopes';
+import type { createGraphCheckpoint } from '../shared/graph-checkpoint';
 import { workflowSchema, type Workflow } from '../shared/contracts';
 
 export function migrateWorkflow(raw: unknown): Workflow {
@@ -33,7 +36,28 @@ export class Store {
   private initialization?: Promise<void>;
   private corrupt = false;
   private corruptRepositories = new Set<string>();
-  constructor(readonly directory: string) {}
+  // One Store owns the plugin's V1 cache and all repository admissions.
+  private admission: Promise<unknown> = Promise.resolve();
+  readonly graphs: GraphCheckpoints;
+  constructor(readonly directory: string) {
+    this.graphs = new GraphCheckpoints(join(directory, 'graphs'));
+  }
+  async withRepositoryAdmission<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.admission.then(fn);
+    this.admission = next.catch(() => {});
+    return next;
+  }
+
+  // Internal admission only, not a launcher: callers must resolve the canonical
+  // Git common-directory identity and validate native permissions before dispatch.
+  async createGraph(input: Parameters<typeof createGraphCheckpoint>[0]) {
+    return this.withRepositoryAdmission(async () => {
+      await this.assertCanCreate(input.repo);
+      const blocker = (await this.all()).find((w) => w.status !== 'completed' && scopesOverlap(w, input));
+      if (blocker) throw new TeamError('REPOSITORY_LOCKED', `Another workflow holds this repository: ${blocker.id}`);
+      return this.graphs.create(input);
+    });
+  }
   async init() {
     this.initialization ??= this.load();
     return this.initialization;
@@ -93,6 +117,11 @@ export class Store {
   }
   async assertCanCreate(repo?: string) {
     await this.init();
+    const graphs = await this.graphs.all();
+    const blocker = graphs.find(
+      (graph) => graph.repo === repo && ['ready', 'running', 'waiting_human'].includes(graph.status),
+    );
+    if (blocker) throw new TeamError('REPOSITORY_LOCKED', `Another graph holds this repository: ${blocker.id}`);
     if (this.corrupt || (repo !== undefined && this.corruptRepositories.has(repo)))
       throw new TeamError(
         'CORRUPT_STATE',

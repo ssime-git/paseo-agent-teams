@@ -76,6 +76,7 @@ export class Engine {
     this.runtime = runtime;
   }
   private serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    if (key === 'create') return this.store.withRepositoryAdmission(fn);
     const next = (this.queues.get(key) ?? Promise.resolve()).then(fn);
     const tail = next.catch(() => {});
     this.queues.set(key, tail);
