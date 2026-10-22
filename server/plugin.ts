@@ -19,6 +19,8 @@ import {
 import { TERMINAL_OR_WAITING } from '../shared/state-machine';
 import { Engine } from './engine';
 import { Store } from './store';
+import { DefinitionCatalog } from './definition-catalog';
+import { saveDefinitionRpc, listDefinitionsRpc, definitionHistoryRpc } from '../shared/definition-catalog';
 import { PaseoRuntime } from './runtime';
 import { providerProfiles, workflowModes } from './providers';
 import { DEFAULT_MODEL } from '../shared/provider-selection';
@@ -28,6 +30,14 @@ import { resolveRepositories, scopesOverlap } from './scopes';
 export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
   const store = new Store(directory);
+  const definitions = new DefinitionCatalog(join(directory, 'definitions'));
+  server.handle(saveDefinitionRpc, async (input, { paseo }) => {
+    if (!(await paseo.workspaces.ref(input.workspaceId).refresh()))
+      throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace not found');
+    return definitions.save(input);
+  });
+  server.handle(listDefinitionsRpc, async ({ workspaceId }) => definitions.list(workspaceId));
+  server.handle(definitionHistoryRpc, async ({ id, workspaceId }) => definitions.history(id, workspaceId));
   let engine: Engine | undefined, recoveryClient: PaseoClient | undefined;
   let nativeApi: PaseoApi | undefined;
   let connecting: Promise<void> | undefined;

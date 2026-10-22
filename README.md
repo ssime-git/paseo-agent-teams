@@ -302,3 +302,32 @@ At an idle plan checkpoint, **Récupérer le plan du thread Reviewer** reads the
 ```
 
 For discussion, use `kind: "discussion"` and omit `plan`. Incomplete, ambiguous, foreign or stale replies are rejected. Team retains the source session, native turn and canonical cursor; repeated imports do not duplicate the decision. The native turn's model/permission selection is not asserted because the API snapshot does not prove its historical configuration. Review the imported proposal and choose **Adopter ce plan** separately; adoption invalidates current verification and follows the configured validation policy. Native import observes repository stability during retrieval; it does not certify that an earlier native conversation left the repository untouched.
+
+### Custom definition catalogue (API foundation)
+
+Custom graphs can be saved independently of V1 workflow executions. This API does
+not yet launch graphs or provide a visual editor. Existing Team launches still use
+the historical Planner → Builder → Reviewer engine.
+
+- `teams.save_definition({ workspaceId, expectedRevision: 0, definition })` creates
+  a definition and returns its UUID, revision and validated graph. `definition` uses
+  the strict version-1 graph contract in `shared/workflow-definition.ts`.
+- To rename or edit, submit the entire updated definition with its `id` and current
+  `expectedRevision`. Every successful save appends an immutable revision. A stale
+  or concurrent write returns `DEFINITION_CONFLICT`; reload before retrying. Creation
+  allocates a new identity each time, so check the list after an uncertain network
+  result rather than blindly retrying creation.
+- `teams.list_definitions({ workspaceId })` returns the latest revisions owned by
+  that workspace. `teams.definition_history({ workspaceId, id })` returns all saved
+  versions in order; another workspace cannot read or replace them.
+- Export the returned `definition` as JSON. Import by submitting that JSON as a new
+  definition with revision zero. Imported content receives a new identity and does
+  not carry another workspace's ownership, execution state or revision history.
+
+Saving requires an existing native workspace. Definitions are stored separately in
+`definitions/<id>/<revision>.json` under the configured plugin data directory, with
+private file permissions. Publication is atomic and competing writers cannot replace
+an existing revision. Invalid imports and corrupt revision histories are rejected;
+corrupt files are retained for repair. No definition edit changes V1 state, sessions,
+locks or pending operations. Provider selections are saved as supplied; actual
+capability/permission checks belong to the future graph launcher, not this catalogue.
