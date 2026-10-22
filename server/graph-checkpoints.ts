@@ -1,0 +1,93 @@
+import { link, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { z } from 'zod';
+import {
+  createGraphCheckpoint,
+  graphCheckpointSchema,
+  reserveGraphActivation,
+  resolveGraphActivation,
+  type GraphCheckpoint,
+  type GraphOutcome,
+} from '../shared/graph-checkpoint';
+import { TeamError } from '../shared/errors';
+
+// Foundation only: no dispatch or launch API yet. Keep outside Store's V1 JSON
+// namespace. Immutable revisions arbitrate writers without deleting any locks.
+export class GraphCheckpoints {
+  constructor(readonly directory: string) {}
+
+  private path(id: string) {
+    return join(this.directory, z.uuid().parse(id));
+  }
+
+  async get(id: string, workspaceId: string): Promise<GraphCheckpoint> {
+    const directory = this.path(id);
+    const files = (await readdir(directory)).filter((file) => !file.endsWith('.tmp'));
+    if (!files.length) throw new TeamError('GRAPH_NOT_FOUND', 'Graph checkpoint not found');
+    if (files.some((file) => !/^[1-9][0-9]*\.json$/.test(file)))
+      throw new TeamError('CORRUPT_GRAPH', 'Unexpected graph checkpoint file');
+    files.sort((a, b) => Number.parseInt(a) - Number.parseInt(b));
+    for (let i = 0; i < files.length; i++)
+      if (files[i] !== `${i + 1}.json`) throw new TeamError('CORRUPT_GRAPH', 'Incomplete graph checkpoint history');
+    const state = graphCheckpointSchema.parse(JSON.parse(await readFile(join(directory, files.at(-1)!), 'utf8')));
+    if (state.id !== id || state.revision !== files.length)
+      throw new TeamError('CORRUPT_GRAPH', 'Graph checkpoint identity mismatch');
+    if (state.source.workspaceId !== workspaceId)
+      throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Workspace access denied');
+    return state;
+  }
+
+  private async publish(state: GraphCheckpoint) {
+    const directory = this.path(state.id);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const temporary = join(directory, `${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600, flush: true });
+      try {
+        await link(temporary, join(directory, `${state.revision}.json`));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+          throw new TeamError('GRAPH_CONFLICT', 'Graph checkpoint changed; reload before retrying');
+        throw error;
+      }
+    } finally {
+      await rm(temporary, { force: true });
+    }
+    return state;
+  }
+
+  async create(input: Parameters<typeof createGraphCheckpoint>[0]) {
+    return this.publish(createGraphCheckpoint(input));
+  }
+
+  async reserve(id: string, workspaceId: string, expectedRevision: number, operationId: string) {
+    return this.update(id, workspaceId, expectedRevision, (state) => reserveGraphActivation(state, operationId));
+  }
+
+  async resolve(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    result: { outcome: GraphOutcome; summary: string },
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) =>
+      resolveGraphActivation(state, operationId, result),
+    );
+  }
+
+  private async update(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    change: (state: GraphCheckpoint) => GraphCheckpoint,
+  ) {
+    const current = await this.get(id, workspaceId);
+    const next = change(current);
+    if (next.revision === current.revision) return current; // Idempotent replay, including stale response retries.
+    if (current.revision !== expectedRevision)
+      throw new TeamError('GRAPH_CONFLICT', 'Graph checkpoint changed; reload before retrying');
+    return this.publish(next);
+  }
+}

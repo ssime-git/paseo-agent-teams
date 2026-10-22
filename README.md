@@ -331,3 +331,22 @@ an existing revision. Invalid imports and corrupt revision histories are rejecte
 corrupt files are retained for repair. No definition edit changes V1 state, sessions,
 locks or pending operations. Provider selections are saved as supplied; actual
 capability/permission checks belong to the future graph launcher, not this catalogue.
+
+The next execution foundation is implemented internally in
+`shared/graph-checkpoint.ts` and `server/graph-checkpoints.ts`, without launch RPC
+or runtime dispatch. A checkpoint freezes the full catalogue record (identity,
+revision, graph and workspace), task and repository. Each activation reserves a
+stable operation UUID and consumes budget before a future caller may dispatch.
+After restart, a pending activation retains its UUID; the future executor must
+reconcile that operation with the native runtime before sending anything again.
+A saved checkpoint alone does not guarantee exactly-once native delivery.
+
+Checkpoints use a separate directory supplied to `GraphCheckpoints`, outside V1
+execution files. Immutable, atomically published revisions reject competing writes.
+Repeated identical reservations/results are idempotent; conflicting results fail.
+Human steps remain pending until an explicit approve/reject result. Exhausting the
+activation budget stops the graph without approval, while a terminal failure stays
+a failure. On load, the transition ledger is replayed and checked against the saved
+status, budget, revision and next step; malformed files remain available for repair.
+Repository locking, provider permissions, native result parsing, dispatch/recovery,
+tests and human-action authorization must be connected before exposing execution.
