@@ -78,3 +78,23 @@ test('launch freezes the displayed repository scope without mutating automatic d
     ['/explicit'],
   );
 });
+
+test('team composition excludes itself and preserves exact model IDs while displaying readable names', async () => {
+  const { automaticTeam, teamModelLabel } = await import('../shared/team-composition');
+  const selected = automaticTeam([
+    { id: 'agent-teams', family: 'agent-teams', models: [{ id: 'auto', isDefault: true }], modes: [{ id: 'plan' }] },
+    {
+      id: 'custom',
+      family: 'codex',
+      models: [{ id: 'org/model', isDefault: true }],
+      modes: [{ id: 'read-only' }, { id: 'auto' }],
+    },
+  ]);
+  assert.equal(selected.builder.provider, 'custom/org/model');
+  assert.equal(selected.builder.modeId, 'auto');
+  assert.equal(selected.reviewer.modeId, 'read-only');
+  assert.equal(teamModelLabel('claude-opus-5-5'), 'Opus 5.5');
+  assert.equal(teamModelLabel('gpt-6.1-sol'), 'GPT-6.1 Sol');
+  assert.equal(teamModelLabel('org/model'), 'org/model');
+  assert.equal(teamModelLabel('claude-opus-5-5', 'My custom label'), 'My custom label');
+});

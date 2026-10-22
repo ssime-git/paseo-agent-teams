@@ -21,7 +21,7 @@ export function prepareNewTeam(key: string, task?: string) {
   drafts.set(key, {
     ...current,
     ...(task?.trim() ? { task } : {}),
-    view: { ...current.view, showNew: true, showConfig: true },
+    view: { ...current.view, showNew: true, showConfig: false },
   });
   listeners.get(key)?.forEach((listener) => listener());
 }

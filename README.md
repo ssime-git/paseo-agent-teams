@@ -6,6 +6,54 @@ A standalone Paseo plugin for persistent workflows across **all available harnes
 - **Auto Workflow:** Plan → Build → Tests → Review → Fix, with a configurable correction limit.
 - **One logical thread:** a workspace panel with responses, decisions, test logs, approvals and links to each persistent agent session. Progress cards also appear in the planner's native timeline.
 
+## Team Auto in the native model picker
+
+Choose **Agent Teams → Team Auto** in Paseo's regular model picker, then describe
+your mission in the normal composer. The plugin registers an official provider
+(`agent-teams/auto`); no client patch or Paseo fork is required. It reuses the
+persistent Plan → Build → Tests → Review engine, including repository admission,
+bounded corrections, permissions and explicit human approvals.
+
+The default composition uses the detected Claude model for planning/review and
+the detected Codex model for development, with available alternatives if either
+is missing. No model ID is invented. Before the first mission, the native session
+settings let you select each role's model. The permission mode controls whether
+you approve the plan, the final result, or use the existing autonomous validation
+policy; it does not silently approve missing tests. Native Team Auto keeps Builder
+auto-accept off. A running mission's composition can be changed explicitly from
+the Team panel; the native model settings are frozen once a mission starts.
+
+Click the **Team Auto** composer pill to see the composition and who currently
+has control: Planner, Builder, Reviewer, tests, or you. The same view offers a
+simple mission composer with advanced configuration collapsed. During a mission,
+open the team to answer questions, approve a plan or resolve native permissions.
+One remaining clarification can also be answered directly with free text in the
+native chat. Multiple questions require the explicit answers in Team.
+
+Native commands: `/team-status`, `/team-pause`, `/team-resume`, `/team-approve`,
+and `/team-approve-no-tests` (explicit acceptance of a plan without tests).
+Messages and structured reports appear in the native Team conversation; individual
+role sessions stay accessible. Closing a native session pauses its unfinished
+workflow. Reloading restores its durable workflow association without resending
+accepted agent turns.
+
+This provider currently accepts plain text. Images, attachments, output schemas,
+steering, custom system prompts, MCP servers, tool policies and provider options
+are rejected explicitly rather than silently discarded. Configure those roles
+through the existing workflow surfaces where supported. FR/EN localization and
+custom graph execution remain separate roadmap items.
+
+Official APIs verified against the installed SDK **0.11.2**:
+[provider plugins](https://paseo.sh/docs/plugins/providers) and
+[plugin reference](https://paseo.sh/docs/plugins/reference) (`registerProvider`,
+`before('agent.session_open')`, `session.config`, persistence, timeline renderers,
+and composer popovers). The older new-workspace pill prototype below still needs
+its client extension; selecting Team Auto as a native provider does not.
+
+![Native Team Auto composition and current control](docs/screenshots/team-auto-desktop.png)
+
+<img src="docs/screenshots/team-auto-mobile.png" alt="Team Auto in the native mobile sheet, waiting for explicit plan approval" width="390" />
+
 ## Screenshots
 
 Real captures from an isolated Paseo installation and a demo repository. The mobile capture uses a compact 390 × 844 viewport.

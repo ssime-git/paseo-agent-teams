@@ -1,3 +1,4 @@
+import { TeamRoster } from './team-roster';
 import { Clarifications } from './clarifications';
 import { Disclosure } from './disclosure';
 import { LiveWorkflowAction, GoalAction } from './workflow-action';
@@ -54,14 +55,20 @@ export function ProgressCard({
   const { colors } = theme;
   const [phase, status] = item.data.status.split(' · ');
   const phaseName =
-    steps.find((step) => step.phase === phase)?.label ??
-    (phase === 'followup' ? 'Suivi' : ['done', 'completed'].includes(phase) ? 'Terminé' : phase);
+    status === 'awaiting_plan'
+      ? 'Plan à valider'
+      : status === 'awaiting_final'
+        ? 'Résultat à valider'
+        : (steps.find((step) => step.phase === phase)?.label ??
+          (phase === 'followup' ? 'Suivi' : ['done', 'completed'].includes(phase) ? 'Terminé' : phase));
   const tone =
     status === 'attention'
       ? colors.statusDanger
-      : ['done', 'completed'].includes(phase)
+      : status === 'completed'
         ? colors.statusSuccess
-        : colors.accent;
+        : ['awaiting_plan', 'awaiting_final', 'paused', 'permission'].includes(status)
+          ? colors.statusWarning
+          : colors.accent;
   return (
     <View
       style={{
@@ -177,6 +184,10 @@ export function TeamsPanel(
     [testText, setTestText] = useState(''),
     [allowNoTests, setAllowNoTests] = useState(false);
   const workflow = workflows.data?.find((w) => w.id === selected) ?? workflows.data?.at(-1);
+  useEffect(() => {
+    if (workflow)
+      setRecipient(workflow.phase === 'done' ? 'builder' : (workflow.operation?.role ?? workflow.activeRole));
+  }, [workflow?.id, workflow?.phase, workflow?.cycle, workflow?.operation?.role]);
   useEffect(() => {
     setNotice('');
   }, [workflow?.id]);
@@ -350,7 +361,7 @@ export function TeamsPanel(
       roles: { ...c.roles, [role]: { provider: `${providerId}/${model?.id ?? ''}`, modeId: mode?.id ?? '' } },
     }));
   };
-  const configOpen = showConfig || !workflow;
+  const configOpen = showConfig;
   const repositoryPicker = catalog.data ? (
     <RepositoryPicker
       paths={config.repositoryPaths}
@@ -686,6 +697,32 @@ export function TeamsPanel(
           {catalog.data?.cwd ?? 'Chargement des providers…'}
         </Text>
       </View>
+      {workflow && !creating && !layout.compact ? (
+        <View
+          style={{
+            padding: layout.compact ? 14 : 20,
+            backgroundColor: c.surface1,
+            borderBottomWidth: 1,
+            borderBottomColor: c.border,
+          }}
+        >
+          <TeamRoster
+            config={workflow.config}
+            workflow={workflow}
+            providers={catalog.data?.providers}
+            colors={c}
+            compact={layout.compact}
+            onRole={
+              navigation
+                ? (role) => {
+                    const agentId = workflow.agents[role];
+                    if (agentId) navigation.openAgent({ agentId });
+                  }
+                : undefined
+            }
+          />
+        </View>
+      ) : null}
       {workflow && !creating ? (
         <View
           style={{
@@ -765,6 +802,32 @@ export function TeamsPanel(
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: layout.compact ? 12 : 20, gap: 12 }}
       >
+        {workflow && !creating && layout.compact ? (
+          <View
+            style={{
+              padding: layout.compact ? 14 : 20,
+              backgroundColor: c.surface1,
+              borderBottomWidth: 1,
+              borderBottomColor: c.border,
+            }}
+          >
+            <TeamRoster
+              config={workflow.config}
+              workflow={workflow}
+              providers={catalog.data?.providers}
+              colors={c}
+              compact={layout.compact}
+              onRole={
+                navigation
+                  ? (role) => {
+                      const agentId = workflow.agents[role];
+                      if (agentId) navigation.openAgent({ agentId });
+                    }
+                  : undefined
+              }
+            />
+          </View>
+        ) : null}
         {error || catalog.error || workflows.error ? (
           <Text accessibilityRole="alert" style={{ color: c.statusDanger }}>
             {error || errorMessage(catalog.error ?? workflows.error)}
@@ -1135,7 +1198,13 @@ export function TeamsPanel(
             {workflow ? button('Retour au workflow', () => setShowNew(false), false, 'ghost') : null}
             {card(
               <>
-                {caption('Nouvelle tâche')}
+                <Text style={{ color: c.foreground, fontSize: 24, fontWeight: '600' }}>
+                  Une mission. Toute une équipe.
+                </Text>
+                <Text style={{ color: c.foregroundMuted, fontSize: 13, lineHeight: 20 }}>
+                  Team Auto combine vos modèles pour planifier, développer et vérifier. Décrivez le résultat attendu,
+                  l’équipe s’occupe des relais.
+                </Text>
                 <TextInput
                   accessibilityLabel="Tâche"
                   placeholder="Décrire la tâche"
@@ -1145,6 +1214,7 @@ export function TeamsPanel(
                   value={task}
                   onChangeText={setTask}
                 />
+                <TeamRoster config={config} providers={catalog.data?.providers} colors={c} compact={layout.compact} />
                 {repositoryPicker}
                 {startIssue ? (
                   <Text accessibilityRole="alert" style={{ color: c.foregroundMuted }}>
@@ -1175,60 +1245,105 @@ export function TeamsPanel(
             )}
             {card(
               <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  {caption('Équipe')}
-                  {roles.map((role) => {
-                    const { harness, model } = config.roles[role].provider
-                      ? parseProvider(config.roles[role].provider)
-                      : { harness: '', model: '' };
-                    return (
-                      <View key={role} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: roleColor[role] }} />
-                        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{`${harness} · ${model}`}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-                {workflow
-                  ? button(
-                      showConfig ? 'Masquer la configuration' : 'Configurer',
-                      () => setView({ showConfig: !showConfig }),
-                      false,
-                      'ghost',
-                    )
-                  : null}
+                {button(
+                  showConfig ? 'Masquer les réglages' : 'Personnaliser les modèles et réglages',
+                  () => setView({ showConfig: !showConfig }),
+                  false,
+                  'ghost',
+                )}
+                <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
+                  {config.mode === 'auto' ? 'Relais automatique' : 'Relais manuel'} ·{' '}
+                  {config.validation === 'plan'
+                    ? 'Vous validez le plan'
+                    : config.validation === 'final'
+                      ? 'Vous validez le résultat'
+                      : 'Validation autonome configurée'}{' '}
+                  · {config.maxCorrections} corrections maximum
+                </Text>
               </>,
               'summary',
             )}
             {configOpen ? configForm() : null}
           </>
         )}
+        {workflow && !creating ? (
+          <Disclosure title="Options du message et actions" colors={c}>
+            {!workflow.operation &&
+            ['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status) &&
+            workflow.phase !== 'followup' ? (
+              <SettingsSelect
+                colors={c}
+                label="Destinataire du message"
+                value={recipient}
+                disabled={busy}
+                options={roles.map((role) => ({
+                  label: `${roleLabel[role]} · ${workflow.config.roles?.[role]?.provider ?? role}`,
+                  value: role,
+                }))}
+                onValueChange={(role) => setRecipient(role as (typeof roles)[number])}
+              />
+            ) : (
+              <Text style={{ color: c.foregroundMuted }}>
+                {workflow.phase === 'followup'
+                  ? `Réponse en cours · ${workflow.activeRole} · ${workflow.config.roles?.[workflow.activeRole]?.provider ?? ''}`
+                  : workflow.config.mode === 'manual'
+                    ? `Message transmis à ${workflow.activeRole} après le tour courant.`
+                    : 'Message transmis au Planner après le tour courant.'}
+              </Text>
+            )}
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {workflow.config.mode === 'auto' &&
+              workflow.plan &&
+              !workflow.operation &&
+              workflow.phase !== 'followup' &&
+              ['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
+                ? button(
+                    'Réviser le plan avec le Reviewer',
+                    () => void act('followup', { purpose: 'plan_revision', message, role: 'reviewer' }),
+                    !message.trim(),
+                    'secondary',
+                  )
+                : null}
+              {workflow.config.mode === 'auto' &&
+              workflow.plan &&
+              workflow.agents.reviewer &&
+              !workflow.operation &&
+              workflow.phase !== 'followup' &&
+              ['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
+                ? button(
+                    'Récupérer le plan du thread Reviewer',
+                    () => void act('import_reviewer_plan'),
+                    false,
+                    'secondary',
+                  )
+                : null}
+              {workflow.config.mode === 'auto' && workflow.plan && workflow.agents.reviewer && !workflow.operation ? (
+                <Text selectable style={{ color: c.foregroundMuted, flexBasis: '100%' }}>
+                  Pour récupérer une réponse native : demander un JSON discussion/proposal avec workflowId «{' '}
+                  {workflow.id} » et baseVersion {workflow.planVersions?.at(-1)?.version ?? 1}. La récupération ne
+                  remplace pas le plan ; adopter ensuite la proposition affichée.
+                </Text>
+              ) : null}
+              {workflow.status !== 'completed' ? (
+                <>
+                  {!['paused', 'attention'].includes(workflow.status)
+                    ? button('Mettre en pause', () => void act('pause'), false, 'ghost')
+                    : null}
+                  {['paused', 'permission', 'attention'].includes(workflow.status) && workflow.operation
+                    ? button('Réconcilier l’étape', () => void act('resume'), false, 'ghost')
+                    : null}
+                  {button('Clore en conservant les fichiers', () => void act('finish'), false, 'ghost')}
+                </>
+              ) : null}
+            </View>
+          </Disclosure>
+        ) : null}
       </ScrollView>
       {workflow && !creating ? (
         <View style={{ borderTopWidth: 1, borderTopColor: c.border, padding: 12, gap: 8, backgroundColor: c.surface1 }}>
-          {!workflow.operation &&
-          ['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status) &&
-          workflow.phase !== 'followup' ? (
-            <SettingsSelect
-              colors={c}
-              label="Destinataire du message"
-              value={recipient}
-              disabled={busy}
-              options={roles.map((role) => ({
-                label: `${roleLabel[role]} · ${workflow.config.roles?.[role]?.provider ?? role}`,
-                value: role,
-              }))}
-              onValueChange={(role) => setRecipient(role as (typeof roles)[number])}
-            />
-          ) : (
-            <Text style={{ color: c.foregroundMuted }}>
-              {workflow.phase === 'followup'
-                ? `Réponse en cours · ${workflow.activeRole} · ${workflow.config.roles?.[workflow.activeRole]?.provider ?? ''}`
-                : workflow.config.mode === 'manual'
-                  ? `Message transmis à ${workflow.activeRole} après le tour courant.`
-                  : 'Message transmis au Planner après le tour courant.'}
-            </Text>
-          )}
+          <Text style={{ color: c.foregroundMuted, fontSize: 11 }}>
+            Message à {roleLabel[recipient]} · destinataire modifiable dans les options
+          </Text>
           {notice ? (
             <Text accessibilityLiveRegion="polite" style={{ color: c.foregroundMuted }}>
               {notice}
@@ -1243,64 +1358,19 @@ export function TeamsPanel(
             value={message}
             onChangeText={setMessage}
           />
-          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {workflow.config.mode === 'auto' &&
-            workflow.plan &&
-            !workflow.operation &&
-            workflow.phase !== 'followup' &&
-            ['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
-              ? button(
-                  'Réviser le plan avec le Reviewer',
-                  () => void act('followup', { purpose: 'plan_revision', message, role: 'reviewer' }),
-                  !message.trim(),
-                  'secondary',
-                )
-              : null}
-            {workflow.config.mode === 'auto' &&
-            workflow.plan &&
-            workflow.agents.reviewer &&
-            !workflow.operation &&
-            workflow.phase !== 'followup' &&
-            ['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
-              ? button(
-                  'Récupérer le plan du thread Reviewer',
-                  () => void act('import_reviewer_plan'),
-                  false,
-                  'secondary',
-                )
-              : null}
-            {workflow.config.mode === 'auto' && workflow.plan && workflow.agents.reviewer && !workflow.operation ? (
-              <Text selectable style={{ color: c.foregroundMuted, flexBasis: '100%' }}>
-                Pour récupérer une réponse native : demander un JSON discussion/proposal avec workflowId « {workflow.id}{' '}
-                » et baseVersion {workflow.planVersions?.at(-1)?.version ?? 1}. La récupération ne remplace pas le plan
-                ; adopter ensuite la proposition affichée.
-              </Text>
-            ) : null}
-            {workflow.status !== 'completed' ? (
-              <>
-                {!['paused', 'attention'].includes(workflow.status)
-                  ? button('Mettre en pause', () => void act('pause'), false, 'ghost')
-                  : null}
-                {['paused', 'permission', 'attention'].includes(workflow.status) && workflow.operation
-                  ? button('Réconcilier l’étape', () => void act('resume'), false, 'ghost')
-                  : null}
-                {button('Clore en conservant les fichiers', () => void act('finish'), false, 'ghost')}
-              </>
-            ) : null}
-            <View style={{ marginLeft: 'auto' }}>
-              {button(
-                'Envoyer le message',
-                () =>
-                  void act(
-                    !workflow.operation &&
-                      ['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
-                      ? 'followup'
-                      : 'message',
-                    { message, role: recipient },
-                  ),
-                !message.trim() || workflow.phase === 'followup',
-              )}
-            </View>
+          <View style={{ marginLeft: 'auto' }}>
+            {button(
+              'Envoyer le message',
+              () =>
+                void act(
+                  !workflow.operation &&
+                    ['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
+                    ? 'followup'
+                    : 'message',
+                  { message, role: recipient },
+                ),
+              !message.trim() || workflow.phase === 'followup',
+            )}
           </View>
         </View>
       ) : null}

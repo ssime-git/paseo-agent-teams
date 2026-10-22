@@ -31,8 +31,8 @@ export function addThreadAccess(
         workspaceId,
         agentId: agent.id,
         button: {
-          title: QuickStart ? 'Mode agent' : 'Ouvrir Agent Teams',
-          label: QuickStart ? 'Mode agent' : 'Agent Teams',
+          title: QuickStart ? 'Team Auto' : 'Ouvrir Agent Teams',
+          label: QuickStart ? 'Team Auto' : 'Agent Teams',
           icon: 'Workflow',
           behavior: QuickStart
             ? {

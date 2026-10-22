@@ -18,6 +18,9 @@ import {
 } from '../shared/contracts';
 import { TERMINAL_OR_WAITING } from '../shared/state-machine';
 import { Engine } from './engine';
+import { createTeamProvider } from './team-provider';
+import { automaticTeam, TEAM_PROVIDER_ID } from '../shared/team-composition';
+import { configSchema } from '../shared/contracts';
 import { Store } from './store';
 import { DefinitionCatalog } from './definition-catalog';
 import { saveDefinitionRpc, listDefinitionsRpc, definitionHistoryRpc } from '../shared/definition-catalog';
@@ -123,15 +126,12 @@ export function contributeServer(server: PluginServerContext) {
       events: w.events.filter((e) => !e.kind.startsWith('receipt:') && e.kind !== 'tests'),
     });
   });
-  server.handle(catalogRpc, async ({ workspaceId, repositoryPaths }, { paseo }) => {
-    const workspace = await paseo.workspaces.ref(workspaceId).refresh();
-    if (!workspace) throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace not found');
-    const cwd = workspace.workspaceDirectory;
+  const discover = async (paseo: PaseoApi, cwd: string) => {
     const catalog = await paseo.providers.waitForReady({ cwd, timeoutMs: 15_000 });
     const profiles = await providerProfiles(paseo);
     const providers = await Promise.all(
       catalog.entries
-        .filter((e) => e.status === 'ready')
+        .filter((e) => e.status === 'ready' && e.provider !== TEAM_PROVIDER_ID)
         .map(async (e) => ({
           id: e.provider,
           family: profiles.families[e.provider] ?? e.provider,
@@ -148,6 +148,54 @@ export function contributeServer(server: PluginServerContext) {
           ),
         })),
     );
+    return providers;
+  };
+  server.before('agent.session_open', ({ request }, context) => {
+    if (request.provider.split('/')[0] !== TEAM_PROVIDER_ID) return;
+    if (!request.workspaceId) throw new TeamError('WORKSPACE_NOT_FOUND', 'Team Auto needs a workspace');
+    nativeApi = context.paseo;
+    return {
+      ...request,
+      env: {
+        ...request.env,
+        PASEO_AGENT_TEAMS_WORKSPACE_ID: request.workspaceId,
+        PASEO_AGENT_TEAMS_AGENT_ID: request.agentId,
+      },
+    };
+  });
+  server.registerProvider(
+    createTeamProvider({
+      async open(cwd, workspaceId) {
+        await bind();
+        const workspace = await recoveryClient!.workspaces.ref(workspaceId).refresh();
+        if (!workspace || workspace.workspaceDirectory !== cwd)
+          throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Team workspace context mismatch');
+        const choices = await discover(recoveryClient!, cwd);
+        const config = configSchema.parse({ version: 1, roles: automaticTeam(choices), builderAutoAccept: false });
+        return { workspaceId: workspace.id, choices, config };
+      },
+      async ownerWorkspace(agentId, cwd) {
+        await bind();
+        const agent = await recoveryClient!.agents.ref(agentId).refresh();
+        if (!agent?.agent.workspaceId || agent.agent.cwd !== cwd || agent.agent.provider !== TEAM_PROVIDER_ID)
+          throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Native Team owner unavailable');
+        return agent.agent.workspaceId;
+      },
+      list: (workspaceId) => store.all().then((all) => all.filter((w) => w.workspaceId === workspaceId)),
+      get: (id, workspaceId) => store.authorize(id, workspaceId),
+      create: async (workspaceId, task, config, requestId) =>
+        (await bind()).create(workspaceId, task, config, requestId),
+      action: async (input) => {
+        await store.authorize(input.id, input.workspaceId);
+        return (await bind()).action(input);
+      },
+    }),
+  );
+  server.handle(catalogRpc, async ({ workspaceId, repositoryPaths }, { paseo }) => {
+    const workspace = await paseo.workspaces.ref(workspaceId).refresh();
+    if (!workspace) throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace not found');
+    const cwd = workspace.workspaceDirectory;
+    const providers = await discover(paseo, cwd);
     const preflight = await repositoryPreflight(cwd);
     let targets: Awaited<ReturnType<typeof resolveRepositories>> | undefined, scopeIssue: string | undefined;
     try {

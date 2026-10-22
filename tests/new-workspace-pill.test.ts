@@ -73,7 +73,7 @@ test('creation pill feature detection, remote workspace retry and draft task tra
       return { remove: () => removed++ };
     },
   });
-  assert.equal(registration.button.label, 'Mode agent');
+  assert.equal(registration.button.label, 'Team Auto');
   cleanup();
   assert.equal(removed, 1);
   const props = {

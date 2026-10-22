@@ -37,8 +37,8 @@ export function addCreationAccess(client: PluginClientContext) {
   const pill = extended.addNewWorkspaceComposerPill?.({
     id: 'agent-teams',
     button: {
-      title: 'Mode agent',
-      label: 'Mode agent',
+      title: 'Team Auto',
+      label: 'Team Auto',
       icon: 'Workflow',
       behavior: {
         kind: 'popover',

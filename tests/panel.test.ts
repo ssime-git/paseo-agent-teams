@@ -158,6 +158,10 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   );
   assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, true);
   assert.match(JSON.stringify(renderer.toJSON()), /Décrivez la tâche pour démarrer/);
+  assert.equal(renderer.root.findAllByProps({ label: 'planner · modèle' }).length, 0);
+  await act(async () =>
+    renderer.root.findByProps({ accessibilityLabel: 'Personnaliser les modèles et réglages' }).props.onPress(),
+  );
   const modelSelects = renderer.root
     .findAll((node) => String(node.type) === 'SettingsSelect')
     .filter((x) => x.props.label.includes('modèle'));
@@ -290,7 +294,8 @@ test('compact panel discovers models, launches a workflow, renders approvals and
       phase: 'building',
       status: 'awaiting_plan',
       cycle: 0,
-      config: { maxCorrections: 2, mode: 'auto' },
+      config: { ...(launched as { config: object }).config, maxCorrections: 2, mode: 'auto' },
+      activeRole: 'planner',
       agents: { planner: 'native-planner' },
       plan: { summary: 'Plan', tests: [] },
       planVersions: [{ version: 1, source: 'planner' }],
@@ -302,6 +307,9 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.update(React.createElement(TeamsPanel, props));
   });
   assert.ok(renderer.root.findByProps({ accessibilityLabel: 'Approuver le plan et les tests' }));
+  await act(async () =>
+    renderer.root.findByProps({ accessibilityLabel: 'Options du message et actions' }).props.onPress(),
+  );
   await act(async () => {
     renderer.root.findByProps({ accessibilityLabel: 'Commandes de test à approuver' }).props.onChangeText('draft test');
   });

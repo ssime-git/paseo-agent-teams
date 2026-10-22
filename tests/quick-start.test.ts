@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import React from 'react';
+import { workflowFixture } from './fixtures';
 import { create, act } from 'react-test-renderer';
 
 test('team popover discovers role choices, shares scoped drafts, retries idempotently and blocks non-Git launches', async (t) => {
@@ -41,8 +42,10 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
       blockingWorkflow: undefined as
         { id: string; workspaceId: string; task: string; status: string; revision: number } | undefined,
     },
+    liveWorkflows: [] as ReturnType<typeof workflowFixture>[],
     rpc: (name: string) => async (input: (typeof launches)[number]) => {
       if (name === 'teams.catalog') return registry.catalog;
+      if (name === 'teams.list') return registry.liveWorkflows;
       if (name === 'teams.action') {
         closures.push(input);
         if (closures.length === 1) throw Error('Agent still running');
@@ -116,6 +119,10 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
       other?.unmount();
     }),
   );
+  assert.equal(first.root.findAllByProps({ label: 'builder · modèle' }).length, 0);
+  await act(async () =>
+    first.root.findByProps({ accessibilityLabel: 'Personnaliser les modèles et réglages' }).props.onPress(),
+  );
   const models = first.root.findByProps({ label: 'builder · modèle' });
   assert.deepEqual(
     models.props.options.map((o: { value: string }) => o.value),
@@ -181,4 +188,22 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
   assert.equal(registry.catalog.blockingWorkflow, undefined);
   assert.equal(other.root.findAllByProps({ accessibilityLabel: 'Ouvrir le workflow bloquant' }).length, 0);
   assert.equal(launches.length, 2);
+  const live = workflowFixture();
+  live.status = 'running';
+  live.phase = 'reviewing';
+  live.operation = { id: 'review', role: 'reviewer', phase: 'reviewing', state: 'sent', startedAt: 'now' };
+  registry.liveWorkflows = [live];
+  await act(async () =>
+    other.update(
+      React.createElement(QuickStart, { ...props, workspaceId: 'live-workspace', layout: { compact: false } }),
+    ),
+  );
+  assert.match(JSON.stringify(other.toJSON()), /Reviewer a la main/);
+  assert.equal(other.root.findAllByProps({ accessibilityLabel: 'Tâche pour l’équipe' }).length, 0);
+  await act(async () => other.root.findByProps({ accessibilityLabel: 'Ouvrir l’équipe active' }).props.onPress());
+  assert.equal(opened, 3);
+  await act(async () =>
+    other.root.findByProps({ accessibilityLabel: 'Préparer une nouvelle mission' }).props.onPress(),
+  );
+  assert.equal(other.root.findAllByProps({ accessibilityLabel: 'Tâche pour l’équipe' }).length, 1);
 });

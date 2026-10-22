@@ -22,6 +22,8 @@ test('plugin list is a read and history/action require workspace ownership', asy
       handlers.set(contract.name, handler as (input: unknown) => Promise<unknown>);
     },
     on() {},
+    registerProvider() {},
+    before() {},
   } as unknown as PluginServerContext;
   const cleanup = contributeServer(fake);
   t.after(async () => {
@@ -65,6 +67,8 @@ test('catalog reveals lock owner metadata across workspaces of the same reposito
       handlers.set(contract.name, handler);
     },
     on() {},
+    registerProvider() {},
+    before() {},
   } as unknown as PluginServerContext);
   t.after(async () => {
     if (typeof cleanup === 'function') await cleanup();
@@ -118,6 +122,8 @@ test('closed workflow history survives a missing native workspace and excludes e
       handlers.set(contract.name, handler);
     },
     on() {},
+    registerProvider() {},
+    before() {},
   } as unknown as PluginServerContext);
   t.after(async () => {
     if (typeof cleanup === 'function') await cleanup();
