@@ -142,6 +142,17 @@ test('failed review triggers at most two corrections', async (t) => {
   assert.equal(h.fake.creationCount, 3);
   assert.match(h.fake.calls.filter((c) => c.role === 'builder')[1].prompt, /Missing state verification/);
 });
+test('a passing review with non-blocking points sends them to the builder once, then completes', async (t) => {
+  const h = await setup(t);
+  const remarks = { verdict: 'pass', summary: 'Ready', issues: ['Rename helper'] };
+  h.fake.responses.reviewer = [JSON.stringify(remarks), JSON.stringify(remarks)];
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.cycle, 1);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 2);
+  assert.match(h.fake.calls.filter((c) => c.role === 'builder')[1].prompt, /Rename helper/);
+});
 test('failed tests cannot be overridden by a passing review', async (t) => {
   const h = await setup(t, { maxCorrections: 0 });
   h.fake.tests = async (w) =>

@@ -107,7 +107,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
           b.onLoad({ filter: /.*/, namespace: 'host-mock' }, (args) => ({
             contents:
               args.path === 'react-native'
-                ? `export const Platform={OS:'ios'}; export const Linking={openURL:async(url)=>{globalThis.__teamsTest.openedUrl=url;}}; export const Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
+                ? `export const Platform={OS:'ios'}; export const Linking={openURL:async(url)=>{globalThis.__teamsTest.openedUrl=url;}}; export const KeyboardAvoidingView='KeyboardAvoidingView',Pressable='Pressable',ScrollView='ScrollView',Text='Text',TextInput='TextInput',View='View';`
                 : args.path.endsWith('/ui')
                   ? `export const CompactSelect='SettingsSelect', CompactSwitch='SettingsSwitch';`
                   : args.path === '@tanstack/react-query'

@@ -1203,7 +1203,26 @@ export class Engine {
       (w.plan!.tests.length > 0
         ? w.tests.length === w.plan!.tests.length && w.tests.every((t) => t.exitCode === 0 && !t.timedOut)
         : w.allowNoTests);
-    if (w.review.verdict === 'pass' && testsPass) {
+    if (
+      w.review.verdict === 'pass' &&
+      testsPass &&
+      w.review.issues.length &&
+      w.config.autoFix &&
+      !w.nonBlockingAddressed &&
+      (w.config.goalMode || w.cycle < w.config.maxCorrections)
+    ) {
+      // Non-blocking remarks are fixed once automatically; a second pass closes even if new remarks remain.
+      w.nonBlockingAddressed = true;
+      w.cycle++;
+      w.phase = STAGE_TRANSITIONS.planner;
+      w.status = 'ready';
+      this.event(
+        w,
+        'correction',
+        `Revue validée avec ${w.review.issues.length} point(s) non bloquant(s) : traitement automatique par le Builder.`,
+        'builder',
+      );
+    } else if (w.review.verdict === 'pass' && testsPass) {
       w.phase = STAGE_TRANSITIONS.reviewer;
       w.status = w.config.validation === 'final' ? 'awaiting_final' : 'completed';
     } else if (w.config.goalMode && w.config.autoFix) {

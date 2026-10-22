@@ -223,6 +223,7 @@ export const workflowSchema = z.object({
   build: buildSchema.optional(),
   review: reviewSchema.optional(),
   testedFingerprint: z.string().optional(),
+  nonBlockingAddressed: z.boolean().optional(),
   goal: z
     .object({
       startedAt: z.string(),

@@ -18,7 +18,7 @@ import type { z } from 'zod';
 import { cardSchema } from '../shared/contracts';
 import { useQuery } from '@tanstack/react-query';
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import {
   actionRpc,
   catalogRpc,
@@ -651,7 +651,10 @@ export function TeamsPanel(
   ];
   const failedTests = workflow?.tests.filter((t) => t.exitCode !== 0 || t.timedOut) ?? [];
   return (
-    <View style={{ flex: 1, backgroundColor: c.surface0 }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: c.surface0 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+    >
       <View
         style={{
           flexDirection: 'row',
@@ -1301,6 +1304,6 @@ export function TeamsPanel(
           </View>
         </View>
       ) : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
