@@ -7,6 +7,7 @@ import {
   graphCheckpointSchema,
   reserveGraphActivation,
   resolveGraphActivation,
+  resolveGraphArtifact,
   type GraphCheckpoint,
   type GraphOutcome,
 } from '../shared/graph-checkpoint';
@@ -96,6 +97,10 @@ export class GraphCheckpoints {
     return this.update(id, workspaceId, expectedRevision, (state) =>
       resolveGraphActivation(state, operationId, result),
     );
+  }
+
+  async resolveArtifact(id: string, workspaceId: string, expectedRevision: number, operationId: string, text: string) {
+    return this.update(id, workspaceId, expectedRevision, (state) => resolveGraphArtifact(state, operationId, text));
   }
 
   private async update(

@@ -1,16 +1,27 @@
 import { z } from 'zod';
 import { definitionRecordSchema, type DefinitionRecord } from './definition-catalog';
 import { TeamError } from './errors';
+import { planSchema, buildSchema, reviewSchema } from './contracts';
+import { parseJson } from './artifacts';
 
-const outcomeSchema = z.enum(['success', 'failure', 'approve', 'reject']);
+const artifactSchema = z.discriminatedUnion('contract', [
+  z.object({ contract: z.literal('plan'), value: planSchema }).strict(),
+  z.object({ contract: z.literal('build'), value: buildSchema }).strict(),
+  z.object({ contract: z.literal('review'), value: reviewSchema }).strict(),
+]);
+const resultSchema = z
+  .object({
+    outcome: z.enum(['success', 'failure', 'approve', 'reject']),
+    summary: z.string().min(1),
+    artifact: artifactSchema.optional(),
+  })
+  .strict();
+
 const activationSchema = z
   .object({
     operationId: z.uuid(),
     stepId: z.string(),
-    result: z
-      .object({ outcome: outcomeSchema, summary: z.string().min(1) })
-      .strict()
-      .optional(),
+    result: resultSchema.optional(),
   })
   .strict();
 
@@ -31,7 +42,7 @@ const checkpointShape = z
   })
   .strict();
 export type GraphCheckpoint = z.infer<typeof checkpointShape>;
-export type GraphOutcome = z.infer<typeof outcomeSchema>;
+export type GraphOutcome = z.infer<typeof resultSchema>['outcome'];
 
 // Replay the tiny transition ledger when loading: corrupt checkpoints must not
 // silently reset a budget, skip a human decision or turn failure into success.
@@ -51,6 +62,16 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
     if (!activation.result) {
       status = step.contract === 'human' ? 'waiting_human' : 'running';
       continue;
+    }
+    const artifact = activation.result.artifact;
+    if (
+      artifact &&
+      (artifact.contract !== step.contract ||
+        activation.result.summary !== artifact.value.summary ||
+        activation.result.outcome !== artifactOutcome(artifact))
+    ) {
+      fail();
+      return;
     }
     const edge = step.transitions.find((item) => item.outcome === activation.result!.outcome);
     if (!edge) {
@@ -100,13 +121,13 @@ export function reserveGraphActivation(raw: GraphCheckpoint, operationId: string
 export function resolveGraphActivation(
   raw: GraphCheckpoint,
   operationId: string,
-  result: { outcome: GraphOutcome; summary: string },
+  result: z.infer<typeof resultSchema>,
 ): GraphCheckpoint {
   const state = graphCheckpointSchema.parse(raw);
   const activation = state.activations.find((item) => item.operationId === operationId);
   if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
   if (activation.result) {
-    if (activation.result.outcome !== result.outcome || activation.result.summary !== result.summary)
+    if (JSON.stringify(resultSchema.parse(activation.result)) !== JSON.stringify(resultSchema.parse(result)))
       throw new TeamError('GRAPH_RESULT_CONFLICT', 'Operation already resolved with a different result');
     return state;
   }
@@ -125,4 +146,28 @@ export function resolveGraphActivation(
         : 'ready';
   state.revision++;
   return graphCheckpointSchema.parse(state);
+}
+
+// A valid build artifact reports completed work, not independently executed tests.
+// Keep remaining work on the failure branch. Human decisions never come from models.
+function artifactOutcome(artifact: z.infer<typeof artifactSchema>): GraphOutcome {
+  if (artifact.contract === 'review') return artifact.value.verdict === 'pass' ? 'success' : 'failure';
+  if (artifact.contract === 'build' && artifact.value.remaining.length) return 'failure';
+  return 'success';
+}
+
+export function resolveGraphArtifact(raw: GraphCheckpoint, operationId: string, text: string): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
+  const step = state.source.definition.steps.find((item) => item.id === activation.stepId)!;
+  if (step.contract === 'human')
+    throw new TeamError('GRAPH_HUMAN_DECISION_REQUIRED', 'Explicit human decision required');
+  // One JSON document, optionally fenced; never pick a convenient artifact from prose.
+  const artifact = artifactSchema.parse({ contract: step.contract, value: parseJson(text) });
+  return resolveGraphActivation(state, operationId, {
+    outcome: artifactOutcome(artifact),
+    summary: artifact.value.summary,
+    artifact,
+  });
 }

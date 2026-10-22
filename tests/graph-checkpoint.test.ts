@@ -141,3 +141,104 @@ test('failure exits remain failures even when there is unused transition budget'
   assert.equal(failed.nextStepId, null);
   await assert.rejects(store.reserve(state.id, 'owner', 3, randomUUID()), /cannot activate/);
 });
+
+test('structured artifacts survive restart and reject changed evidence even with the same summary', async (t) => {
+  const { store, state } = await setup(t);
+  const op = randomUUID();
+  await store.reserve(state.id, 'owner', 1, op);
+  const build = { summary: 'Built', changes: ['Implemented feature'], remaining: [] };
+  const resolved = await store.resolveArtifact(state.id, 'owner', 2, op, JSON.stringify(build));
+  assert.equal(resolved.status, 'ready');
+  assert.deepEqual(resolved.activations[0].result?.artifact, { contract: 'build', value: build });
+  const restarted = new GraphCheckpoints(store.directory);
+  assert.deepEqual(await restarted.get(state.id, 'owner'), resolved);
+  assert.deepEqual(await restarted.resolveArtifact(state.id, 'owner', 2, op, JSON.stringify(build)), resolved);
+  await assert.rejects(
+    restarted.resolveArtifact(state.id, 'owner', 3, op, JSON.stringify({ ...build, changes: ['Different evidence'] })),
+    /different result/,
+  );
+  await assert.rejects(
+    restarted.resolve(state.id, 'owner', 3, op, { outcome: 'success', summary: 'Built' }),
+    /different result/,
+  );
+  const reviewOp = randomUUID();
+  await restarted.reserve(state.id, 'owner', 3, reviewOp);
+  const failed = await restarted.resolveArtifact(
+    state.id,
+    'owner',
+    4,
+    reviewOp,
+    JSON.stringify({ verdict: 'fail', summary: 'Fix bug', issues: ['Missing validation'] }),
+  );
+  assert.equal(failed.status, 'exhausted');
+  assert.equal(failed.activations[1].result?.outcome, 'failure');
+  const corrupt = structuredClone(failed);
+  corrupt.activations[1].result!.outcome = 'success';
+  assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+});
+
+test('invalid, foreign and clarification artifacts leave the reserved operation unchanged', async (t) => {
+  const { store, state } = await setup(t);
+  const op = randomUUID();
+  const pending = await store.reserve(state.id, 'owner', 1, op);
+  for (const text of [
+    'not JSON',
+    '{}',
+    JSON.stringify({ verdict: 'pass', summary: 'Wrong contract', issues: [] }),
+    JSON.stringify({ kind: 'clarification', summary: 'Wait', questions: [] }),
+    '```json\n{}\n```\n```json\n{}\n```',
+  ]) {
+    await assert.rejects(store.resolveArtifact(state.id, 'owner', 2, op, text));
+    assert.deepEqual(await store.get(state.id, 'owner'), pending);
+  }
+  await assert.rejects(store.resolveArtifact(state.id, 'stranger', 2, op, '{}'), /access denied/);
+  const failed = await store.resolveArtifact(
+    state.id,
+    'owner',
+    2,
+    op,
+    JSON.stringify({ summary: 'Incomplete', changes: [], remaining: ['Need implementation'] }),
+  );
+  assert.equal(failed.status, 'failed');
+});
+
+test('model artifacts cannot decide a human checkpoint', async (t) => {
+  const { store, state } = await setup(t, true);
+  const op = randomUUID(),
+    humanOp = randomUUID();
+  await store.reserve(state.id, 'owner', 1, op);
+  await store.resolveArtifact(state.id, 'owner', 2, op, '```json\n{"summary":"Done","changes":[],"remaining":[]}\n```');
+  const waiting = await store.reserve(state.id, 'owner', 3, humanOp);
+  await assert.rejects(
+    store.resolveArtifact(state.id, 'owner', 4, humanOp, '{"outcome":"approve","summary":"Approved"}'),
+    /human decision/,
+  );
+  assert.deepEqual(await new GraphCheckpoints(store.directory).get(state.id, 'owner'), waiting);
+});
+
+test('plan contract retains commands and rejects forged provenance on replay', async (t) => {
+  const { store, state } = await setup(t);
+  const source = structuredClone(state.source);
+  source.definition.steps[0].contract = 'plan';
+  source.definition.steps[0].access = 'read-only';
+  const planState = await store.create({ id: randomUUID(), repo: state.repo, task: state.task, source });
+  const op = randomUUID();
+  await store.reserve(planState.id, 'owner', 1, op);
+  const plan = {
+    summary: 'Plan',
+    tasks: ['Implement'],
+    acceptance: ['Works'],
+    tests: [{ command: 'npm test', timeoutMs: 1000 }],
+  };
+  const resolved = await store.resolveArtifact(planState.id, 'owner', 2, op, JSON.stringify(plan));
+  assert.deepEqual(resolved.activations[0].result?.artifact, { contract: 'plan', value: plan });
+  const corrupt = structuredClone(resolved);
+  corrupt.activations[0].result!.artifact = {
+    contract: 'build',
+    value: { summary: 'Plan', changes: [], remaining: [] },
+  };
+  assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+  corrupt.activations[0].result!.artifact = { contract: 'plan', value: plan };
+  corrupt.activations[0].result!.summary = 'Different summary';
+  assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+});

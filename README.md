@@ -359,5 +359,13 @@ plugin writer model, not a lock between independent plugin processes; low-level
 `GraphCheckpoints.create` is storage only and must not be used by a launcher to
 bypass admission. The future launcher must resolve the repository identity,
 validate provider permissions and use this Store's admission entry point.
-Native result parsing, dispatch/recovery, tests and human-action authorization
-must still be connected before exposing execution.
+Internal `GraphCheckpoints.resolveArtifact` now accepts one JSON document (optionally
+fenced) matching the reserved step's existing plan/build/review contract. It saves
+the full typed artifact, derives the transition and validates that relationship
+again on reload. A build with remaining work or a failed review takes the failure
+branch. A build artifact does not prove tests were independently executed. Human
+steps reject model artifacts. Changed artifacts conflict even when their summary
+matches; old summary-only checkpoints remain readable. Planner clarifications are
+not final plans and are rejected here; their graph waiting/resume contract remains
+to be designed. Native dispatch/recovery, test execution and human-action
+authorization must still be connected before exposing execution.
