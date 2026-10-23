@@ -67,6 +67,7 @@ export const teamSettings = defineSettings({
         .default({}),
       validation: z.enum(['plan', 'final', 'autonomous']).default('plan'),
       maxCorrections: z.number().int().min(0).max(5).default(2),
+      language: z.enum(['fr', 'en']).default('fr'),
     })
     .strict(),
 });

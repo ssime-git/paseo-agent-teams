@@ -4,8 +4,10 @@ import { ProviderEventSchema } from '@getpaseo/plugin/server/provider';
 import { stateNarrations, teamThread, type TeamTimelineContext, type TranscriptEntry } from '../server/team-timeline';
 import type { Workflow } from '../shared/contracts';
 import { workflowFixture } from './fixtures';
+import { translator } from '../shared/i18n';
 
 const ctx: TeamTimelineContext = {
+  t: translator('fr'),
   label: (role) => (role === 'builder' ? 'Codex · GPT-6.1' : 'Claude Code · Opus 5.5'),
   activity: (id) =>
     id === 'b1' ? [{ toolName: 'Edit', summary: 'src/palette.ts' }, { toolName: 'Shell' }] : undefined,
@@ -194,4 +196,18 @@ test('missions recorded before operation links still replay their role results',
   assert.equal(rows.length, 1);
   assert.ok(rows[0].type === 'tool_call' && rows[0].status === 'completed');
   assert.match(JSON.stringify(rows[0]), /Palette built/);
+});
+
+test('the thread speaks English when the language setting is English', () => {
+  const w = workflowFixture();
+  w.plan = plan;
+  w.events.push(event('dispatch', 'planner', 'p1'), event('assistant', 'planner', 'p1', JSON.stringify(plan)));
+  const english = { ...ctx, t: translator('en') };
+  const row = teamThread(w, english, []).find((i) => i.type === 'tool_call');
+  assert.ok(row?.type === 'tool_call' && row.detail.type === 'sub_agent');
+  assert.equal(row.detail.description, 'Plan the mission');
+  assert.equal(
+    stateNarrations(w, english)[0].text,
+    'The plan is ready (3 steps, tests: `npm test`). Reply **go** to start Codex · GPT-6.1, or describe what to change.',
+  );
 });

@@ -119,11 +119,11 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
       other?.unmount();
     }),
   );
-  assert.equal(first.root.findAllByProps({ label: 'builder · modèle' }).length, 0);
+  assert.equal(first.root.findAllByProps({ label: 'Code · modèle' }).length, 0);
   await act(async () =>
     first.root.findByProps({ accessibilityLabel: 'Personnaliser les modèles et réglages' }).props.onPress(),
   );
-  const models = first.root.findByProps({ label: 'builder · modèle' });
+  const models = first.root.findByProps({ label: 'Code · modèle' });
   assert.deepEqual(
     models.props.options.map((o: { value: string }) => o.value),
     ['sol', 'astra'],

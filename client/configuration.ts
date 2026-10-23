@@ -1,5 +1,9 @@
 import { configSchema, roles, type Config } from '../shared/contracts';
+import type { Translate } from '../shared/i18n';
+import { roleTitle } from '../shared/team-composition';
 import { readOnlyMode, parseProvider } from '../shared/provider-selection';
+import { translator } from '../shared/i18n';
+const french = translator('fr');
 export function initialConfig(): Config {
   return {
     version: 1,
@@ -33,22 +37,29 @@ export function commandsFromText(text: string) {
     .map((command) => ({ command, timeoutMs: 600_000 }));
 }
 export const isReadOnly = readOnlyMode;
-export function configurationIssue(config: Config, providers?: { id: string; family?: string }[]) {
+export function configurationIssue(
+  config: Config,
+  providers?: { id: string; family?: string }[],
+  t: Translate = french,
+) {
   for (const role of roles) {
     const selection = config.roles[role];
     let id: string;
     try {
       id = parseProvider(selection.provider).harness;
     } catch {
-      return `Choisissez un harnais et un modèle pour ${role}.`;
+      return t('Choisissez un harnais et un modèle pour {role}.', { role: t(roleTitle[role]) });
     }
     const family = providers?.find((p) => p.id === id)?.family ?? id;
-    if (!id || !selection.provider.includes('/')) return `Choisissez un harnais et un modèle pour ${role}.`;
+    if (!id || !selection.provider.includes('/'))
+      return t('Choisissez un harnais et un modèle pour {role}.', { role: t(roleTitle[role]) });
     if (role !== 'builder' && !isReadOnly(family, selection.modeId))
-      return `${role} exige une permission de lecture seule. Sélectionnez-la dans les permissions du rôle.`;
-    if (!selection.modeId) return `Choisissez les permissions pour ${role}.`;
+      return t('{role} exige une permission de lecture seule. Sélectionnez-la dans les permissions du rôle.', {
+        role: t(roleTitle[role]),
+      });
+    if (!selection.modeId) return t('Choisissez les permissions pour {role}.', { role: t(roleTitle[role]) });
   }
-  if (!configSchema.safeParse(config).success) return 'La configuration est incomplète ou invalide.';
+  if (!configSchema.safeParse(config).success) return t('La configuration est incomplète ou invalide.');
   return undefined;
 }
 export function configReady(config: Config, providers?: { id: string; family?: string }[]) {

@@ -1,10 +1,15 @@
-const messages: Record<string, string> = {
+import type { Translate } from '../shared/i18n';
+import { translator } from '../shared/i18n';
+const french = translator('fr');
+
+/** French source texts, translated at display time (see `tests/i18n.test.ts`). */
+export const errorTexts: Record<string, string> = {
   REPOSITORIES_REQUIRED:
     'Sélectionnez au moins un dépôt Git accessible, ou ajoutez son chemin dans les dépôts du workflow.',
   REPOSITORY_LIMIT: 'Sélectionnez au plus 20 dépôts pour ce workflow.',
   REPOSITORY_CHANGED: 'Un dépôt a changé de chemin ou d’identité Git. Vérifiez le périmètre avant de reprendre.',
   VALIDATION_REQUIRED:
-    'Le dépôt doit correspondre à une validation réussie avant de créer une PR. Repassez par le Planner pour valider les changements actuels.',
+    'Le dépôt doit correspondre à une validation réussie avant de créer une PR. Repassez par le Plan pour valider les changements actuels.',
   CHECKPOINT_REQUIRED: 'Attendez la fin du tour courant ou réconciliez l’opération en attente avant de continuer.',
   MODE_UNAVAILABLE: 'Cette permission n’est pas disponible.',
   PROVIDER_UNAVAILABLE: 'Le harnais ou le modèle choisi n’est pas disponible.',
@@ -26,7 +31,7 @@ const messages: Record<string, string> = {
   WORKFLOW_COMPLETED: 'Le workflow est déjà terminé.',
   PLAN_MISSING: 'Aucun plan à approuver.',
   PLAN_REVISION_UNAVAILABLE: 'La révision nécessite un workflow automatique en cours avec un plan enregistré.',
-  PLAN_PROPOSAL_STALE: 'Aucune proposition Reviewer applicable au plan courant. Demandez une nouvelle révision.',
+  PLAN_PROPOSAL_STALE: 'Aucune proposition de la Revue applicable au plan courant. Demandez une nouvelle révision.',
   NO_TESTS_APPROVAL_REQUIRED: 'Acceptez explicitement l’absence de tests.',
   APPROVAL_NOT_PENDING: 'Aucune approbation en attente.',
   HANDOFF_ROLE_REQUIRED: 'Choisissez un rôle pour le transfert manuel.',
@@ -39,10 +44,10 @@ const messages: Record<string, string> = {
   CORRUPT_STATE: 'Un état corrompu peut verrouiller un dépôt. Réparez les fichiers isolés avant de créer un workflow.',
   NOT_GIT_REPOSITORY: 'Ce chemin n’est pas un dépôt Git accessible. Vérifiez les dépôts sélectionnés pour le workflow.',
 };
-export function errorMessage(error: unknown) {
+export function errorMessage(error: unknown, t: Translate = french) {
   const text = String(error);
-  for (const [code, message] of Object.entries(messages)) {
-    if (text.includes(code + ':')) return message;
+  for (const [code, message] of Object.entries(errorTexts)) {
+    if (text.includes(code + ':')) return t(message);
   }
   return text;
 }

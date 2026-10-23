@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useT } from './i18n';
 import type { ComponentType } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import {
@@ -56,6 +57,7 @@ export function addCreationAccess(client: PluginClientContext) {
 }
 
 export function CreationTeam(props: CreationPillProps & { onOpen(workspaceId: string): void; onOpenHistory?(): void }) {
+  const t = useT();
   const paseo = usePaseo();
   const [workspaceId, setWorkspaceId] = useState('');
   const [error, setError] = useState('');
@@ -72,7 +74,7 @@ export function CreationTeam(props: CreationPillProps & { onOpen(workspaceId: st
           setWorkspaceId(workspace.id);
         },
         (error) => {
-          if (live) setError(errorMessage(error));
+          if (live) setError(errorMessage(error, t));
         },
       );
     }
@@ -95,15 +97,17 @@ export function CreationTeam(props: CreationPillProps & { onOpen(workspaceId: st
     <View style={{ padding: 16, maxWidth: 380, gap: 12 }}>
       <Text style={{ color: props.theme.colors.foreground }}>
         {error ||
-          (props.cwd ? 'Préparation du mode agent…' : 'Choisissez le projet sur cet hôte pour configurer l’équipe.')}
+          (props.cwd
+            ? t('Préparation du mode agent…')
+            : t('Choisissez le projet sur cet hôte pour configurer l’équipe.'))}
       </Text>
       {error ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Réessayer le mode agent"
+          accessibilityLabel={t('Réessayer le mode agent')}
           onPress={() => setRetry((value) => value + 1)}
         >
-          <Text style={{ color: props.theme.colors.foreground }}>Réessayer</Text>
+          <Text style={{ color: props.theme.colors.foreground }}>{t('Réessayer')}</Text>
         </Pressable>
       ) : null}
     </View>

@@ -4,12 +4,14 @@ import { useRpc, useSettings, type PluginButtonContentProps } from '@getpaseo/pl
 import { listRpc, teamChoicesRpc, type Workflow } from '../shared/contracts';
 import { defaultTeam, teamSettings, type TeamProviderChoice } from '../shared/team-composition';
 import { TeamRoster } from './team-roster';
+import { useT } from './i18n';
 
 /** The Team Auto composer pill: who is on the team and who has control. The mission itself is the thread. */
 export function TeamCard(props: PluginButtonContentProps & { openSettings(): void; openPanel(): void }) {
   const { theme, workspaceId, layout, close, openSettings, openPanel } = props;
   const agentId = props.context === 'agent' ? props.agentId : undefined;
   const c = theme.colors;
+  const t = useT();
   const listCall = useRpc(listRpc),
     choicesCall = useRpc(teamChoicesRpc);
   const settings = useSettings(teamSettings);
@@ -57,15 +59,26 @@ export function TeamCard(props: PluginButtonContentProps & { openSettings(): voi
   return (
     <View style={{ width: layout.compact ? undefined : 400, padding: 16, gap: 14 }}>
       <View style={{ gap: 4 }}>
-        <Text style={{ color: c.foreground, fontSize: 15, fontWeight: '600' }}>Équipe</Text>
+        {/* On compact layouts the host sheet already shows the pill title. */}
+        {layout.compact ? null : (
+          <Text style={{ color: c.foreground, fontSize: 15, fontWeight: '600' }}>{t('Équipe')}</Text>
+        )}
         {workflow ? null : (
           <Text style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
-            Équipe par défaut. Décrivez la mission dans le composer ; pour cette conversation, les rôles restent
-            réglables jusqu’au premier message.
+            {t(
+              'Équipe par défaut. Décrivez la mission dans le composer ; pour cette conversation, les rôles restent réglables jusqu’au premier message.',
+            )}
           </Text>
         )}
       </View>
-      <TeamRoster config={{ roles }} providers={choices} workflow={workflow} colors={c} compact={layout.compact} />
+      <TeamRoster
+        t={t}
+        config={{ roles }}
+        providers={choices}
+        workflow={workflow}
+        colors={c}
+        compact={layout.compact}
+      />
       <View
         style={{
           flexDirection: 'row',
@@ -76,8 +89,8 @@ export function TeamCard(props: PluginButtonContentProps & { openSettings(): voi
           paddingTop: 8,
         }}
       >
-        {link('Modifier l’équipe par défaut', openSettings)}
-        {link('Options avancées', openPanel, true)}
+        {link(t('Modifier l’équipe par défaut'), openSettings)}
+        {link(t('Options avancées'), openPanel, true)}
       </View>
     </View>
   );

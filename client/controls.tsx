@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from './i18n';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { PluginHostProps } from '@getpaseo/plugin/client';
 import type { SettingsSelectProps, SettingsSwitchProps } from '@getpaseo/plugin/client/ui';
@@ -13,6 +14,7 @@ export function CompactSelect({
   colors: c,
   hideLabel = false,
 }: SettingsSelectProps & { colors: Colors; hideLabel?: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <View style={{ gap: 4, minWidth: 0, flex: hideLabel ? 1 : undefined }}>
@@ -41,7 +43,7 @@ export function CompactSelect({
           }}
         >
           <Text numberOfLines={1} style={{ flexShrink: 1, color: c.foreground, fontSize: 12 }}>
-            {options.find((o) => o.value === value)?.label ?? 'Choisir…'}
+            {options.find((o) => o.value === value)?.label ?? t('Choisir…')}
           </Text>
           <Text style={{ color: c.foregroundMuted, marginLeft: 'auto' }}>{open ? '⌃' : '⌄'}</Text>
         </Pressable>

@@ -1,4 +1,5 @@
 import { TeamRoster } from './team-roster';
+import { useT } from './i18n';
 import { Clarifications } from './clarifications';
 import { Disclosure } from './disclosure';
 import { LiveWorkflowAction, GoalAction } from './workflow-action';
@@ -53,14 +54,15 @@ export function ProgressCard({
   onOpenWorkflow,
 }: PluginTimelineItemProps<z.infer<typeof cardSchema>> & { onOpenWorkflow?: () => void }) {
   const { colors } = theme;
+  const t = useT();
   const [phase, status] = item.data.status.split(' · ');
   const phaseName =
     status === 'awaiting_plan'
-      ? 'Plan à valider'
+      ? t('Plan à valider')
       : status === 'awaiting_final'
-        ? 'Résultat à valider'
+        ? t('Résultat à valider')
         : (steps.find((step) => step.phase === phase)?.label ??
-          (phase === 'followup' ? 'Suivi' : ['done', 'completed'].includes(phase) ? 'Terminé' : phase));
+          (phase === 'followup' ? t('Suivi') : ['done', 'completed'].includes(phase) ? t('Terminé') : phase));
   const tone =
     status === 'attention'
       ? colors.statusDanger
@@ -103,7 +105,7 @@ export function ProgressCard({
         </Text>
       </View>
       {item.data.artifact ? (
-        <Disclosure title="Voir le compte rendu de l’étape" colors={colors}>
+        <Disclosure title={t('Voir le compte rendu de l’étape')} colors={colors}>
           <StageResult role={item.data.artifact.role} text={item.data.artifact.text} colors={colors} />
         </Disclosure>
       ) : (
@@ -129,10 +131,10 @@ export function ProgressCard({
       ) : onOpenWorkflow ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Ouvrir le workflow Agent Teams"
+          accessibilityLabel={t('Ouvrir le workflow Agent Teams')}
           onPress={onOpenWorkflow}
         >
-          <Text style={{ color: colors.accent, fontSize: 12 }}>Ouvrir l’équipe ↗</Text>
+          <Text style={{ color: colors.accent, fontSize: 12 }}>{t('Ouvrir l’équipe ↗')}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -146,6 +148,7 @@ export function TeamsPanel(
   },
 ) {
   const { workspaceId, theme, layout, navigation } = props;
+  const t = useT();
   const thread = useRef<ScrollView>(null);
   const testsPosition = useRef(0);
   const [showContext, setShowContext] = useState(false);
@@ -212,11 +215,11 @@ export function TeamsPanel(
   }, [catalog.data]);
   const text = { color: theme.colors.foreground };
   const startIssue = !catalog.data
-    ? 'Vérification du workspace…'
+    ? t('Vérification du workspace…')
     : ((catalog.data.launchIssue || undefined) ??
-      (catalog.data.blockingWorkflow ? 'Un workflow conserve le verrou de ce dépôt.' : undefined) ??
-      configurationIssue(config, catalog.data.providers) ??
-      (!task.trim() ? 'Décrivez la tâche pour démarrer.' : undefined));
+      (catalog.data.blockingWorkflow ? t('Un workflow conserve le verrou de ce dépôt.') : undefined) ??
+      configurationIssue(config, catalog.data.providers, t) ??
+      (!task.trim() ? t('Décrivez la tâche pour démarrer.') : undefined));
   const input = {
     color: theme.colors.foreground,
     backgroundColor: theme.colors.surface0,
@@ -233,7 +236,7 @@ export function TeamsPanel(
       await job();
       await workflows.refetch();
     } catch (e) {
-      setError(errorMessage(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -253,18 +256,32 @@ export function TeamsPanel(
       pendingRequests.current.delete(key);
       if (action === 'import_planner_answers')
         setNotice(
-          'Réponses natives importées. Le Planner reprend après résolution de toutes les questions, sauf en pause.',
+          t('Réponses natives importées. Le Plan reprend après résolution de toutes les questions, sauf en pause.'),
         );
       if (action === 'import_reviewer_plan')
         setNotice(
-          'Réponse native récupérée. Le plan courant reste conservé ; toute proposition doit être adoptée explicitement.',
+          t(
+            'Réponse native récupérée. Le plan courant reste conservé ; toute proposition doit être adoptée explicitement.',
+          ),
         );
       if (action === 'message' || action === 'followup') {
         setMessage((current) => (current === extra.message ? '' : current));
         setNotice(
           action === 'followup'
-            ? `Message transmis à ${extra.purpose === 'plan_revision' ? 'reviewer' : extra.purpose === 'pull_request' ? 'builder' : (extra.role ?? 'planner')}. Réponse à suivre dans la timeline.`
-            : 'Message enregistré. Sa transmission est indiquée dans la timeline ; une pause ou une permission doit être résolue pour continuer.',
+            ? t('Message transmis à {role}. Réponse à suivre dans la timeline.', {
+                role: t(
+                  roleLabel[
+                    extra.purpose === 'plan_revision'
+                      ? 'reviewer'
+                      : extra.purpose === 'pull_request'
+                        ? 'builder'
+                        : (extra.role ?? 'planner')
+                  ],
+                ),
+              })
+            : t(
+                'Message enregistré. Sa transmission est indiquée dans la timeline ; une pause ou une permission doit être résolue pour continuer.',
+              ),
         );
       }
     });
@@ -392,25 +409,25 @@ export function TeamsPanel(
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: roleColor[role] }} />
-              <Text style={{ color: c.foreground, fontWeight: '600' }}>{roleLabel[role]}</Text>
+              <Text style={{ color: c.foreground, fontWeight: '600' }}>{t(roleLabel[role])}</Text>
             </View>
             <SettingsSelect
               colors={c}
-              label={`${role} · harnais`}
+              label={`${t(roleLabel[role])} · ${t('harnais')}`}
               value={harness}
               options={(catalog.data?.providers ?? []).map((p) => ({ label: p.label, value: p.id }))}
               onValueChange={(id) => updateRole(role, id)}
             />
             <SettingsSelect
               colors={c}
-              label={`${role} · modèle`}
+              label={`${t(roleLabel[role])} · ${t('modèle')}`}
               value={model}
               options={(provider?.models ?? []).map((m) => ({ label: m.label, value: m.id }))}
               onValueChange={(id) => updateRole(role, harness, id)}
             />
             <SettingsSelect
               colors={c}
-              label={`${role} · permissions`}
+              label={`${t(roleLabel[role])} · ${t('permissions')}`}
               value={selection.modeId}
               options={(provider?.modes ?? [])
                 .filter((m) => role === 'builder' || isReadOnly(provider?.family ?? harness, m.id))
@@ -421,8 +438,9 @@ export function TeamsPanel(
             />
             {selection.modeId === INSTRUCTION_READ_ONLY ? (
               <Text style={{ color: c.foregroundMuted }}>
-                Ce harnais reçoit une consigne de lecture seule, sans sandbox garantie. Toute modification du dépôt
-                pendant ce tour suspend le workflow pour intervention ; les fichiers sont conservés.
+                {t(
+                  'Ce harnais reçoit une consigne de lecture seule, sans sandbox garantie. Toute modification du dépôt pendant ce tour suspend le workflow pour intervention ; les fichiers sont conservés.',
+                )}
               </Text>
             ) : null}
           </>,
@@ -431,18 +449,18 @@ export function TeamsPanel(
       })}
       <SettingsSelect
         colors={c}
-        label="Validation humaine"
+        label={t('Validation humaine')}
         value={config.validation}
         options={[
-          { label: 'Après le plan', value: 'plan' },
-          { label: 'À la fin', value: 'final' },
-          { label: 'Autonome', value: 'autonomous' },
+          { label: t('Après le plan'), value: 'plan' },
+          { label: t('À la fin'), value: 'final' },
+          { label: t('Autonome'), value: 'autonomous' },
         ]}
         onValueChange={(v) => setConfig((cur) => ({ ...cur, validation: v as Config['validation'] }))}
       />
       <SettingsSwitch
         colors={c}
-        label="Poursuivre jusqu’à l’objectif"
+        label={t('Poursuivre jusqu’à l’objectif')}
         value={config.goalMode ?? false}
         onValueChange={(goalMode) =>
           setConfig((cur) => ({
@@ -455,13 +473,13 @@ export function TeamsPanel(
       {config.goalMode ? (
         <>
           <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-            Développer et tester, corriger, puis revoir le plan si nécessaire. Après la première approbation, les
-            commandes peuvent évoluer automatiquement. Les permissions et blocages externes restent visibles. Budget de
-            2 h ; pause possible à tout moment.
+            {t(
+              'Développer et tester, corriger, puis revoir le plan si nécessaire. Après la première approbation, les commandes peuvent évoluer automatiquement. Les permissions et blocages externes restent visibles. Budget de 2 h ; pause possible à tout moment.',
+            )}
           </Text>
           <SettingsSelect
             colors={c}
-            label="Budget de tours d’agents"
+            label={t('Budget de tours d’agents')}
             value={String(config.goalMaxTurns ?? 30)}
             options={[10, 20, 30, 50, 100].map((n) => ({ label: String(n), value: String(n) }))}
             onValueChange={(v) => setConfig((cur) => ({ ...cur, goalMaxTurns: Number(v) }))}
@@ -470,51 +488,53 @@ export function TeamsPanel(
       ) : null}
       <SettingsSwitch
         colors={c}
-        label="Auto-accept du Builder"
+        label={t('Auto-accept du Code')}
         value={config.builderAutoAccept}
         onValueChange={(builderAutoAccept) => setConfig((cur) => ({ ...cur, builderAutoAccept }))}
       />
       <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-        Active le mode autonome natif du Builder lorsqu’il est disponible. Désactivez pour valider ses demandes dans
-        Team.
+        {t(
+          'Active le mode autonome natif du Code lorsqu’il est disponible. Désactivez pour valider ses demandes dans l’équipe.',
+        )}
       </Text>
       <SettingsSwitch
         colors={c}
-        label="Corrections automatiques"
+        label={t('Corrections automatiques')}
         value={config.autoFix}
         onValueChange={(autoFix) => setConfig((cur) => ({ ...cur, autoFix }))}
       />
       <SettingsSwitch
         colors={c}
-        label="Session neuve à chaque correction (moins de tokens)"
+        label={t('Session neuve à chaque correction (moins de tokens)')}
         value={config.freshSessionPerCycle}
         onValueChange={(freshSessionPerCycle) => setConfig((cur) => ({ ...cur, freshSessionPerCycle }))}
       />
       <SettingsSelect
         colors={c}
-        label={config.goalMode ? 'Corrections avant retour au Planner' : 'Cycles maximum'}
+        label={config.goalMode ? t('Corrections avant retour au Plan') : t('Cycles maximum')}
         value={String(config.maxCorrections)}
         options={Array.from({ length: 11 }, (_, i) => ({ label: String(i), value: String(i) }))}
         onValueChange={(v) => setConfig((cur) => ({ ...cur, maxCorrections: Number(v) }))}
       />
       <SettingsSelect
         colors={c}
-        label="Reprise après redémarrage"
+        label={t('Reprise après redémarrage')}
         value={config.recovery}
         options={[
-          { label: 'Explicite', value: 'explicit' },
-          { label: 'Automatique', value: 'automatic' },
+          { label: t('Explicite'), value: 'explicit' },
+          { label: t('Automatique'), value: 'automatic' },
         ]}
         onValueChange={(v) => setConfig((cur) => ({ ...cur, recovery: v as Config['recovery'] }))}
       />
       {config.validation !== 'plan' && config.mode === 'auto' ? (
         <>
           <Text style={text}>
-            Le Planner choisit les commandes de test, qui seront exécutées automatiquement. Facultatif : indiquez
-            ci-dessous des commandes à utiliser à la place, une par ligne.
+            {t(
+              'Le Plan choisit les commandes de test, qui seront exécutées automatiquement. Facultatif : indiquez ci-dessous des commandes à utiliser à la place, une par ligne.',
+            )}
           </Text>
           <TextInput
-            accessibilityLabel="Commandes de test au lancement"
+            accessibilityLabel={t('Commandes de test au lancement')}
             multiline
             style={input}
             value={launchTestText}
@@ -525,14 +545,14 @@ export function TeamsPanel(
           />
           <SettingsSwitch
             colors={c}
-            label="Accepter explicitement l’absence de tests"
+            label={t('Accepter explicitement l’absence de tests')}
             value={config.allowNoTests}
             onValueChange={(v) => setConfig((cur) => ({ ...cur, allowNoTests: v }))}
           />
         </>
       ) : null}
       {button(
-        'Exporter la configuration',
+        t('Exporter la configuration'),
         () => {
           void run(async () => {
             const value = exportConfig(config);
@@ -544,14 +564,14 @@ export function TeamsPanel(
         'secondary',
       )}
       <TextInput
-        accessibilityLabel="Configuration JSON à copier ou importer"
+        accessibilityLabel={t('Configuration JSON à copier ou importer')}
         multiline
         style={input}
         value={configText}
         onChangeText={setConfigText}
       />
       {button(
-        'Importer la configuration',
+        t('Importer la configuration'),
         () => {
           void run(async () => {
             const imported = importConfig(configText);
@@ -567,14 +587,14 @@ export function TeamsPanel(
   const statusTone = (status: string) =>
     status === 'completed' ? 'success' : status === 'attention' ? 'danger' : status === 'running' ? 'info' : 'warning';
   const statusLabel: Record<string, string> = {
-    ready: 'Prêt',
-    running: 'En cours',
-    awaiting_plan: 'Approbation du plan',
-    awaiting_final: 'Validation finale',
-    paused: 'En pause',
-    permission: 'Permission requise',
-    attention: 'Intervention requise',
-    completed: 'Terminé',
+    ready: t('Prêt'),
+    running: t('En cours'),
+    awaiting_plan: t('Approbation du plan'),
+    awaiting_final: t('Validation finale'),
+    paused: t('En pause'),
+    permission: t('Permission requise'),
+    attention: t('Intervention requise'),
+    completed: t('Terminé'),
   };
   const creating = !workflow || showNew;
   const startedRole = (role: (typeof roles)[number]) =>
@@ -611,14 +631,14 @@ export function TeamsPanel(
           paddingVertical: small ? 2 : 6,
         }}
       >
-        <Text style={{ fontSize: 11, color: c.foreground }}>Ouvrir le thread ↗</Text>
+        <Text style={{ fontSize: 11, color: c.foreground }}>{t('Ouvrir le thread ↗')}</Text>
       </Pressable>
     ) : null;
   const roleColor = { planner: '#a78bfa', builder: '#3291ff', reviewer: '#f5a623' } as const;
   const roleHeader = (role: (typeof roles)[number], right?: React.ReactNode) => (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: roleColor[role] }} />
-      <Text style={{ color: c.foreground, fontWeight: '600' }}>{roleLabel[role]}</Text>
+      <Text style={{ color: c.foreground, fontWeight: '600' }}>{t(roleLabel[role])}</Text>
       <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 11, flexShrink: 1 }}>
         {(() => {
           const selection = workflow?.config.roles?.[role]?.provider;
@@ -631,7 +651,7 @@ export function TeamsPanel(
       </Text>
       <View style={{ marginLeft: 'auto', flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         {right}
-        {openRole(role, `Ouvrir le thread ${role}`)}
+        {openRole(role, t('Ouvrir le thread {role}', { role: t(roleLabel[role]) }))}
       </View>
     </View>
   );
@@ -684,17 +704,17 @@ export function TeamsPanel(
         {props.onOpenHistory ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Historique des workflows"
+            accessibilityLabel={t('Historique des workflows')}
             onPress={props.onOpenHistory}
           >
-            <Text style={{ color: c.foregroundMuted }}>Historique ↗</Text>
+            <Text style={{ color: c.foregroundMuted }}>{t('Historique ↗')}</Text>
           </Pressable>
         ) : null}
         {workflow && !creating
           ? badge(statusLabel[workflow.status] ?? workflow.status, statusTone(workflow.status))
           : null}
         <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 11, marginLeft: 'auto' }}>
-          {catalog.data?.cwd ?? 'Chargement des providers…'}
+          {catalog.data?.cwd ?? t('Chargement des providers…')}
         </Text>
       </View>
       {workflow && !creating && !layout.compact ? (
@@ -707,6 +727,7 @@ export function TeamsPanel(
           }}
         >
           <TeamRoster
+            t={t}
             config={workflow.config}
             workflow={workflow}
             providers={catalog.data?.providers}
@@ -744,7 +765,7 @@ export function TeamsPanel(
               <Pressable
                 key={step.phase}
                 accessibilityRole="button"
-                accessibilityLabel={`Phase ${step.label}`}
+                accessibilityLabel={`Phase ${t(step.label)}`}
                 disabled={!enabled}
                 onPress={() =>
                   step.phase === 'testing'
@@ -768,10 +789,10 @@ export function TeamsPanel(
                     color: state === 'done' ? c.statusSuccess : state === 'failed' ? c.statusDanger : c.foregroundMuted,
                   }}
                 >
-                  {`0${i + 1} · ${state === 'done' ? '✓' : state === 'failed' ? '✕' : state === 'now' ? (statusLabel[workflow.status] ?? 'en cours') : '—'}`}
+                  {`0${i + 1} · ${state === 'done' ? '✓' : state === 'failed' ? '✕' : state === 'now' ? (statusLabel[workflow.status] ?? t('en cours')) : '—'}`}
                 </Text>
                 <Text style={{ color: c.foreground, fontWeight: '500' }}>
-                  {enabled ? `${step.label} ${step.phase === 'testing' ? '▤' : '↗'}` : step.label}
+                  {enabled ? `${t(step.label)} ${step.phase === 'testing' ? '▤' : '↗'}` : t(step.label)}
                 </Text>
               </Pressable>
             );
@@ -812,6 +833,7 @@ export function TeamsPanel(
             }}
           >
             <TeamRoster
+              t={t}
               config={workflow.config}
               workflow={workflow}
               providers={catalog.data?.providers}
@@ -830,7 +852,7 @@ export function TeamsPanel(
         ) : null}
         {error || catalog.error || workflows.error ? (
           <Text accessibilityRole="alert" style={{ color: c.statusDanger }}>
-            {error || errorMessage(catalog.error ?? workflows.error)}
+            {error || errorMessage(catalog.error ?? workflows.error, t)}
           </Text>
         ) : null}
         {workflow && !creating ? (
@@ -862,11 +884,11 @@ export function TeamsPanel(
         {catalog.data?.launchIssue ? (
           <View style={{ gap: 8 }}>
             <Text accessibilityRole="alert" style={{ color: c.statusDanger }}>
-              {errorMessage(catalog.data.launchIssue)}
+              {errorMessage(catalog.data.launchIssue, t)}
             </Text>
             {props.onChooseRepository
               ? catalog.data.repositories.map((path) =>
-                  button(`Ouvrir Agent Teams dans ${path}`, () => {
+                  button(t('Ouvrir Agent Teams dans {path}', { path }), () => {
                     void run(() => props.onChooseRepository!(path));
                   }),
                 )
@@ -878,19 +900,24 @@ export function TeamsPanel(
           <>
             {workflow.repositoryTargets?.length ? (
               <Text style={{ color: c.foregroundMuted, fontSize: 11 }}>
-                {workflow.repositoryTargets.length} dépôt{workflow.repositoryTargets.length > 1 ? 's' : ''} · travail
-                conservé dans le workspace
+                {workflow.repositoryTargets.length > 1
+                  ? t('{count} dépôts · travail conservé dans le workspace', {
+                      count: workflow.repositoryTargets.length,
+                    })
+                  : t('1 dépôt · travail conservé dans le workspace')}
               </Text>
             ) : null}
             {workflow.planProposal
               ? card(
                   <>
-                    {caption(`Proposition Reviewer · plan v${workflow.planProposal.baseVersion}`)}
-                    <Text style={{ color: c.foregroundMuted }}>Le plan courant reste inchangé jusqu’à l’adoption.</Text>
+                    {caption(t('Proposition Revue · plan v{version}', { version: workflow.planProposal.baseVersion }))}
+                    <Text style={{ color: c.foregroundMuted }}>
+                      {t('Le plan courant reste inchangé jusqu’à l’adoption.')}
+                    </Text>
                     <Markdown source={workflow.planProposal.summary} colors={c} />
                     <StageResult role="planner" text={JSON.stringify(workflow.planProposal.plan)} colors={c} />
                     {button(
-                      'Adopter ce plan',
+                      t('Adopter ce plan'),
                       () => void act('adopt_plan'),
                       !!workflow.operation ||
                         workflow.phase === 'followup' ||
@@ -909,7 +936,7 @@ export function TeamsPanel(
               {workflow.handoffTokens ? badge(`Handoff ≈ ${(workflow.handoffTokens / 1000).toFixed(1)}k tokens`) : null}
               <View style={{ marginLeft: 'auto' }}>
                 {button(
-                  showContext ? 'Masquer le contexte' : 'Contexte',
+                  showContext ? t('Masquer le contexte') : t('Contexte'),
                   () => setShowContext((v) => !v),
                   false,
                   'ghost',
@@ -941,16 +968,17 @@ export function TeamsPanel(
                 );
               })}
               <View style={{ marginLeft: 'auto' }}>
-                {button('Nouveau workflow', () => setShowNew(true), false, 'ghost')}
+                {button(t('Nouveau workflow'), () => setShowNew(true), false, 'ghost')}
               </View>
             </View>
             {showContext
               ? card(
                   <>
-                    {caption('Contexte entre les phases')}
+                    {caption(t('Contexte entre les phases'))}
                     <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-                      Artefacts par rôle · diff borné · 30 dernières lignes des tests en échec. Les objectifs ci-dessous
-                      concernent chaque handoff, pas l’historique total des sessions.
+                      {t(
+                        'Artefacts par rôle · diff borné · 30 dernières lignes des tests en échec. Les objectifs ci-dessous concernent chaque handoff, pas l’historique total des sessions.',
+                      )}
                     </Text>
                     {roles.map((role) => (
                       <View
@@ -958,22 +986,27 @@ export function TeamsPanel(
                         style={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingVertical: 4 }}
                       >
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: roleColor[role] }} />
-                        <Text style={{ flex: 1, color: c.foreground, fontSize: 12 }}>{roleLabel[role]}</Text>
+                        <Text style={{ flex: 1, color: c.foreground, fontSize: 12 }}>{t(roleLabel[role])}</Text>
                         <Text style={{ color: c.foregroundMuted, fontSize: 12, fontFamily: 'monospace' }}>
-                          Objectif {HANDOFF_BUDGET[role] / 1000}k tokens
+                          {t('Objectif {count}k tokens', { count: HANDOFF_BUDGET[role] / 1000 })}
                         </Text>
                       </View>
                     ))}
                     <Text style={{ color: c.foregroundMuted, fontSize: 11 }}>
-                      Dernier handoff :{' '}
+                      {t('Dernier handoff :')}{' '}
                       {workflow.handoffTokens != null
-                        ? `≈ ${workflow.handoffTokens.toLocaleString()} tokens (estimation UTF-8 / 4)`
-                        : 'pas encore mesuré'}
+                        ? t('≈ {count} tokens (estimation UTF-8 / 4)', {
+                            count: workflow.handoffTokens.toLocaleString(),
+                          })
+                        : t('pas encore mesuré')}
                       .
                     </Text>
                     <Text style={{ color: c.foregroundMuted, fontSize: 11 }}>
-                      Sessions par correction :{' '}
-                      {workflow.config.freshSessionPerCycle ? 'nouvelles sessions activées' : 'sessions persistantes'}.
+                      {t('Sessions par correction :')}{' '}
+                      {workflow.config.freshSessionPerCycle
+                        ? t('nouvelles sessions activées')
+                        : t('sessions persistantes')}
+                      .
                     </Text>
                   </>,
                   'context',
@@ -992,7 +1025,7 @@ export function TeamsPanel(
               />
             ) : null}
 
-            <Disclosure title="Demande initiale" colors={c}>
+            <Disclosure title={t('Demande initiale')} colors={c}>
               <Markdown source={workflow.task} colors={c} />
             </Disclosure>
             {workflow.events
@@ -1006,7 +1039,11 @@ export function TeamsPanel(
                   workflow.events.filter((e) => e.kind === 'assistant' && e.role === event.role).at(-1)?.id !== event.id
                 )
                   return (
-                    <Disclosure key={event.id} title={`${roleLabel[event.role]} · étape précédente`} colors={c}>
+                    <Disclosure
+                      key={event.id}
+                      title={t('{role} · étape précédente', { role: t(roleLabel[event.role]) })}
+                      colors={c}
+                    >
                       <StageResult role={event.role} text={event.text} colors={c} />
                     </Disclosure>
                   );
@@ -1023,7 +1060,7 @@ export function TeamsPanel(
                       <View style={{ flex: 1, height: 1, backgroundColor: c.border }} />
                       <Text
                         style={{ color: c.foregroundMuted, fontSize: 11 }}
-                      >{`Phase · ${roleLabel[event.role]}`}</Text>
+                      >{`Phase · ${t(roleLabel[event.role])}`}</Text>
                       <View style={{ flex: 1, height: 1, backgroundColor: c.border }} />
                     </View>
                   );
@@ -1060,7 +1097,7 @@ export function TeamsPanel(
                             roleHeader(event.role)
                           ) : (
                             <Text style={{ color: c.foreground, fontWeight: '600' }}>
-                              {event.kind === 'user' ? 'Vous' : event.kind}
+                              {event.kind === 'user' ? t('Vous') : event.kind}
                             </Text>
                           )}
                           {eventBody(event.role, event.text)}
@@ -1081,12 +1118,12 @@ export function TeamsPanel(
                     {workflow.plan ? (
                       <>
                         <Markdown source={workflow.plan.summary} colors={c} />
-                        {list('Tâches', workflow.plan.tasks ?? [])}
-                        {list('Critères d’acceptation', workflow.plan.acceptance ?? [])}
+                        {list(t('Tâches'), workflow.plan.tasks ?? [])}
+                        {list(t('Critères d’acceptation'), workflow.plan.acceptance ?? [])}
                       </>
                     ) : null}
                     <TextInput
-                      accessibilityLabel="Commandes de test à approuver"
+                      accessibilityLabel={t('Commandes de test à approuver')}
                       multiline
                       value={testText}
                       onChangeText={setTestText}
@@ -1094,11 +1131,11 @@ export function TeamsPanel(
                     />
                     <SettingsSwitch
                       colors={c}
-                      label="Accepter l’absence de tests pour ce plan"
+                      label={t('Accepter l’absence de tests pour ce plan')}
                       value={allowNoTests}
                       onValueChange={setAllowNoTests}
                     />
-                    {button('Approuver le plan et les tests', () => {
+                    {button(t('Approuver le plan et les tests'), () => {
                       void act('approve', { tests: commandsFromText(testText), allowNoTests });
                     })}
                   </>,
@@ -1109,8 +1146,8 @@ export function TeamsPanel(
             {workflow.status === 'awaiting_final'
               ? card(
                   <>
-                    {caption('Résultat final')}
-                    {button('Valider le résultat final', () => {
+                    {caption(t('Résultat final'))}
+                    {button(t('Valider le résultat final'), () => {
                       void act('approve');
                     })}
                   </>,
@@ -1125,7 +1162,7 @@ export function TeamsPanel(
               <CompletionSummary workflow={workflow} colors={c} busy={busy} onAction={act} />
             ) : null}
             {['attention', 'paused'].includes(workflow.status) && !workflow.operation ? (
-              <Disclosure title="Changer de phase ou de modèle" colors={c}>
+              <Disclosure title={t('Changer de phase ou de modèle')} colors={c}>
                 <WorkflowRecovery
                   key={workflow.id}
                   workflow={workflow}
@@ -1136,7 +1173,7 @@ export function TeamsPanel(
                 />
               </Disclosure>
             ) : null}
-            <Disclosure title="Journal technique" colors={c}>
+            <Disclosure title={t('Journal technique')} colors={c}>
               {workflow.error ? (
                 <Text selectable style={{ color: c.foregroundMuted, fontSize: 12 }}>
                   {workflow.error}
@@ -1161,17 +1198,17 @@ export function TeamsPanel(
                     {caption('Tests')}
                     {workflow.tests.length
                       ? badge(
-                          failedTests.length ? `${failedTests.length} en échec` : 'Tous validés',
+                          failedTests.length ? `${failedTests.length} en échec` : t('Tous validés'),
                           failedTests.length ? 'danger' : 'success',
                         )
-                      : badge(workflow.allowNoTests ? 'Absence acceptée' : 'Pas encore exécutés')}
+                      : badge(workflow.allowNoTests ? t('Absence acceptée') : t('Pas encore exécutés'))}
                   </View>
                   {workflow.tests.map((test, i) => (
                     <TestLog key={i} result={testOutput.data?.[i] ?? test} loading={testOutput.isPending} colors={c} />
                   ))}
                   {testOutput.error ? (
                     <Text accessibilityRole="alert" style={{ color: c.statusDanger }}>
-                      {errorMessage(testOutput.error)}
+                      {errorMessage(testOutput.error, t)}
                     </Text>
                   ) : null}
                 </>,
@@ -1182,7 +1219,7 @@ export function TeamsPanel(
               <View style={{ gap: 8 }}>
                 {roles.map((role) =>
                   button(
-                    `Passer le relais à ${role}`,
+                    t('Passer le relais à {role}', { role: t(roleLabel[role]) }),
                     () => {
                       void act('handoff', { role });
                     },
@@ -1195,26 +1232,33 @@ export function TeamsPanel(
           </>
         ) : (
           <>
-            {workflow ? button('Retour au workflow', () => setShowNew(false), false, 'ghost') : null}
+            {workflow ? button(t('Retour au workflow'), () => setShowNew(false), false, 'ghost') : null}
             {card(
               <>
                 <Text style={{ color: c.foreground, fontSize: 24, fontWeight: '600' }}>
-                  Une mission. Toute une équipe.
+                  {t('Une mission. Toute une équipe.')}
                 </Text>
                 <Text style={{ color: c.foregroundMuted, fontSize: 13, lineHeight: 20 }}>
-                  Team Auto combine vos modèles pour planifier, développer et vérifier. Décrivez le résultat attendu,
-                  l’équipe s’occupe des relais.
+                  {t(
+                    'Team Auto combine vos modèles pour planifier, développer et vérifier. Décrivez le résultat attendu, l’équipe s’occupe des relais.',
+                  )}
                 </Text>
                 <TextInput
-                  accessibilityLabel="Tâche"
-                  placeholder="Décrire la tâche"
+                  accessibilityLabel={t('Tâche')}
+                  placeholder={t('Décrire la tâche')}
                   placeholderTextColor={c.foregroundMuted}
                   multiline
                   style={input}
                   value={task}
                   onChangeText={setTask}
                 />
-                <TeamRoster config={config} providers={catalog.data?.providers} colors={c} compact={layout.compact} />
+                <TeamRoster
+                  t={t}
+                  config={config}
+                  providers={catalog.data?.providers}
+                  colors={c}
+                  compact={layout.compact}
+                />
                 {repositoryPicker}
                 {startIssue ? (
                   <Text accessibilityRole="alert" style={{ color: c.foregroundMuted }}>
@@ -1222,7 +1266,7 @@ export function TeamsPanel(
                   </Text>
                 ) : null}
                 {button(
-                  'Démarrer le workflow',
+                  t('Démarrer le workflow'),
                   () => {
                     void run(async () => {
                       const launchConfig = scopedLaunchConfig(config, catalog.data);
@@ -1246,18 +1290,18 @@ export function TeamsPanel(
             {card(
               <>
                 {button(
-                  showConfig ? 'Masquer les réglages' : 'Personnaliser les modèles et réglages',
+                  showConfig ? t('Masquer les réglages') : t('Personnaliser les modèles et réglages'),
                   () => setView({ showConfig: !showConfig }),
                   false,
                   'ghost',
                 )}
                 <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-                  {config.mode === 'auto' ? 'Relais automatique' : 'Relais manuel'} ·{' '}
+                  {config.mode === 'auto' ? t('Relais automatique') : t('Relais manuel')} ·{' '}
                   {config.validation === 'plan'
-                    ? 'Vous validez le plan'
+                    ? t('Vous validez le plan')
                     : config.validation === 'final'
-                      ? 'Vous validez le résultat'
-                      : 'Validation autonome configurée'}{' '}
+                      ? t('Vous validez le résultat')
+                      : t('Validation autonome configurée')}{' '}
                   · {config.maxCorrections} corrections maximum
                 </Text>
               </>,
@@ -1267,17 +1311,17 @@ export function TeamsPanel(
           </>
         )}
         {workflow && !creating ? (
-          <Disclosure title="Options du message et actions" colors={c}>
+          <Disclosure title={t('Options du message et actions')} colors={c}>
             {!workflow.operation &&
             ['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status) &&
             workflow.phase !== 'followup' ? (
               <SettingsSelect
                 colors={c}
-                label="Destinataire du message"
+                label={t('Destinataire du message')}
                 value={recipient}
                 disabled={busy}
                 options={roles.map((role) => ({
-                  label: `${roleLabel[role]} · ${workflow.config.roles?.[role]?.provider ?? role}`,
+                  label: `${t(roleLabel[role])} · ${workflow.config.roles?.[role]?.provider ?? role}`,
                   value: role,
                 }))}
                 onValueChange={(role) => setRecipient(role as (typeof roles)[number])}
@@ -1285,10 +1329,10 @@ export function TeamsPanel(
             ) : (
               <Text style={{ color: c.foregroundMuted }}>
                 {workflow.phase === 'followup'
-                  ? `Réponse en cours · ${workflow.activeRole} · ${workflow.config.roles?.[workflow.activeRole]?.provider ?? ''}`
+                  ? `${t('Réponse en cours')} · ${t(roleLabel[workflow.activeRole])} · ${workflow.config.roles?.[workflow.activeRole]?.provider ?? ''}`
                   : workflow.config.mode === 'manual'
-                    ? `Message transmis à ${workflow.activeRole} après le tour courant.`
-                    : 'Message transmis au Planner après le tour courant.'}
+                    ? t('Message transmis à {role} après le tour courant.', { role: t(roleLabel[workflow.activeRole]) })
+                    : t('Message transmis au Plan après le tour courant.')}
               </Text>
             )}
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1298,7 +1342,7 @@ export function TeamsPanel(
               workflow.phase !== 'followup' &&
               ['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
                 ? button(
-                    'Réviser le plan avec le Reviewer',
+                    t('Réviser le plan avec la Revue'),
                     () => void act('followup', { purpose: 'plan_revision', message, role: 'reviewer' }),
                     !message.trim(),
                     'secondary',
@@ -1311,7 +1355,7 @@ export function TeamsPanel(
               workflow.phase !== 'followup' &&
               ['paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(workflow.status)
                 ? button(
-                    'Récupérer le plan du thread Reviewer',
+                    t('Récupérer le plan du thread Revue'),
                     () => void act('import_reviewer_plan'),
                     false,
                     'secondary',
@@ -1319,20 +1363,21 @@ export function TeamsPanel(
                 : null}
               {workflow.config.mode === 'auto' && workflow.plan && workflow.agents.reviewer && !workflow.operation ? (
                 <Text selectable style={{ color: c.foregroundMuted, flexBasis: '100%' }}>
-                  Pour récupérer une réponse native : demander un JSON discussion/proposal avec workflowId «{' '}
-                  {workflow.id} » et baseVersion {workflow.planVersions?.at(-1)?.version ?? 1}. La récupération ne
-                  remplace pas le plan ; adopter ensuite la proposition affichée.
+                  {t(
+                    'Pour récupérer une réponse native : demander un JSON discussion/proposal avec workflowId « {id} » et baseVersion {version}. La récupération ne remplace pas le plan ; adopter ensuite la proposition affichée.',
+                    { id: workflow.id, version: workflow.planVersions?.at(-1)?.version ?? 1 },
+                  )}
                 </Text>
               ) : null}
               {workflow.status !== 'completed' ? (
                 <>
                   {!['paused', 'attention'].includes(workflow.status)
-                    ? button('Mettre en pause', () => void act('pause'), false, 'ghost')
+                    ? button(t('Mettre en pause'), () => void act('pause'), false, 'ghost')
                     : null}
                   {['paused', 'permission', 'attention'].includes(workflow.status) && workflow.operation
-                    ? button('Réconcilier l’étape', () => void act('resume'), false, 'ghost')
+                    ? button(t('Réconcilier l’étape'), () => void act('resume'), false, 'ghost')
                     : null}
-                  {button('Clore en conservant les fichiers', () => void act('finish'), false, 'ghost')}
+                  {button(t('Clore en conservant les fichiers'), () => void act('finish'), false, 'ghost')}
                 </>
               ) : null}
             </View>
@@ -1342,7 +1387,7 @@ export function TeamsPanel(
       {workflow && !creating ? (
         <View style={{ borderTopWidth: 1, borderTopColor: c.border, padding: 12, gap: 8, backgroundColor: c.surface1 }}>
           <Text style={{ color: c.foregroundMuted, fontSize: 11 }}>
-            Message à {roleLabel[recipient]} · destinataire modifiable dans les options
+            {t('Message à {role} · destinataire modifiable dans les options', { role: t(roleLabel[recipient]) })}
           </Text>
           {notice ? (
             <Text accessibilityLiveRegion="polite" style={{ color: c.foregroundMuted }}>
@@ -1350,8 +1395,8 @@ export function TeamsPanel(
             </Text>
           ) : null}
           <TextInput
-            accessibilityLabel="Message à l’équipe"
-            placeholder="Message à l’équipe…"
+            accessibilityLabel={t('Message à l’équipe')}
+            placeholder={t('Message à l’équipe…')}
             placeholderTextColor={c.foregroundMuted}
             multiline
             style={input}
@@ -1360,7 +1405,7 @@ export function TeamsPanel(
           />
           <View style={{ marginLeft: 'auto' }}>
             {button(
-              'Envoyer le message',
+              t('Envoyer le message'),
               () =>
                 void act(
                   !workflow.operation &&

@@ -2,7 +2,7 @@
 
 The released Paseo 0.11/0.12 client renders plugin composer pills only inside an existing agent panel. Installing a plugin on a remote VM cannot add a new rendering location to that client.
 
-`paseo-new-workspace-pill.patch` adds an optional `addNewWorkspaceComposerPill` API and renders its pills immediately above the native New workspace chat composer. The plugin in this repository feature-detects this API. Existing clients keep the sidebar entry and session pills.
+`paseo-new-workspace-pill.patch` adds an optional `addNewWorkspaceComposerPill` API and renders its pills immediately above the native New workspace chat composer. The plugin in this repository feature-detects this API. Released clients start missions by choosing Team Auto in the model picker; the plugin no longer adds sidebar entries.
 
 The patch targets upstream Paseo commit `fc775b6db5e99ce4e0b1b3718250a023284557da`. It is a proposed client/SDK change, **not an API available in a released Paseo version**. No daemon or protocol changes are required.
 
@@ -19,7 +19,7 @@ npm run build:web --workspace=@getpaseo/app
 
 Serve `packages/app/dist` using an HTTP server with an SPA fallback. Connect this client to the daemon on your VM, with Agent Teams installed there. If you serve the web client from a custom origin, add that specific origin to the test daemon's `daemon.cors.allowedOrigins` configuration. Retain the usual connection authentication.
 
-Choose the VM and project on New workspace. The pill appears only for the selected host's installation. Clicking **Mode agent** opens the role/model configuration and copies the native draft text. Opening this configuration only opens/reuses a workspace; agents start when you launch the team. The native chat send button keeps its existing behavior. V1 uses the selected source directory, as the rest of the plugin does.
+Choose the VM and project on New workspace. The pill appears only for the selected host's installation. Clicking **Team Auto** opens the role/model configuration and copies the native draft text. Opening this configuration only opens/reuses a workspace; agents start when you launch the team. The native chat send button keeps its existing behavior. V1 uses the selected source directory, as the rest of the plugin does.
 
 Web clients can use this compiled bundle. Electron and iOS/Android apps need a build containing the patch; updating only the VM's daemon/plugin will not update those installed clients.
 

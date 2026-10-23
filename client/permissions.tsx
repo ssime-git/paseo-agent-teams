@@ -1,4 +1,6 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useT } from './i18n';
+import { roleTitle } from '../shared/team-composition';
 import { useQuery } from '@tanstack/react-query';
 import { useRpc, type PluginHostProps } from '@getpaseo/plugin/client';
 import { permissionsRpc, type Action, type Workflow } from '../shared/contracts';
@@ -15,6 +17,7 @@ export function TeamPermissions({
   busy: boolean;
   onAction(action: Action['action'], extra?: Partial<Action>): Promise<void> | undefined;
 }) {
+  const t = useT();
   const call = useRpc(permissionsRpc),
     c = theme.colors;
   const query = useQuery({
@@ -43,18 +46,18 @@ export function TeamPermissions({
   return (
     <View style={{ padding: 12, gap: 10, borderWidth: 1, borderColor: c.statusWarning, borderRadius: 8 }}>
       <Text accessibilityRole="header" style={{ color: c.foreground, fontWeight: '600' }}>
-        Permissions de l’équipe
+        {t('Permissions de l’équipe')}
       </Text>
       {query.error ? (
         <Text accessibilityRole="alert" style={{ color: c.statusDanger }}>
-          {errorMessage(query.error)}
+          {errorMessage(query.error, t)}
         </Text>
       ) : null}
-      {query.isLoading ? <Text style={{ color: c.foregroundMuted }}>Chargement des permissions…</Text> : null}
+      {query.isLoading ? <Text style={{ color: c.foregroundMuted }}>{t('Chargement des permissions…')}</Text> : null}
       {query.data?.map((request) => (
         <View key={request.id} style={{ gap: 8 }}>
           <Text style={{ color: c.foreground }}>
-            {request.role} · {request.title}
+            {t(roleTitle[request.role])} · {request.title}
           </Text>
           {request.description ? <Text style={{ color: c.foregroundMuted }}>{request.description}</Text> : null}
           {request.details !== '{}' ? (
@@ -66,18 +69,20 @@ export function TeamPermissions({
           ) : null}
           {!request.canAllow ? (
             <Text style={{ color: c.foregroundMuted }}>
-              Ce rôle doit rester en lecture seule. Refusez le changement de mode natif.
+              {t('Ce rôle doit rester en lecture seule. Refusez le changement de mode natif.')}
             </Text>
           ) : null}
           {request.kind === 'question' && !request.actions.length ? (
-            <Text style={{ color: c.foregroundMuted }}>Répondez à cette question dans la session native du rôle.</Text>
+            <Text style={{ color: c.foregroundMuted }}>
+              {t('Répondez à cette question dans la session native du rôle.')}
+            </Text>
           ) : null}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {(request.actions.length
               ? request.actions
               : [
-                  { id: '', label: 'Autoriser', behavior: 'allow' as const },
-                  { id: '', label: 'Refuser', behavior: 'deny' as const },
+                  { id: '', label: t('Autoriser'), behavior: 'allow' as const },
+                  { id: '', label: t('Refuser'), behavior: 'deny' as const },
                 ]
             ).map((action) =>
               button(
@@ -99,15 +104,16 @@ export function TeamPermissions({
       {query.data?.length === 0 ? (
         <>
           <Text style={{ color: c.foregroundMuted }}>
-            Aucune permission native en attente. Reprenez pour réconcilier le tour terminé ; aucun prompt ne sera
-            renvoyé.
+            {t(
+              'Aucune permission native en attente. Reprenez pour réconcilier le tour terminé ; aucun prompt ne sera renvoyé.',
+            )}
           </Text>
-          {button('Reprendre après résolution des permissions', () => {
+          {button(t('Reprendre après résolution des permissions'), () => {
             void onAction('resume');
           })}
         </>
       ) : null}
-      {button('Actualiser les permissions', () => {
+      {button(t('Actualiser les permissions'), () => {
         void query.refetch();
       })}
     </View>

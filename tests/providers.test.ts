@@ -74,7 +74,7 @@ test('Codex read-only is supported through native sandbox options even when abse
     builder: { provider: 'codex/model', modeId: 'auto' },
     reviewer: { provider: 'codex/model', modeId: '' },
   };
-  assert.match(configurationIssue(config)!, /reviewer.*lecture seule/);
+  assert.match(configurationIssue(config)!, /Revue.*lecture seule/);
   config.roles.reviewer.modeId = 'read-only';
   assert.equal(configReady(config), true);
 });

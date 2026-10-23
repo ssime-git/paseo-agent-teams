@@ -20,7 +20,7 @@ const choices = [
   },
   { id: 'agent-teams', family: 'agent-teams', models: [{ id: 'auto', isDefault: true }], modes: [{ id: 'plan' }] },
 ];
-async function setup(t: { after(fn: () => Promise<void>): void }) {
+async function setup(t: { after(fn: () => Promise<void>): void }, language: 'fr' | 'en' | (() => 'fr' | 'en') = 'fr') {
   let w = workflowFixture();
   w.config.roles = automaticTeam(choices);
   w.config.builderAutoAccept = false;
@@ -28,6 +28,7 @@ async function setup(t: { after(fn: () => Promise<void>): void }) {
   const calls: { kind: string; value: unknown }[] = [];
   let created = false;
   const backend: TeamProviderBackend = {
+    language: async () => (typeof language === 'function' ? language() : language),
     open: async () => ({
       workspaceId: w.workspaceId,
       choices: choices.filter((p) => p.id !== 'agent-teams'),
@@ -306,4 +307,48 @@ test('literal native slash commands stay explicit actions and are never forwarde
   const count = s.calls.length;
   await s.prompt('invalid', { type: 'message', content: [{ type: 'text', text: '/team-unknown' }] });
   assert.equal(s.calls.length, count);
+});
+
+test('native Team catalog, modes and commands follow the language setting', async (t) => {
+  const s = await setup(t, 'en');
+  await s.connection.send({ type: 'catalog', requestId: 'catalog' });
+  const catalog = s.events.find((e) => e.type === 'catalog');
+  assert.ok(catalog?.type === 'catalog');
+  assert.deepEqual(
+    catalog.catalog.modes.map((m) => m.label),
+    ['Approve the plan', 'Approve the result', 'Autonomous validation'],
+  );
+  await s.open();
+  const commands = s.events.find((e) => e.type === 'session.commands');
+  assert.ok(commands?.type === 'session.commands' && commands.commands[0].description === 'Show the team status');
+  const config = s.events.find((e) => e.type === 'session.config');
+  assert.ok(config?.type === 'session.config');
+  assert.deepEqual(
+    config.config.settings.map((setting) => setting.label),
+    ['Plan', 'Code', 'Review'],
+  );
+  assert.equal(config.config.modes.find((m) => m.id === 'plan')?.label, 'Approve the plan');
+});
+
+test('a language change never re-emits finished rows, which Paseo would show twice', async (t) => {
+  let language: 'fr' | 'en' = 'fr';
+  const s = await setup(t, () => language);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Ship it' }] });
+  const w = s.workflow();
+  const plan = { summary: 'Plan', tasks: ['One'], acceptance: ['Works'], tests: [{ command: 'npm test' }] };
+  w.events.push(
+    { id: 'e1', at: 'now', kind: 'dispatch', role: 'planner', text: 'Starting planner', operationId: 'op-plan' },
+    { id: 'e2', at: 'now', kind: 'assistant', role: 'planner', text: JSON.stringify(plan), operationId: 'op-plan' },
+  );
+  w.revision++;
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  const rows = () =>
+    s.events.filter(
+      (e) => e.type === 'timeline.item' && e.item.type === 'tool_call' && e.item.callId === 'team-agent-op-plan',
+    );
+  assert.equal(rows().length, 1);
+  language = 'en';
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  assert.equal(rows().length, 1);
 });

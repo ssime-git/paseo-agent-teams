@@ -1,4 +1,5 @@
 import { Pressable, Text, View } from 'react-native';
+import { useT } from './i18n';
 import { useRpc, type PluginHostProps } from '@getpaseo/plugin/client';
 import { useRef, useState } from 'react';
 import type { z } from 'zod';
@@ -17,6 +18,7 @@ export function LockNotice({
   onOpen?(workspaceId: string): void;
   onRefresh(): void;
 }) {
+  const t = useT();
   const actionCall = useRpc(actionRpc);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
@@ -41,41 +43,41 @@ export function LockNotice({
       pending.current = undefined;
       onRefresh();
     } catch (error) {
-      setError(errorMessage(error));
+      setError(errorMessage(error, t));
     } finally {
       setBusy(false);
     }
   };
   return (
     <View style={{ padding: 12, gap: 8, borderWidth: 1, borderColor: c.statusWarning, borderRadius: 8 }}>
-      <Text style={{ color: c.foreground }}>Un workflow conserve le verrou de ce dépôt.</Text>
+      <Text style={{ color: c.foreground }}>{t('Un workflow conserve le verrou de ce dépôt.')}</Text>
       <Text selectable style={{ color: c.foregroundMuted }}>
         {blocker.task} · {blocker.status} · {blocker.id.slice(0, 8)}
       </Text>
       {blocker.workspaceId && onOpen ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Ouvrir le workflow bloquant"
+          accessibilityLabel={t('Ouvrir le workflow bloquant')}
           onPress={() => {
             try {
               showTeamWorkflow(`${host.id}:${blocker.workspaceId}`, blocker.id);
               onOpen(blocker.workspaceId!);
             } catch (error) {
-              setError(errorMessage(error));
+              setError(errorMessage(error, t));
             }
           }}
         >
-          <Text style={{ color: c.foreground }}>Ouvrir le workflow bloquant ↗</Text>
+          <Text style={{ color: c.foreground }}>{t('Ouvrir le workflow bloquant ↗')}</Text>
         </Pressable>
       ) : null}
       {blocker.workspaceId ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Clore le workflow bloquant en conservant les fichiers"
+          accessibilityLabel={t('Clore le workflow bloquant en conservant les fichiers')}
           disabled={busy}
           onPress={() => void close()}
         >
-          <Text style={{ color: c.foreground }}>{busy ? 'Fermeture…' : 'Clore en conservant les fichiers'}</Text>
+          <Text style={{ color: c.foreground }}>{busy ? t('Fermeture…') : t('Clore en conservant les fichiers')}</Text>
         </Pressable>
       ) : null}
       {error ? (
@@ -83,8 +85,8 @@ export function LockNotice({
           {error}
         </Text>
       ) : null}
-      <Pressable accessibilityRole="button" accessibilityLabel="Actualiser le verrou" onPress={onRefresh}>
-        <Text style={{ color: c.foregroundMuted }}>Actualiser</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('Actualiser le verrou')} onPress={onRefresh}>
+        <Text style={{ color: c.foregroundMuted }}>{t('Actualiser')}</Text>
       </Pressable>
     </View>
   );

@@ -3,32 +3,36 @@ import type { PluginHostProps } from '@getpaseo/plugin/client';
 import { roles, type Config, type Role, type Workflow } from '../shared/contracts';
 import { parseProvider } from '../shared/provider-selection';
 import { roleTitle, teamModelLabel, type TeamProviderChoice } from '../shared/team-composition';
+import type { Translate } from '../shared/i18n';
+import { translator } from '../shared/i18n';
+const french = translator('fr');
 
 const identity = {
   planner: { label: roleTitle.planner, name: roleTitle.planner, color: '#9b8afb', initial: 'P' },
   builder: { label: roleTitle.builder, name: roleTitle.builder, color: '#62a8ff', initial: 'C' },
   reviewer: { label: roleTitle.reviewer, name: roleTitle.reviewer, color: '#e9b65f', initial: 'R' },
 };
-export function teamControl(w: Workflow): { title: string; detail: string; role?: Role } {
+export function teamControl(w: Workflow, t: Translate = french): { title: string; detail: string; role?: Role } {
   if (w.status === 'completed')
-    return { title: 'Mission terminée', detail: 'Le résultat est conservé dans l’historique.' };
-  if (w.status === 'paused') return { title: 'Équipe en pause', detail: 'Le contexte est conservé pour la reprise.' };
+    return { title: t('Mission terminée'), detail: t('Le résultat est conservé dans l’historique.') };
+  if (w.status === 'paused')
+    return { title: t('Équipe en pause'), detail: t('Le contexte est conservé pour la reprise.') };
   if (w.clarifications?.some((q) => !q.resolvedAt))
-    return { title: 'À vous de répondre', detail: 'Le Plan attend votre précision.' };
+    return { title: t('À vous de répondre'), detail: t('Le Plan attend votre précision.') };
   if (w.status === 'awaiting_plan' || w.status === 'awaiting_final')
     return {
-      title: 'À vous de valider',
+      title: t('À vous de valider'),
       detail:
         w.status === 'awaiting_plan'
-          ? 'Le plan est prêt. Rien ne démarre sans votre accord.'
-          : 'Les vérifications sont terminées. Consultez le bilan.',
+          ? t('Le plan est prêt. Rien ne démarre sans votre accord.')
+          : t('Les vérifications sont terminées. Consultez le bilan.'),
     };
   if (w.status === 'permission')
-    return { title: 'Autorisation attendue', detail: 'Une demande nécessite votre décision.' };
+    return { title: t('Autorisation attendue'), detail: t('Une demande nécessite votre décision.') };
   if (w.status === 'attention')
-    return { title: 'Votre attention est nécessaire', detail: w.error ?? 'Ouvrez l’équipe pour reprendre.' };
+    return { title: t('Votre attention est nécessaire'), detail: w.error ?? t('Ouvrez l’équipe pour reprendre.') };
   if (w.phase === 'testing')
-    return { title: 'Les tests ont la main', detail: 'Exécution des commandes de validation.' };
+    return { title: t('Les tests ont la main'), detail: t('Exécution des commandes de validation.') };
   const role =
     w.operation?.role ??
     (w.phase === 'planning'
@@ -39,11 +43,14 @@ export function teamControl(w: Workflow): { title: string; detail: string; role?
           ? 'reviewer'
           : w.activeRole);
   return {
-    title: `${identity[role].name} ${w.status === 'ready' ? 'prend' : 'a'} la main`,
+    title:
+      w.status === 'ready'
+        ? t('{role} prend la main', { role: t(identity[role].name) })
+        : t('{role} a la main', { role: t(identity[role].name) }),
     detail:
       w.config.mode === 'auto'
-        ? 'Le relais vers le prochain rôle est automatique.'
-        : 'Vous choisissez le prochain rôle depuis Team.',
+        ? t('Le relais vers le prochain rôle est automatique.')
+        : t('Vous choisissez le prochain rôle depuis Team.'),
     role,
   };
 }
@@ -55,6 +62,7 @@ export function TeamRoster({
   colors: c,
   compact = false,
   onRole,
+  t = french,
 }: {
   config: Pick<Config, 'roles'>;
   providers?: TeamProviderChoice[];
@@ -62,8 +70,9 @@ export function TeamRoster({
   colors: PluginHostProps['theme']['colors'];
   compact?: boolean;
   onRole?: (role: Role) => void;
+  t?: Translate;
 }) {
-  const control = workflow ? teamControl(workflow) : undefined;
+  const control = workflow ? teamControl(workflow, t) : undefined;
   return (
     <View style={{ gap: 14, minWidth: 0 }}>
       {control ? (
@@ -90,7 +99,7 @@ export function TeamRoster({
             <Pressable
               key={role}
               accessibilityRole="button"
-              accessibilityLabel={`${item.name} : ${name || 'Sélection automatique'}${active ? ', a la main' : ''}`}
+              accessibilityLabel={`${t(item.name)} : ${name || t('Sélection automatique')}${active ? t(', a la main') : ''}`}
               disabled={!onRole}
               onPress={() => onRole?.(role)}
               style={{
@@ -120,16 +129,16 @@ export function TeamRoster({
               </View>
               <View style={{ flex: compact ? 1 : undefined, minWidth: 0, gap: 3 }}>
                 <Text style={{ color: c.foregroundMuted, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase' }}>
-                  {index + 1} · {item.label}
+                  {index + 1} · {t(item.label)}
                 </Text>
                 <Text
                   numberOfLines={2}
                   style={{ color: c.foreground, fontSize: 13, lineHeight: 18, fontWeight: '600' }}
                 >
-                  {name || 'Sélection automatique'}
+                  {name || t('Sélection automatique')}
                 </Text>
                 <Text numberOfLines={1} style={{ color: active ? item.color : c.foregroundMuted, fontSize: 11 }}>
-                  {active ? '● A la main' : (provider?.label ?? harness ?? item.name)}
+                  {active ? t('● A la main') : (provider?.label ?? harness ?? t(item.name))}
                 </Text>
               </View>
             </Pressable>

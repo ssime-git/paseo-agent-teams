@@ -173,6 +173,7 @@ export function contributeServer(server: PluginServerContext) {
   server.registerProvider(
     createTeamProvider({
       defaultMode: async () => (await savedTeam())?.validation ?? 'plan',
+      language: async () => (await savedTeam())?.language ?? 'fr',
       async open(cwd, workspaceId) {
         await bind();
         const workspace = await recoveryClient!.workspaces.ref(workspaceId).refresh();

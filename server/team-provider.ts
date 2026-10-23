@@ -9,11 +9,14 @@ import {
 import { configSchema, roles, type Action, type Config, type Role, type Workflow } from '../shared/contracts';
 import { stateNarrations, teamThread, transcriptItem, type RoleAction, type TranscriptEntry } from './team-timeline';
 import { roleTitle, TEAM_PROVIDER_ID, type TeamProviderChoice } from '../shared/team-composition';
+import { translator, type Language, type Translate } from '../shared/i18n';
 import { readOnlyMode } from '../shared/provider-selection';
 
 export interface TeamProviderBackend {
   /** Validation mode preselected for new conversations, from the default team settings. */
   defaultMode?(): Promise<'plan' | 'final' | 'autonomous'>;
+  /** Language of the thread messages, from the Agent Teams settings. */
+  language?(): Promise<Language>;
   open(
     cwd: string,
     workspaceId: string,
@@ -48,19 +51,19 @@ const savedSchema = z
   })
   .strict();
 type Saved = z.infer<typeof savedSchema>;
-const models = [
+export const models = [
   {
     id: 'auto',
     label: 'Team Auto',
     description: 'Planifier, développer, tester et relire avec des modèles complémentaires.',
   },
 ];
-const modes = [
+export const modes = [
   { id: 'plan', label: 'Valider le plan' },
   { id: 'final', label: 'Valider le résultat' },
   { id: 'autonomous', label: 'Validation autonome' },
 ];
-const commands = [
+export const commands = [
   { name: 'team-status', description: 'Afficher l’état de l’équipe' },
   { name: 'team-pause', description: 'Mettre l’équipe en pause' },
   { name: 'team-resume', description: 'Reprendre le workflow enregistré' },
@@ -70,6 +73,10 @@ const commands = [
 const waiting = new Set(['paused', 'attention', 'permission', 'awaiting_plan', 'awaiting_final', 'completed']);
 const ACTIVITY_BACKFILL = 8;
 const TRANSCRIPT_LIMIT = 300;
+const finished = (json: string) => {
+  const item = JSON.parse(json) as { type: string; status?: string };
+  return item.type === 'tool_call' && item.status !== 'running';
+};
 function record(saved: Saved, ...entries: TranscriptEntry[]) {
   saved.transcript = [
     ...(saved.transcript ?? []),
@@ -83,8 +90,9 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
   return {
     id: TEAM_PROVIDER_ID,
     label: 'Agent Teams',
-    description: 'Une équipe de modèles qui se passent la main automatiquement.',
+    description: 'Plan · Code · Revue / Review',
     async connect(request) {
+      const tr = async () => translator((await backend.language?.()) ?? 'fr');
       if (!request.versions.includes(1)) throw new Error('Unsupported provider protocol');
       const capabilities = negotiateProviderCapabilities(request.capabilities, [
         'prompt.message',
@@ -120,18 +128,18 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           sessionId,
           persistence: { version: 1, data: JSON.parse(JSON.stringify(saved)) },
         });
-      const settings = (sessionId: string) => {
+      const settings = (sessionId: string, t: Translate) => {
         const session = sessions.get(sessionId)!;
         const state: ProviderConfigState = {
           model: 'auto',
           mode: session.saved.config.validation,
-          models,
-          modes,
+          models: models.map((m) => ({ ...m, description: t(m.description) })),
+          modes: modes.map((m) => ({ ...m, label: t(m.label) })),
           thinkingOptions: [],
           settings: roles.map((role) => ({
             type: 'select',
             id: role,
-            label: roleTitle[role],
+            label: t(roleTitle[role]),
             value: session.saved.config.roles[role].provider,
             options: session.choices
               .filter((p) => p.modes.some((m) => role === 'builder' || readOnlyMode(p.family, m.id)))
@@ -179,7 +187,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         if (closed || sessions.get(sessionId) !== session) return;
         await refreshActivity(sessionId, w);
         if (closed || sessions.get(sessionId) !== session) return;
-        const ctx = { label: label(sessionId, w), activity: (id: string) => session.activity.get(id) };
+        const ctx = { label: label(sessionId, w), activity: (id: string) => session.activity.get(id), t: await tr() };
         const fresh = stateNarrations(w, ctx).filter((n) => !session.saved.transcript?.some((e) => e.id === n.id));
         if (fresh.length) {
           record(session.saved, ...fresh.map((n) => ({ ...n, role: 'assistant' as const, at: w.events.length })));
@@ -188,8 +196,10 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         for (const item of teamThread(w, ctx, session.saved.transcript ?? [])) {
           const json = JSON.stringify(item);
           const previous = session.emitted.get(item.id);
-          // Narrations are immutable; tool calls and todos are updated in place by identity.
-          if (previous === json || (previous && item.type === 'assistant_message')) continue;
+          // Narrations and finished tool calls are immutable: Paseo only merges a tool call within the native
+          // turn that started it, so re-emitting one later (e.g. after a language change) would duplicate the row.
+          // Running rows and todos are updated in place; a restart replays everything in the current language.
+          if (previous === json || (previous && (item.type === 'assistant_message' || finished(previous)))) continue;
           session.emitted.set(item.id, json);
           emit({ type: 'timeline.item', sessionId, item });
         }
@@ -232,12 +242,18 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         });
       }, 1500);
       const handle = async (input: ProviderInput) => {
+        const t = await tr();
         if (closed) throw new Error('Provider connection closed');
         if (input.type === 'catalog') {
           emit({
             type: 'catalog',
             requestId: input.requestId,
-            catalog: { models, modes, defaultModel: 'auto', defaultMode: (await backend.defaultMode?.()) ?? 'plan' },
+            catalog: {
+              models: models.map((m) => ({ ...m, description: t(m.description) })),
+              modes: modes.map((m) => ({ ...m, label: t(m.label) })),
+              defaultModel: 'auto',
+              defaultMode: (await backend.defaultMode?.()) ?? 'plan',
+            },
           });
           return;
         }
@@ -308,8 +324,12 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             cwd: input.config.cwd,
             persistence: { version: 1, data: JSON.parse(JSON.stringify(saved)) },
           });
-          settings(input.sessionId);
-          emit({ type: 'session.commands', sessionId: input.sessionId, commands });
+          settings(input.sessionId, t);
+          emit({
+            type: 'session.commands',
+            sessionId: input.sessionId,
+            commands: commands.map((c) => ({ ...c, description: t(c.description) })),
+          });
           if (input.history === 'replay') await project(input.sessionId);
           emit({ type: 'session.ready', requestId: input.requestId, sessionId: input.sessionId });
           return;
@@ -320,7 +340,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         if (input.type === 'session.configure') {
           if (session.saved.workflowId)
             throw new Error(
-              'La composition est figée pour cette mission. Modifiez les rôles depuis Team ou créez une nouvelle conversation.',
+              t('La composition est figée pour cette mission. Créez une nouvelle conversation pour changer les rôles.'),
             );
           if ((input.changes.model && input.changes.model !== 'auto') || input.changes.thinkingOption)
             throw new Error('Unsupported Team configuration');
@@ -338,7 +358,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           }
           session.saved.config = configSchema.parse(next);
           persist(input.sessionId, session.saved);
-          settings(input.sessionId);
+          settings(input.sessionId, t);
           emit({ type: 'request.completed', requestId: input.requestId });
           return;
         }
@@ -386,7 +406,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         }
         if (session.turn)
           throw new Error(
-            'L’équipe travaille déjà. Attendez la fin du tour, ou arrêtez-le pour mettre l’équipe en pause.',
+            t('L’équipe travaille déjà. Attendez la fin du tour, ou arrêtez-le pour mettre l’équipe en pause.'),
           );
         if (prompt.outputSchema || prompt.delivery === 'steer') throw new Error('Unsupported Team prompt capability');
         const text =
@@ -394,13 +414,13 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             ? prompt.input.content
                 .map((c) => {
                   if (c.type !== 'text' || 'mimeType' in c)
-                    throw new Error('Team Auto accepte actuellement les messages texte uniquement.');
+                    throw new Error(t('Team Auto accepte actuellement les messages texte uniquement.'));
                   return c.text;
                 })
                 .join('\n')
                 .trim()
             : '';
-        if (prompt.input.type === 'message' && !text) throw new Error('Décrivez votre mission.');
+        if (prompt.input.type === 'message' && !text) throw new Error(t('Décrivez votre mission.'));
         if (!session.saved.workflowId) {
           // Creation placement can finish after session.open. Resolve the actual
           // native owner before the first side effect, rather than reopening cwd.
@@ -418,8 +438,8 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         if (prompt.input.type === 'command') {
           const command = prompt.input.name;
           if (!commands.some((c) => c.name === command)) throw new Error('Unknown Team command');
-          if (prompt.input.arguments.trim()) throw new Error('Cette commande ne prend pas d’argument.');
-          if (!w) throw new Error('Décrivez d’abord votre mission.');
+          if (prompt.input.arguments.trim()) throw new Error(t('Cette commande ne prend pas d’argument.'));
+          if (!w) throw new Error(t('Décrivez d’abord votre mission.'));
           if (command !== 'team-status')
             w = await backend.action({
               id: w.id,
@@ -441,7 +461,9 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           const answers = pending && unanswered ? answerQuestions(unanswered, text) : undefined;
           if (pending && !answers)
             throw new Error(
-              `${unanswered?.length ?? 0} questions sont en attente. Répondez une par ligne : « 1. … », « 2. … ».`,
+              t('{count} questions sont en attente. Répondez une par ligne : « 1. … », « 2. … ».', {
+                count: unanswered?.length ?? 0,
+              }),
             );
           w = await backend.action({
             id: w.id,

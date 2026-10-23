@@ -1,7 +1,8 @@
 import type { ProviderTimelineItem } from '@getpaseo/plugin/server/provider';
 import { parseResult } from './result-parser';
 import type { Role, Workflow } from '../shared/contracts';
-import { roleTitle as roleName } from '../shared/team-composition';
+import { roleTitle } from '../shared/team-composition';
+import type { Translate } from '../shared/i18n';
 
 /** One action of a role session, rendered by Paseo as a `[Tool] summary` line of a sub-agent. */
 export interface RoleAction {
@@ -13,6 +14,8 @@ export interface TeamTimelineContext {
   label(role: Role): string;
   /** Recent actions of the role session that handled an operation, when known. */
   activity(operationId: string): RoleAction[] | undefined;
+  /** Translation into the language chosen in the Agent Teams settings. */
+  t: Translate;
 }
 const MAX_ACTIONS = 40;
 
@@ -29,23 +32,39 @@ const shorten = (text: string, max = 160) => {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 };
 
-function describe(w: Workflow, index: number, role: Role) {
+/** Engine correction events are recorded in French; the thread shows them in the chosen language. */
+export function correctionText(t: Translate, text: string) {
+  const cycle = /^Correction (\d+)\/(\d+) : (review refusée|tests non validés)/.exec(text);
+  if (cycle)
+    return t('Correction {cycle}/{max} : {reason}. Retour au Code.', {
+      cycle: cycle[1],
+      max: cycle[2],
+      reason: t(cycle[3]),
+    });
+  const minor = /^Revue validée avec (\d+) point/.exec(text);
+  if (minor) return t('Revue validée avec {count} point(s) non bloquant(s) : le Code les traite.', { count: minor[1] });
+  if (text.startsWith('Blocage persistant'))
+    return t('Blocage persistant : retour au Plan pour diagnostiquer, puis poursuivre.');
+  return text;
+}
+
+function describe(w: Workflow, index: number, role: Role, t: Translate) {
   const previous = w.events
     .slice(0, index)
     .reverse()
     .find((e) => ['correction', 'goal_replan', 'dispatch', 'user', 'followup'].includes(e.kind));
-  if (previous?.kind === 'correction' && role === 'builder') return shorten(previous.text, 120);
-  if (previous?.kind === 'goal_replan') return 'Diagnostiquer le blocage et ajuster le plan';
-  if (previous?.kind === 'user') return `Répondre : ${shorten(previous.text, 100)}`;
+  if (previous?.kind === 'correction' && role === 'builder') return shorten(correctionText(t, previous.text), 120);
+  if (previous?.kind === 'goal_replan') return t('Diagnostiquer le blocage et ajuster le plan');
+  if (previous?.kind === 'user') return t('Répondre : {message}', { message: shorten(previous.text, 100) });
   return role === 'planner'
-    ? 'Planifier la mission'
+    ? t('Planifier la mission')
     : role === 'builder'
-      ? 'Implémenter le plan'
-      : 'Relire les changements';
+      ? t('Implémenter le plan')
+      : t('Relire les changements');
 }
 
 /** The role's structured answer as readable text inside its expanded sub-agent row. */
-function conclusion(role: Role, text: string) {
+function conclusion(role: Role, text: string, t: Translate) {
   const parsed = result(role, text);
   if (!parsed) return shorten(text, 600);
   if ('kind' in parsed && parsed.kind === 'clarification')
@@ -54,7 +73,11 @@ function conclusion(role: Role, text: string) {
   if (role === 'builder' && 'changes' in parsed)
     return [parsed.summary, parsed.changes.length ? list(parsed.changes) : ''].filter(Boolean).join('\n');
   if (role === 'reviewer' && 'verdict' in parsed)
-    return [parsed.verdict === 'pass' ? 'Approuvé.' : 'Changements demandés.', parsed.summary, list(parsed.issues)]
+    return [
+      parsed.verdict === 'pass' ? t('Approuvé.') : t('Changements demandés.'),
+      parsed.summary,
+      list(parsed.issues),
+    ]
       .filter(Boolean)
       .join('\n');
   return 'summary' in parsed ? String(parsed.summary) : shorten(text, 600);
@@ -79,7 +102,7 @@ function subAgent(
     name: 'Agent',
     detail: {
       type: 'sub_agent' as const,
-      subAgentType: `${roleName[role]} · ${ctx.label(role)}`,
+      subAgentType: `${ctx.t(roleTitle[role])} · ${ctx.label(role)}`,
       description,
       log,
       actions: actions.map((a, i) => ({
@@ -99,10 +122,10 @@ const say = (id: string, text: string): ProviderTimelineItem => ({
   text,
 });
 
-function reviewNarration(text: string) {
+function reviewNarration(text: string, t: Translate) {
   const parsed = result('reviewer', text);
   return parsed && 'verdict' in parsed && parsed.verdict === 'fail'
-    ? `La relecture demande des changements :\n${list(parsed.issues)}`
+    ? `${t('La relecture demande des changements :')}\n${list(parsed.issues)}`
     : undefined;
 }
 
@@ -126,14 +149,14 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
     switch (event.kind) {
       case 'dispatch': {
         if (!role || !event.operationId) return;
-        const description = describe(w, index, role);
+        const description = describe(w, index, role, ctx.t);
         descriptions.set(event.operationId, description);
         if (done.has(event.operationId)) return; // The result event completes this row in place.
         const live = w.operation?.id === event.operationId && w.status !== 'attention';
         items.push(
           live
             ? subAgent(event.operationId, role, description, ctx, 'running')
-            : subAgent(event.operationId, role, description, ctx, 'failed', w.error ?? 'Tour interrompu.'),
+            : subAgent(event.operationId, role, description, ctx, 'failed', w.error ?? ctx.t('Tour interrompu.')),
         );
         return;
       }
@@ -145,10 +168,10 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
           subAgent(
             operationId,
             role,
-            descriptions.get(operationId) ?? describe(w, index, role),
+            descriptions.get(operationId) ?? describe(w, index, role, ctx.t),
             ctx,
             'completed',
-            conclusion(role, event.text),
+            conclusion(role, event.text, ctx.t),
           ),
         );
         const parsed = role === 'planner' ? result(role, event.text) : undefined;
@@ -165,7 +188,7 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
             items: parsed.tasks.map((text, i) => ({ id: String(i + 1), text, completed: built })),
           });
         }
-        const narration = role === 'reviewer' ? reviewNarration(event.text) : undefined;
+        const narration = role === 'reviewer' ? reviewNarration(event.text, ctx.t) : undefined;
         if (narration) items.push(say(event.id, narration));
         return;
       }
@@ -200,14 +223,16 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
       }
       case 'correction':
       case 'goal_replan':
-        items.push(say(event.id, event.text));
+        items.push(say(event.id, correctionText(ctx.t, event.text)));
         return;
       case 'plan_approved': {
         const version = /Plan v(\d+)/.exec(event.text)?.[1];
         items.push(
           say(
             event.id,
-            `Plan${version && version !== '1' ? ` v${version}` : ''} validé. ${ctx.label('builder')} implémente.`,
+            version && version !== '1'
+              ? ctx.t('Plan v{version} validé. {builder} implémente.', { version, builder: ctx.label('builder') })
+              : ctx.t('Plan validé. {builder} implémente.', { builder: ctx.label('builder') }),
           ),
         );
         return;
@@ -216,7 +241,9 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
         items.push(
           say(
             event.id,
-            'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.',
+            ctx.t(
+              'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.',
+            ),
           ),
         );
         return;
@@ -226,7 +253,7 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
         items.push(say(event.id, `⚠️ ${event.text}`));
         return;
       case 'paused':
-        items.push(say(event.id, 'Équipe en pause. Envoyez `/team-resume` pour reprendre.'));
+        items.push(say(event.id, ctx.t('Équipe en pause. Envoyez `/team-resume` pour reprendre.')));
         return;
     }
   });
@@ -265,38 +292,52 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
             `${open.length > 1 ? `${i + 1}. ` : ''}**${q.title}** — ${q.options.map((o) => o.label).join(' · ')}`,
         ),
         '',
-        open.length > 1 ? 'Répondez ici, une réponse par ligne : `1. …`, `2. …`.' : 'Répondez directement ici.',
+        open.length > 1
+          ? ctx.t('Répondez ici, une réponse par ligne : `1. …`, `2. …`.')
+          : ctx.t('Répondez directement ici.'),
       ].join('\n'),
     });
   } else if (w.status === 'awaiting_plan' && w.plan) {
-    const tests = w.plan.tests.length ? w.plan.tests.map((t) => `\`${t.command}\``).join(', ') : 'aucune commande';
+    const tests = w.plan.tests.length
+      ? w.plan.tests.map((t) => `\`${t.command}\``).join(', ')
+      : ctx.t('aucune commande');
     const steps = w.plan.tasks.length;
     out.push({
       id: `plan:${last?.id ?? w.revision}`,
-      text: `Le plan est prêt (${steps} étape${steps > 1 ? 's' : ''}, tests : ${tests}). Répondez **go** pour lancer ${ctx.label('builder')}, ou décrivez ce qu'il faut changer.`,
+      text: ctx.t(
+        steps > 1
+          ? 'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.'
+          : 'Le plan est prêt (1 étape, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.',
+        { steps, tests, builder: ctx.label('builder') },
+      ),
     });
   }
   if (w.status === 'permission' && w.operation)
     out.push({
       id: `permission:${w.operation.id}`,
-      text: `Le rôle ${roleName[w.operation.role]} attend une autorisation. Ouvrez-le depuis la liste des sous-agents, au-dessus du message.`,
+      text: ctx.t(
+        'Le rôle {role} attend une autorisation. Ouvrez-le depuis la liste des sous-agents, au-dessus du message.',
+        { role: ctx.t(roleTitle[w.operation.role]) },
+      ),
     });
   if (w.status === 'awaiting_final')
     out.push({
       id: `final:${last?.id ?? w.revision}`,
-      text: 'Le résultat attend votre accord. Répondez **go** pour le valider, ou décrivez ce qu’il faut reprendre.',
+      text: ctx.t(
+        'Le résultat attend votre accord. Répondez **go** pour le valider, ou décrivez ce qu’il faut reprendre.',
+      ),
     });
   if (w.status === 'completed' && w.build) {
     const passed = w.tests.filter((t) => t.exitCode === 0 && !t.timedOut).length;
     out.push({
       id: `done:${w.id}:${last?.id ?? w.cycle}`,
       text: [
-        '### Mission terminée',
+        `### ${ctx.t('Mission terminée')}`,
         w.build.summary,
         w.build.changes.length ? `\n${list(w.build.changes)}` : '',
-        w.review ? `\nRelecture : ${w.review.summary}` : '',
-        w.tests.length ? `Tests : ${passed}/${w.tests.length} réussis.` : '',
-        w.cycle ? `Corrections : ${w.cycle}.` : '',
+        w.review ? `\n${ctx.t('Relecture : {summary}', { summary: w.review.summary })}` : '',
+        w.tests.length ? ctx.t('Tests : {passed}/{total} réussis.', { passed, total: w.tests.length }) : '',
+        w.cycle ? ctx.t('Corrections : {count}.', { count: w.cycle }) : '',
       ]
         .filter(Boolean)
         .join('\n'),

@@ -1,4 +1,5 @@
 import { roleTitle } from '../shared/team-composition';
+import type { Translate } from '../shared/i18n';
 import {
   clarificationSchema,
   buildSchema,
@@ -11,6 +12,8 @@ import {
 } from '../shared/contracts';
 import { parseResult } from '../shared/artifacts';
 import { z } from 'zod';
+import { translator } from '../shared/i18n';
+const french = translator('fr');
 
 export type Rendered =
   | { kind: 'plan'; plan: Plan }
@@ -25,7 +28,7 @@ const unfence = (text: string) =>
     .replace(/^```(?:json)?\s*\n?/i, '')
     .replace(/\n?```$/, '');
 
-const fieldLabels: Record<string, string> = {
+export const fieldLabels: Record<string, string> = {
   summary: 'Résumé',
   tasks: 'Tâches',
   acceptance: 'Critères d’acceptation',
@@ -45,14 +48,14 @@ const fieldLabels: Record<string, string> = {
   line: 'Ligne',
 };
 /** Presentation only: tolerate additional/nested fields without weakening engine validation. */
-export function artifactMarkdown(value: unknown, depth = 2): string {
+export function artifactMarkdown(value: unknown, depth = 2, t: Translate = french): string {
   if (value === null || value === undefined) return '—';
   if (typeof value !== 'object') return String(value);
   if (Array.isArray(value))
     return value
       .map((item, index) =>
         typeof item === 'object' && item !== null
-          ? `${'#'.repeat(Math.min(depth, 6))} ${index + 1}\n\n${artifactMarkdown(item, depth + 1)}`
+          ? `${'#'.repeat(Math.min(depth, 6))} ${index + 1}\n\n${artifactMarkdown(item, depth + 1, t)}`
           : `- ${String(item)}`,
       )
       .join('\n\n');
@@ -60,21 +63,23 @@ export function artifactMarkdown(value: unknown, depth = 2): string {
     .filter(([, v]) => v !== undefined)
     .map(([key, v]) => {
       if (key === 'summary' && typeof v === 'string') return v;
-      if (Array.isArray(v) && !v.length) return `**${fieldLabels[key] ?? key} :** Aucun.`;
-      return `${'#'.repeat(Math.min(depth, 6))} ${fieldLabels[key] ?? key}\n\n${artifactMarkdown(v, depth + 1)}`;
+      if (Array.isArray(v) && !v.length) return `**${fieldLabels[key] ? t(fieldLabels[key]) : key} :** ${t('Aucun.')}`;
+      return `${'#'.repeat(Math.min(depth, 6))} ${fieldLabels[key] ? t(fieldLabels[key]) : key}\n\n${artifactMarkdown(v, depth + 1, t)}`;
     })
     .join('\n\n');
 }
-export function eventMarkdown(rendered: Rendered) {
+export function eventMarkdown(rendered: Rendered, t: Translate = french) {
   return rendered.kind === 'markdown'
     ? rendered.text
     : artifactMarkdown(
         rendered.kind === 'plan' ? rendered.plan : rendered.kind === 'build' ? rendered.build : rendered.review,
+        2,
+        t,
       );
 }
 
 /** Agents answer with a JSON artifact; the panel shows it as a card instead of raw JSON. */
-export function renderEvent(role: Role | undefined, text: string): Rendered {
+export function renderEvent(role: Role | undefined, text: string, t: Translate = french): Rendered {
   try {
     let value: unknown;
     try {
@@ -87,11 +92,11 @@ export function renderEvent(role: Role | undefined, text: string): Rendered {
       return {
         kind: 'markdown',
         text: [
-          '## En attente de réponse',
+          `## ${t('En attente de réponse')}`,
           clarification.data.summary,
           ...clarification.data.questions.map(
             (q) =>
-              `### ${q.title}\n\n${q.options.map((o) => `- **${o.label}${o.id === q.recommendedOptionId && !/\((?:recommandé|recommended)\)/i.test(o.label) ? ' (recommandé)' : ''}** : ${o.tradeoff}`).join('\n')}\n\nRéponse libre possible dans Team.`,
+              `### ${q.title}\n\n${q.options.map((o) => `- **${o.label}${o.id === q.recommendedOptionId && !/\((?:recommandé|recommended)\)/i.test(o.label) ? ` ${t('(recommandé)')}` : ''}** : ${o.tradeoff}`).join('\n')}\n\n${t('Réponse libre possible dans le thread.')}`,
           ),
         ].join('\n\n'),
       };
@@ -103,7 +108,7 @@ export function renderEvent(role: Role | undefined, text: string): Rendered {
         text:
           revision.data.kind === 'discussion'
             ? revision.data.summary
-            : `## Proposition de plan\n\n${revision.data.summary}\n\n${artifactMarkdown(revision.data.plan)}`,
+            : `## ${t('Proposition de plan')}\n\n${revision.data.summary}\n\n${artifactMarkdown(revision.data.plan, 2, t)}`,
       };
     const schema =
       role === 'planner'
@@ -120,7 +125,7 @@ export function renderEvent(role: Role | undefined, text: string): Rendered {
       return { kind: 'review', review: parsed.data as z.infer<typeof reviewSchema> };
     }
     if (value && typeof value === 'object' && ('summary' in value || 'verdict' in value))
-      return { kind: 'markdown', text: artifactMarkdown(value) };
+      return { kind: 'markdown', text: artifactMarkdown(value, 2, t) };
   } catch {
     // Not JSON: plain markdown.
   }
@@ -136,7 +141,7 @@ export const phaseRole = {
 } as const;
 export const steps = [
   { phase: 'planning', label: 'Plan', role: 'planner' },
-  { phase: 'building', label: 'Build', role: 'builder' },
+  { phase: 'building', label: 'Code', role: 'builder' },
   { phase: 'testing', label: 'Tests', role: undefined },
-  { phase: 'reviewing', label: 'Review', role: 'reviewer' },
+  { phase: 'reviewing', label: 'Revue', role: 'reviewer' },
 ] as const;

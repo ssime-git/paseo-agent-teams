@@ -76,6 +76,27 @@ The previous `<0.12.0` manifest ceiling excluded the connected desktop version. 
 
 At the user's request, autonomous and final-validation workflows no longer require a predefined list of test commands to launch. The Planner chooses commands after inspecting the repository; the plugin runs that plan automatically. Explicitly supplied launch commands remain an optional override. The UI explains this default. Tests cover launch with an empty command list, execution of planner-selected tests under both policies, preserved explicit overrides, and a pause when the Planner proposes no tests without an explicit no-tests acceptance. Typechecking and all 46 tests passed.
 
+## Single-thread Team Auto, default team and FR/EN — 2026-10-23
+
+A separate Paseo 0.11.2 daemon (`127.0.0.1:6891`, home and repository under `/tmp/teams-subagents-v8gD`) loaded the plugin from this directory, with `PASEO_AGENT_TEAMS_DAEMON_URL` and `PASEO_AGENT_TEAMS_DATA_DIR` pointing to that daemon and its own state. Real roles: Claude Code Opus 5.5 (Plan), Codex GPT-6.1-Sol (Code), Claude Code Opus 5.5 or Sonnet 5.5 (Review). The fixture was an ESM `add(a, b)` stub with an existing `node --test` suite.
+
+- **One thread.** Four missions ran in a Team Auto thread: Plan row, native task list, plan-ready message, **go**, Code row with its real tool calls, `node --test` Shell row, Review row and the mission summary. Each sub-agent row went from running to completed in place.
+- **Role sessions as subagents.** Planner, builder and reviewer sessions carried `paseo.parent-agent-id` set to the Team Auto agent. The web client listed them under **3 subagents** above the composer and opened no role tabs.
+- **Restart.** After a daemon worker restart, the replayed thread matched the previous one, including the user's **go** and the plan-ready message. The first attempt lost those messages, because Paseo rebuilds the thread from the provider replay; they are now recorded in the session persistence.
+- **Default team.** Saving Review = Sonnet 5.5 through the settings RPC made a new Team Auto session open with `Plan · Opus 5.5`, `Code · GPT-6.1-Sol`, `Review · Sonnet 5.5`. The settings page rendered with Paseo's native settings components; **Modifier l’équipe par défaut** in the Team card opened it.
+- **Language.** Choosing **English** in the settings page switched the page immediately. A new mission then ran in English, with English Team card and composer modes (`Approve the plan`).
+- **Client checks.** Desktop (1440 px) and 390 px web viewports, no page errors. The Team card initially clipped its third role on desktop; its width was reduced.
+
+Follow-up checks on the same daemon, the same evening:
+
+- **Permission from the subagents list.** With Code on Claude Sonnet 5.5 in its `default` mode, the thread announced the pending permission; the **1 working** pill listed the Code session, which showed Paseo's native diff with **Deny / Accept**. Accepting three requests (an edit and two test runs) from that UI resumed the mission each time.
+- **Correction cycle.** A one-shot verification failure, active only in the plugin's reduced test environment, made the first `sh check.sh` exit 1. The thread showed the failed Shell row, the review's requested changes, “Correction 1/1: review rejected. Back to Code.”, a second Code row, `sh check.sh` exiting 0, a passing review and the summary. Only `math.js` changed.
+- **Live language change.** Switching the language from the Team card's settings link renamed the pill in that client without a page load. A second open client kept the old label until reload, so each client now follows the host setting every ten seconds; it then switched within fifteen seconds. Its card and panel followed too.
+- **Duplicate rows found and fixed.** That language change re-emitted finished sub-agent rows, which Paseo showed twice (five rows became ten): it merges a tool call only within the native turn that started it. Finished rows are now never re-emitted; after a restart and a new language change the thread kept five rows.
+- **English on mobile.** At 390 × 844: thread, Team card, advanced panel, its configuration, export (JSON shown) and import, and the settings page, without horizontal overflow or page errors. The card repeated the sheet's own “Team” title on compact layouts; it is now hidden there.
+
+Not checked for real: native iOS/Android apps. The primary daemon was only reloaded with the plugin after its single unfinished workflow was confirmed idle.
+
 ## Remaining limits
 
 Native iOS panel visibility was confirmed by the user; complete workflows on native devices and every model/account combination have not been tested. Codex does not advertise a `read-only` mode on this daemon; the plugin now supports its native read-only sandbox options instead. A subsequent real Codex review completed with a passing JSON verdict, and the daemon trace confirmed `sandboxPolicyType: read-only`. Ambiguous operations still require intervention by design; a missing completion receipt is never treated as permission to resend.

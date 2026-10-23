@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useT } from './i18n';
+import { roleTitle } from '../shared/team-composition';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import type { PluginHostProps } from '@getpaseo/plugin/client';
 import type { z } from 'zod';
@@ -14,6 +16,7 @@ type Props = {
   onAction(action: Action['action'], extra?: Partial<Action>): Promise<void> | undefined;
 };
 export function WorkflowRecovery({ workflow, providers, colors: c, busy, onAction }: Props) {
+  const t = useT();
   const [role, setRole] = useState<Role>('builder');
   const [selection, setSelection] = useState<Config['roles'][Role]>(workflow.config.roles.builder);
   const [extraCorrections, setExtra] = useState('2');
@@ -44,18 +47,19 @@ export function WorkflowRecovery({ workflow, providers, colors: c, busy, onActio
   return (
     <View style={{ padding: 12, gap: 12, borderWidth: 1, borderColor: c.border, borderRadius: 8 }}>
       <Text accessibilityRole="header" style={{ color: c.foreground, fontWeight: '600' }}>
-        Continuer le workflow
+        {t('Continuer le workflow')}
       </Text>
       <Text style={{ color: c.foregroundMuted }}>
-        Conserve le contexte, les fichiers et les résultats. Un changement de harnais ou modèle crée une nouvelle
-        session pour la phase concernée.
+        {t(
+          'Conserve le contexte, les fichiers et les résultats. Un changement de harnais ou modèle crée une nouvelle session pour la phase concernée.',
+        )}
       </Text>
       <CompactSelect
         colors={c}
-        label="Phase à modifier ou reprendre"
+        label={t('Phase à modifier ou reprendre')}
         value={role}
         disabled={busy}
-        options={roles.map((r) => ({ label: r, value: r }))}
+        options={roles.map((r) => ({ label: t(roleTitle[r]), value: r }))}
         onValueChange={(value) => {
           const r = value as Role;
           setRole(r);
@@ -64,7 +68,7 @@ export function WorkflowRecovery({ workflow, providers, colors: c, busy, onActio
       />
       <CompactSelect
         colors={c}
-        label="Reprise · harnais"
+        label={t('Reprise · harnais')}
         value={harness}
         disabled={busy}
         options={providers.map((p) => ({ label: p.label, value: p.id }))}
@@ -77,7 +81,7 @@ export function WorkflowRecovery({ workflow, providers, colors: c, busy, onActio
       />
       <CompactSelect
         colors={c}
-        label="Reprise · modèle"
+        label={t('Reprise · modèle')}
         value={model}
         disabled={busy}
         options={(provider?.models ?? []).map((m) => ({ label: m.label, value: m.id }))}
@@ -85,14 +89,14 @@ export function WorkflowRecovery({ workflow, providers, colors: c, busy, onActio
       />
       <CompactSelect
         colors={c}
-        label="Reprise · permissions"
+        label={t('Reprise · permissions')}
         value={selection.modeId}
         disabled={busy}
         options={modes.map((m) => ({ label: m.label, value: m.id }))}
         onValueChange={(modeId) => setSelection((s) => ({ ...s, modeId }))}
       />
       {button(
-        'Appliquer le harnais et le modèle',
+        t('Appliquer le harnais et le modèle'),
         () => {
           void onAction('reconfigure', { role, selection });
         },
@@ -100,15 +104,15 @@ export function WorkflowRecovery({ workflow, providers, colors: c, busy, onActio
       )}
       <CompactSelect
         colors={c}
-        label="Cycles supplémentaires"
+        label={t('Cycles supplémentaires')}
         value={extraCorrections}
         disabled={busy}
         options={[1, 2, 3, 4, 5, 10].map((n) => ({ label: String(n), value: String(n) }))}
         onValueChange={setExtra}
       />
       <TextInput
-        accessibilityLabel="Instructions de reprise"
-        placeholder="Instructions pour la reprise (facultatif)"
+        accessibilityLabel={t('Instructions de reprise')}
+        placeholder={t('Instructions pour la reprise (facultatif)')}
         placeholderTextColor={c.foregroundMuted}
         multiline
         editable={!busy}
@@ -118,18 +122,18 @@ export function WorkflowRecovery({ workflow, providers, colors: c, busy, onActio
       />
       {changed ? (
         <Text style={{ color: c.foregroundMuted }}>
-          Appliquez le changement de modèle avant de reprendre cette phase.
+          {t('Appliquez le changement de modèle avant de reprendre cette phase.')}
         </Text>
       ) : null}
       {button(
-        'Repasser par le Planner',
+        t('Repasser par le Plan'),
         () => {
           void onAction('continue', { role: 'planner', extraCorrections: Number(extraCorrections), message });
         },
         changed,
       )}
       {button(
-        'Continuer depuis cette phase',
+        t('Continuer depuis cette phase'),
         () => {
           void onAction('continue', { role, extraCorrections: Number(extraCorrections), message });
         },

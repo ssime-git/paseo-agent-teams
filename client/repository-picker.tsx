@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useT } from './i18n';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import type { PluginHostProps } from '@getpaseo/plugin/client';
 export function RepositoryPicker({
@@ -16,6 +17,7 @@ export function RepositoryPicker({
   onChange(paths: string[] | undefined): void;
   truncated?: boolean;
 }) {
+  const t = useT();
   const selected = paths ?? defaults ?? [];
   const key = JSON.stringify(selected);
   const [text, setText] = useState(selected.join('\n'));
@@ -25,17 +27,18 @@ export function RepositoryPicker({
   return (
     <View style={{ gap: 8, padding: 10, borderWidth: 1, borderColor: c.border, borderRadius: 6 }}>
       <Text accessibilityRole="header" style={{ color: c.foreground, fontWeight: '600' }}>
-        Dépôts du workflow
+        {t('Dépôts du workflow')}
       </Text>
       <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-        Un seul workflow peut coordonner plusieurs dépôts depuis ce dossier. Les dépôts cochés sont suivis et
-        verrouillés ensemble.
+        {t(
+          'Un seul workflow peut coordonner plusieurs dépôts depuis ce dossier. Les dépôts cochés sont suivis et verrouillés ensemble.',
+        )}
       </Text>
       {[...new Set([...candidates, ...selected])].map((path) => (
         <Pressable
           key={path}
           accessibilityRole="checkbox"
-          accessibilityLabel={`Inclure le dépôt ${path}`}
+          accessibilityLabel={t('Inclure le dépôt {path}', { path })}
           accessibilityState={{ checked: selected.includes(path) }}
           aria-checked={selected.includes(path)}
           onPress={() => onChange(selected.includes(path) ? selected.filter((p) => p !== path) : [...selected, path])}
@@ -47,15 +50,17 @@ export function RepositoryPicker({
       ))}
       {truncated ? (
         <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-          La recherche automatique est limitée en profondeur et en taille. Ajoutez les chemins manquants ci-dessous.
+          {t(
+            'La recherche automatique est limitée en profondeur et en taille. Ajoutez les chemins manquants ci-dessous.',
+          )}
         </Text>
       ) : null}
       <TextInput
-        accessibilityLabel="Chemins des dépôts"
+        accessibilityLabel={t('Chemins des dépôts')}
         multiline
         value={text}
         onChangeText={setText}
-        placeholder="Un chemin de dépôt par ligne, absolu ou relatif à ce dossier"
+        placeholder={t('Un chemin de dépôt par ligne, absolu ou relatif à ce dossier')}
         placeholderTextColor={c.foregroundMuted}
         style={{
           color: c.foreground,
@@ -68,7 +73,7 @@ export function RepositoryPicker({
       />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Appliquer les dépôts"
+        accessibilityLabel={t('Appliquer les dépôts')}
         onPress={() =>
           onChange(
             text
@@ -79,15 +84,15 @@ export function RepositoryPicker({
         }
         style={{ padding: 8, borderWidth: 1, borderColor: c.border, borderRadius: 6 }}
       >
-        <Text style={{ color: c.foreground }}>Appliquer les dépôts</Text>
+        <Text style={{ color: c.foreground }}>{t('Appliquer les dépôts')}</Text>
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Redécouvrir les dépôts"
+        accessibilityLabel={t('Redécouvrir les dépôts')}
         onPress={() => onChange(undefined)}
         style={{ padding: 8 }}
       >
-        <Text style={{ color: c.foregroundMuted }}>Redécouvrir les dépôts</Text>
+        <Text style={{ color: c.foregroundMuted }}>{t('Redécouvrir les dépôts')}</Text>
       </Pressable>
     </View>
   );

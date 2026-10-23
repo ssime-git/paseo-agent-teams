@@ -1,111 +1,85 @@
 # paseo-agent-teams
 
-A standalone Paseo plugin for persistent workflows across **all available harnesses and models discovered by your Paseo daemon**, including Claude Code, Codex, OpenCode, Pi and custom providers. No Paseo fork is needed.
+A standalone Paseo plugin that turns several coding harnesses into one team. Choose **Agent Teams → Team Auto** in Paseo's model picker, describe a mission, and a Plan → Code → Tests → Review loop runs in that single thread, with the models discovered by your Paseo daemon (Claude Code, Codex, OpenCode, Pi and custom providers). No Paseo fork or client patch is needed.
 
-- **Manual Switch:** hand a task to another harness after the current turn finishes, carrying the logical conversation and repository context.
-- **Auto Workflow:** Plan → Build → Tests → Review → Fix, with a configurable correction limit.
-- **One logical thread:** a workspace panel with responses, decisions, test logs, approvals and links to each persistent agent session. Progress cards also appear in the planner's native timeline.
-
-## Team Auto in the native model picker
-
-Choose **Agent Teams → Team Auto** in Paseo's regular model picker, then describe
-your mission in the normal composer. The plugin registers an official provider
-(`agent-teams/auto`); no client patch or Paseo fork is required. It reuses the
-persistent Plan → Build → Tests → Review engine, including repository admission,
-bounded corrections, permissions and explicit human approvals.
-
-The default composition uses the detected Claude model for planning/review and
-the detected Codex model for development, with available alternatives if either
-is missing. No model ID is invented. Before the first mission, the native session
-settings let you select each role's model. The permission mode controls whether
-you approve the plan, the final result, or use the existing autonomous validation
-policy; it does not silently approve missing tests. Native Team Auto keeps Builder
-auto-accept off. A running mission's composition can be changed explicitly from
-the Team panel; the native model settings are frozen once a mission starts.
-
-The whole mission stays in the Team Auto thread. The orchestrator speaks in normal
-assistant messages, and each Plan, Code and Revue turn appears as a native
-sub-agent row that expands to show the role's actions and result. The plan is a
-native task list, and verification runs are Shell rows. Role sessions are created
-as child agents of the Team Auto thread, so they appear in Paseo's **subagents**
-list above the composer instead of as separate tabs. A pending permission is
-answered from that list.
-
-Reply **go** (or `ok`, `oui`, `lgtm`…) to approve a waiting plan or result, or
-describe what to change. Answer one question directly; answer several with one
-numbered line each (`1. …`, `2. …`).
-
-**Default team.** Paseo **Settings → Plugins → Agent Teams** (or *Agent Teams ·
-Équipe par défaut* in the Command Center) chooses the model for Plan, Code and
-Revue, the default validation mode and the number of automatic corrections.
-Every new Team Auto conversation starts from it. Read-only roles only offer
-harnesses with a read-only mode; Code only offers write-capable ones. A saved
-model that is no longer available falls back to the automatic pick. Before the
-first message, the composer settings still adjust the roles for one conversation.
-The **Équipe** pill in a Team Auto thread shows the team and who has control.
-
-Native commands: `/team-status`, `/team-pause`, `/team-resume`, `/team-approve`,
-and `/team-approve-no-tests` (explicit acceptance of a plan without tests).
-While a role works, the Team Auto turn stays open; use the stop button to pause.
-Closing a native session pauses its unfinished workflow. After a daemon restart,
-the thread is replayed with the same messages and rows, without resending
-accepted agent turns.
+- **One thread.** The orchestrator speaks in normal messages; each role turn is a native sub-agent row; the plan is a native task list; verification runs are Shell rows.
+- **A default team in Paseo's settings.** Choose the model for each role, the validation mode, the number of automatic corrections and the interface language (French or English).
+- **Persistent and recoverable.** Role sessions, approvals, corrections and test results survive plugin reloads and daemon restarts without resending accepted turns.
+- **Advanced panel when you need it.** Manual Switch, full configuration, history and repository tools stay available from the Command Center.
 
 ![Team Auto mission in one thread, with native sub-agent rows](docs/screenshots/team-thread-desktop.png)
 
-This provider currently accepts plain text. Images, attachments, output schemas,
-steering, custom system prompts, MCP servers, tool policies and provider options
-are rejected explicitly rather than silently discarded. Configure those roles
-through the existing workflow surfaces where supported. FR/EN localization and
-custom graph execution remain separate roadmap items.
+## Quick start
 
-Official APIs verified against the installed SDK **0.11.2**:
-[provider plugins](https://paseo.sh/docs/plugins/providers) and
-[plugin reference](https://paseo.sh/docs/plugins/reference) (`registerProvider`,
-`before('agent.session_open')`, `session.config`, persistence, timeline renderers,
-and composer popovers). The older new-workspace pill prototype below still needs
-its client extension; selecting Team Auto as a native provider does not.
+1. Install the plugin (see [Install](#install-locally)) and open a workspace that contains a Git repository.
+2. Start a chat and choose **Agent Teams → Team Auto** in the model picker.
+3. Describe the mission in the composer and send it.
+4. When the plan is ready, reply **go**, or describe what to change.
 
-![Native Team Auto composition and current control](docs/screenshots/team-auto-desktop.png)
+The team plans, implements, runs the planned tests and reviews the result. A failed review or failed tests go back to Code, within the correction limit.
 
-<img src="docs/screenshots/team-auto-mobile.png" alt="Team Auto in the native mobile sheet, waiting for explicit plan approval" width="390" />
+## A mission in the thread
 
-## Screenshots
+| What you see | What it is |
+| --- | --- |
+| Orchestrator messages | Native assistant messages: plan ready, questions, corrections, permissions, final summary. |
+| `Plan · Claude Code · Opus 5.5 — Plan the mission` | One native sub-agent row per role turn. Expand it to see that role's actions (`[Shell] …`, `[Edit] …`) and its result. A correction cycle adds a new row. |
+| Task list | The approved plan, as Paseo's native todo list. Tasks are checked once Code delivers. |
+| `Shell · npm test` | The verification commands run by the plugin, with their output. |
+| **N subagents** pill above the composer | Paseo's native list of the role sessions. The roles are child agents of the Team Auto thread, so they do not open separate tabs. Open one to read its full transcript or answer a pending permission. |
+| **Équipe** / **Team** pill | The team for this thread and who has control, with links to the default-team settings and the advanced options. |
 
-Real captures from an isolated Paseo installation and a demo repository. The mobile capture uses a compact 390 × 844 viewport.
+![Team card in a Team Auto thread](docs/screenshots/team-card.png)
 
-**Advanced panel (Manual Switch, full configuration):** *Agent Teams · Options avancées* in the Command Center, or **Options avancées** in the Équipe pill.
+<img src="docs/screenshots/team-thread-mobile.png" alt="Team Auto mission on a 390 px wide screen" width="390" />
 
-![Agent mode available next to New workspace](docs/screenshots/new-workspace.png)
+### Talking to the team
 
-**Native creation pill — client extension prototype:** this capture shows the actual New workspace form with **Mode agent**, using the [proposed Paseo client patch](docs/upstream/README.md). It requires that client change; installing the plugin alone on a VM does not add the pill to current official desktop/mobile apps.
+- **go** (or `ok`, `oui`, `yes`, `lgtm`, `vas-y`…) approves a waiting plan or result. Any other message is sent to the role that has control: a revision request at the plan checkpoint, a follow-up after completion.
+- One open question is answered with your whole reply. Several questions are answered with one numbered line each (`1. …`, `2. …`).
+- Commands: `/team-status`, `/team-pause`, `/team-resume`, `/team-approve`, and `/team-approve-no-tests` (explicit acceptance of a plan without tests).
+- While a role works, the Team Auto turn stays open. Use the stop button to pause the team; a turn already accepted by a role is allowed to finish.
+- Closing a Team Auto session pauses its unfinished workflow. After a daemon restart, the thread is replayed with the same messages and rows.
 
-![Mode agent pill in the native New workspace form with the proposed client extension](docs/screenshots/native-new-workspace-desktop.png)
+Team Auto accepts plain text. Images, attachments, output schemas, steering, custom system prompts, MCP servers, tool policies and provider options are rejected explicitly rather than silently discarded.
 
-**Unified conversation:** phase navigation, role models, shared context and structured planning results.
+## Settings: default team and language
 
-![Agent Teams workflow panel](docs/screenshots/team-workflow.png)
+The interface is **French by default**. Open Paseo **Settings → Plugins → Agent Teams** to choose English; the Command Center entry is *Agent Teams · Équipe par défaut* (*Agent Teams · Default team* in English).
 
-A rendered result and the continuation action directly in a native agent thread:
+| Setting | Effect |
+| --- | --- |
+| Interface language | **Français** or **English**: Team card, settings, advanced panel, history and the orchestrator messages in the thread. Applies immediately. |
+| Plan / Code / Review | Model for each role. **Automatic** picks the detected Claude model for Plan and Review and the detected Codex model for Code, with available alternatives. Plan and Review only offer harnesses with a read-only mode; Code only offers write-capable ones. A saved model that is no longer available falls back to the automatic pick, and the page says so. |
+| Default mode | What waits for your approval: the plan, the final result, or autonomous validation. Missing tests are never approved silently. |
+| Automatic corrections | Number of returns to Code after a failed review or failed tests (0–5). |
 
-![Rendered native Builder thread with the goal continuation action](docs/screenshots/team-native-thread.png)
+Every new Team Auto conversation starts from these settings. Before the first message, the composer settings still adjust the roles of that conversation; once a mission starts, its team is fixed.
 
-<img src="docs/screenshots/team-native-mobile.png" alt="Rendered report and goal continuation on mobile" width="390" />
+![Agent Teams settings in Paseo](docs/screenshots/team-settings.png)
 
-**Quick start from a thread:** choose the discovered harness and model for each role.
+About the language:
 
-![Team quick-start configuration](docs/screenshots/team-quick-start.png)
+- Paseo 0.11.2 does not expose the app language to plugins, so the language is an explicit plugin setting. Hosts without the settings API keep the French interface.
+- A language change applies at once to the Team pill, the card, the settings and the advanced panel, in every open client within about ten seconds. In a thread, messages and finished rows already shown keep their language; new rows and messages use the new one. After a daemon restart, the replayed thread uses the current language for rows and keeps the recorded messages as shown.
+- Agent instructions are unchanged. Model answers, agent reports, engine event logs and technical errors appear as written by their source.
 
-**Test output:** inspect each command, its result and captured logs.
+![The same mission with the English interface](docs/screenshots/team-thread-en.png)
 
-![Expanded test logs in the Team workflow](docs/screenshots/team-test-logs.png)
+## Where things are
 
-<details>
-<summary>Mobile team configuration</summary>
+| Need | Place |
+| --- | --- |
+| Run a mission | Model picker → **Agent Teams → Team Auto**, then the thread |
+| Change the default team or the language | Settings → Plugins → Agent Teams |
+| See the team of a thread | **Équipe** / **Team** pill in a Team Auto thread |
+| Read a role's full session | **N subagents** pill above the composer |
+| Manual Switch, full configuration, repositories, export/import | Command Center → *Agent Teams · Options avancées* / *Advanced options* (in a workspace), or the same link in the team pill |
+| All workflows on the host, including closed ones | Command Center → *Agent Teams · Historique* / *History* |
 
-<img src="docs/screenshots/team-mobile.png" alt="Compact mobile team workflow with visible continuation" width="390" />
+The plugin adds no sidebar entries and no pill to other harness threads.
 
-</details>
+A [proposed Paseo client extension](docs/upstream/README.md) can also show a team pill above the native New workspace composer. It is not part of released Paseo clients.
 
 ## Requirements
 
@@ -125,7 +99,7 @@ paseo plugin ls
 
 Enable plugins yourself in **Settings → Plugins → Enable plugins** if necessary. An automated installer must obtain explicit permission before changing that global switch. Plugin installation trusts code running with the daemon user's machine access.
 
-A reload recompiles the **registered source directory**. If the plugin was installed from Git, that directory is Paseo's internal checkout; changing your separate working copy or the HTML mockup does not change the app. For UI development, register the local project directory instead (after active agent turns have finished):
+A reload recompiles the **registered source directory**. If the plugin was installed from Git, that directory is Paseo's internal checkout; changing your separate working copy does not change the app. For UI development, register the local project directory instead (after active agent turns have finished):
 
 ```sh
 paseo plugin remove paseo-agent-teams
@@ -133,13 +107,7 @@ paseo plugin install /absolute/path/to/paseo-agent-teams
 paseo plugin reload paseo-agent-teams
 ```
 
-The application renders `index.client.tsx` and the React Native components in `client/`. `docs/mockup-panel.html` is a visual reference. The Mode agent popover and full panel share workspace-scoped draft configuration and task text, including across responsive panel remounts.
-
-To start in team mode, create a chat and choose **Agent Teams → Team Auto** in the model picker. The plugin adds no sidebar entries.
-
-The Command Center offers *Agent Teams · Équipe par défaut*, *Agent Teams · Historique* and, in a workspace, *Agent Teams · Options avancées*. Only Team Auto threads show the **Équipe** pill; other harness threads are left untouched. With the [proposed client extension](docs/upstream/README.md), this plugin additionally registers a **Mode agent** pill directly above the native New workspace composer, scoped to the selected host, project and draft text.
-
-Hand-offs between roles carry compact artifacts and a bounded diff rather than the whole conversation; the panel shows the hand-off size, and **fresh session per correction** (optional) restarts a role's session on each correction cycle. After source changes:
+After source changes:
 
 ```sh
 npm run check
@@ -152,21 +120,33 @@ Install from the public repository with:
 paseo plugin add git:ssime-git/paseo-agent-teams --ref main
 ```
 
-A fresh Git installation prepares its production SDK dependency automatically; an existing developer checkout keeps its installed development tools.
+A fresh Git installation prepares its production SDK dependency automatically; an existing developer checkout keeps its installed development tools. The manifest runs `node server/prepare.mjs`. When the declared `@getpaseo/client` version is absent, this script runs `npm ci --omit=dev --ignore-scripts --no-audit --no-fund` against the committed lockfile. It skips installation when that version is already present so reloading a developer checkout does not prune development tools.
 
-The manifest runs `node server/prepare.mjs`. When the declared `@getpaseo/client` version is absent, this script runs `npm ci --omit=dev --ignore-scripts --no-audit --no-fund` against the committed lockfile. It skips installation when that version is already present so reloading a developer checkout does not prune development tools. Dependency lifecycle scripts are disabled.
+## Advanced panel
 
-## Configure a workflow
+Button names below are the French labels; the English interface shows their translation.
 
-Choose each role's harness, discovered model and permission mode. Planner and Reviewer can use any discovered harness. Claude uses `plan`. For Codex, the plugin offers **Lecture seule (sandbox Codex)** even when discovery omits that mode: it maps to the advertised `auto` mode with native `sandbox_mode: read-only` and `approval_policy: never` options. A native `read-only` mode, when advertised, is retained. Claude read-only sessions also disable editing and native plan-mode transitions; approval stays in the plugin. OpenCode uses its native `plan` mode. Other harnesses use an advertised `read-only` mode when available; otherwise they offer **Lecture seule par consigne (sans sandbox)**. This choice sends read-only instructions and persists a repository fingerprint before dispatch. Any repository change during that turn, including after restart recovery, suspends the workflow without reverting files. This detects changes; it cannot prevent writes or attribute external changes to an agent. **Auto-accept du Builder** uses the advertised native unattended mode (Claude `bypassPermissions`, Codex `full-access`) or the discovered `auto_accept` toggle when available. Remaining Builder tool permissions are answered automatically; questions and plan/mode changes require a response. Disable this switch to keep the selected Builder mode and answer permissions manually. Planner and Reviewer retain their read-only configuration. Existing saved configurations without this setting keep their previous permission policy.
+The advanced panel is the full workflow surface: Manual Switch and Auto Workflow, per-role harness, model and permission, goal mode, repositories, test commands, export/import, recovery tools and the detailed workflow timeline. Team Auto and the panel use the same engine and the same saved workflows. In the panel and the API, the roles keep their contract names: Plan is the **planner**, Code the **builder** and Review the **reviewer**.
 
-Defaults for new teams: Auto Workflow, human approval after the plan, Builder auto-accept, automatic corrections, two correction cycles and explicit restart recovery.
+![Advanced Agent Teams panel](docs/screenshots/team-workflow.png)
+
+The panel also shows each verification command with its captured output:
+
+![Expanded test logs in the advanced panel](docs/screenshots/team-test-logs.png)
+
+Hand-offs between roles carry compact artifacts and a bounded diff rather than the whole conversation; the panel shows the hand-off size, and **fresh session per correction** (optional) restarts a role's session on each correction cycle.
+
+### Configure a workflow
+
+Choose each role's harness, discovered model and permission mode. Planner and Reviewer can use any discovered harness. Claude uses `plan`. For Codex, the plugin offers **Lecture seule (sandbox Codex)** even when discovery omits that mode: it maps to the advertised `auto` mode with native `sandbox_mode: read-only` and `approval_policy: never` options. A native `read-only` mode, when advertised, is retained. Claude read-only sessions also disable editing and native plan-mode transitions; approval stays in the plugin. OpenCode uses its native `plan` mode. Other harnesses use an advertised `read-only` mode when available; otherwise they offer **Lecture seule par consigne (sans sandbox)**. This choice sends read-only instructions and persists a repository fingerprint before dispatch. Any repository change during that turn, including after restart recovery, suspends the workflow without reverting files. This detects changes; it cannot prevent writes or attribute external changes to an agent. **Auto-accept du Code** uses the advertised native unattended mode (Claude `bypassPermissions`, Codex `full-access`) or the discovered `auto_accept` toggle when available. Remaining Builder tool permissions are answered automatically; questions and plan/mode changes require a response. Disable this switch to keep the selected Builder mode and answer permissions manually. Planner and Reviewer retain their read-only configuration. Existing saved configurations without this setting keep their previous permission policy.
+
+Defaults for new panel workflows: Auto Workflow, human approval after the plan, Code auto-accept, automatic corrections, two correction cycles and explicit restart recovery. Team Auto conversations start from the default team in the settings and keep Code auto-accept off.
 
 Enable **Poursuivre jusqu’à l’objectif** for continuous execution: the Builder develops **and tests**, failed verification returns for correction, and persistent review failures return to the Planner before execution continues. The default budget is 30 model turns / 2 hours, with compact context, independent review sessions, automatic recovery and per-harness native skill discovery. Goal mode authorizes verification command evolution after the first plan approval; explicit launch commands remain fixed. Existing stopped workflows offer the same button to start a diagnosis with a renewed budget. See [behavior, budgets and real mixed-provider validation](docs/goal-execution.md).
 
 Providers without discovered model IDs offer an explicit **harness default (not advertised)** choice. It leaves model selection to that harness; the plugin never sends a made-up model ID. Providers with no mode catalog can likewise retain their native default permissions. Authentication, connected accounts and configured model catalogs remain the harness's responsibility. Unavailable/error providers cannot be launched; discovering a model does not guarantee access or credits.
 
-### Separate Claude accounts
+#### Separate Claude accounts
 
 The panel also discovers custom providers extending Claude or Codex. Configure a separate account on the daemon host using a dedicated directory, without logging out the default account:
 
@@ -212,15 +192,15 @@ Open a record to read the plan, implementation report, review, test outputs and 
 
 Command timeouts default to ten minutes. Configuration JSON can set each timeout between 100 ms and one hour. Each stdout/stderr stream retains at most 128 KiB and records truncation. Tests run directly on the daemon host with its environment, so only approve commands you trust.
 
-### Clarifications persistantes du Planner
+### Planner clarifications
 
-Avant de finaliser son plan, le Planner peut poser jusqu’à dix questions ciblées, chacune avec deux ou trois choix, leurs compromis et un choix recommandé. Team affiche **En attente de réponse** : cliquer sur une option ou envoyer une réponse libre enregistre une décision explicite. Les recommandations ne sont jamais présélectionnées ni appliquées automatiquement. Les réponses partielles restent visibles après rechargement ; toutes les questions doivent recevoir une réponse avant la reprise du Planner. Une réponse libre permet également de refuser les choix proposés.
+Before finalizing its plan, Plan can ask up to ten targeted questions, each with two or three choices, their trade-offs and a recommended choice. In a Team Auto thread, the orchestrator lists the open questions; answer one question with your whole reply, or several with one numbered line each. In the advanced panel, **En attente de réponse** (*Waiting for an answer*) lets you click an option or send a free answer. Recommendations are never preselected or applied automatically. Partial answers remain visible after reloads; every question must be answered before Plan resumes. A free answer can also reject the proposed choices.
 
-Les politiques **Après le plan**, **À la fin** et **Autonome**, y compris la poursuite jusqu’à l’objectif, attendent toutes les réponses. Répondre ne vaut pas approbation du plan : le Planner reprend avec les décisions sauvegardées, puis la politique de validation habituelle s’applique au plan produit. Une pause reste une pause, même après la dernière réponse ; utiliser ensuite la reprise explicite. Le temps passé à attendre une clarification ne consomme pas le budget de durée du mode objectif ; les tours déjà consommés restent comptés.
+The **After the plan**, **At the end** and **Autonomous** policies, including goal mode, all wait for every answer. Answering is not plan approval: Plan resumes with the saved decisions, then the usual validation policy applies to the resulting plan. A pause stays a pause, even after the last answer; resume explicitly afterwards. Time spent waiting for a clarification does not consume the goal-mode time budget; turns already consumed remain counted.
 
-Le contrat Planner accepte le plan V1 historique ou `{ "kind": "clarification", "summary": "…", "questions": [{ "id": "scope", "title": "Quelle portée ?", "options": [{ "id": "focused", "label": "Ciblée", "tradeoff": "Moins de changements" }, { "id": "full", "label": "Complète", "tradeoff": "Davantage de couverture et de travail" }], "recommendedOptionId": "focused" }] }`. Le RPC `teams.action`, action `answer_clarification`, attend `clarificationId` et `answers: [{ questionId, optionId? , text? }]`, ainsi que les identifiants de requête et la révision habituels. Au moins une option ou un texte est nécessaire. Un doublon identique est idempotent ; une réponse contradictoire, une option inconnue ou une révision concurrente est refusée. Questions, réponses horodatées et identifiants d’opération/session sont conservés dans le champ optionnel `clarifications` des états V1 et du registre de workflow.
+The planner contract accepts the historical V1 plan or `{ "kind": "clarification", "summary": "…", "questions": [{ "id": "scope", "title": "Which scope?", "options": [{ "id": "focused", "label": "Focused", "tradeoff": "Fewer changes" }, { "id": "full", "label": "Complete", "tradeoff": "More coverage and work" }], "recommendedOptionId": "focused" }] }`. The `teams.action` RPC, action `answer_clarification`, expects `clarificationId` and `answers: [{ questionId, optionId?, text? }]`, plus the usual request ID and revision. At least an option or a text is required. An identical duplicate is idempotent; a contradictory answer, an unknown option or a concurrent revision is rejected. Questions, timestamped answers and operation/session IDs are kept in the optional `clarifications` field of V1 states and the workflow record.
 
-Les réponses natives peuvent être récupérées explicitement par le RPC `teams.action`, action `import_planner_answers`, avec les identifiants et la révision habituels. Dans le thread natif du Planner, le dernier message utilisateur doit être un objet JSON complet : `{ "workflowId": "…", "clarificationId": "…", "answers": [{ "questionId": "scope", "optionId": "focused" }] }` (ou `text` pour une réponse libre). Attendre la fin du tour puis importer : seules les réponses écrites par l’utilisateur sont retenues, jamais l’interprétation ni la recommandation de l’assistant. L’import vérifie la timeline canonique, l’identité de la question, les permissions, le dépôt et l’absence d’opération active ; il refuse les conflits et les changements concurrents. Une conversation libre ne débloque pas les questions. Dans Team, « Préparer une réponse native » affiche un modèle sélectionnable lié au workflow et aux questions encore ouvertes, sans réponse présélectionnée, ainsi que les identifiants des options. Le lien ouvre le Planner lorsque la navigation native est disponible. Le bouton « Importer les réponses natives du Planner » déclenche le même RPC explicitement ; les erreurs sont affichées dans le panneau. Les réponses structurées du Planner sont déjà rendues lisiblement dans son thread natif. Les questions et réponses intégrales sont transmises à chaque rôle, y compris dans les suivis et révisions de plan, sans troncature. Elles sont prioritaires sur le budget indicatif des briefings ; le contexte du dépôt reste compacté. Au-delà de 128 Kio UTF-8 pour cet historique, le workflow passe en attention avec une erreur explicite avant toute création de session ou tout envoi : aucune décision n’est omise, aucune approbation n’est supposée. Les données restent intactes après reprise ou rechargement ; un nouveau workflow au périmètre explicitement réduit permet de reporter les décisions applicables. La synthèse automatique des historiques dépassant cette limite reste à implémenter.
+Native answers can be imported explicitly with `teams.action`, action `import_planner_answers`, with the usual identifiers and revision. In the planner's native thread, the latest user message must be a complete JSON object: `{ "workflowId": "…", "clarificationId": "…", "answers": [{ "questionId": "scope", "optionId": "focused" }] }` (or `text` for a free answer). Wait for the turn to end, then import: only answers written by the user are kept, never the assistant's interpretation or recommendation. The import checks the canonical timeline, question identity, permissions, repository and the absence of an active operation; it rejects conflicts and concurrent changes. In the panel, **Préparer une réponse native** (*Prepare a native answer*) shows a selectable template for the workflow and its open questions, and **Importer les réponses natives du Plan** triggers the same RPC. Full questions and answers are sent to every role, including follow-ups and plan revisions, without truncation. Above 128 KiB of UTF-8 for this history, the workflow moves to attention with an explicit error before any session creation or send: no decision is dropped and no approval is assumed.
 
 ### One workflow across multiple repositories
 
@@ -240,11 +220,11 @@ In Auto Workflow, a new message schedules a revised plan after the current turn,
 
 Pause prevents subsequent steps; an agent turn already dispatched is allowed to finish. A running plugin test command is terminated as a process group. Resume reconciles the saved operation before advancing. **Close keeping files** releases the workflow lock once agents are confirmed inactive. It preserves all files and native sessions.
 
-Pending permissions appear in **Agent Teams**, with the native approval/rejection actions and tool details. Plan and final workflow approvals also remain in Team. Questions requiring free-text input must be answered in the native session. If the native turn has already finished, **Reprendre après résolution des permissions** reconciles its saved completion receipt without sending another prompt. A completed failed review returns to the Builder within the configured correction limit. External account permissions (for example a denied GitHub label change) still require intervention from someone with access. A timeout is an observation deadline, not a cancellation or a reason to send the task again.
+In a Team Auto thread, a pending permission is announced in the thread and answered from the role's session in the subagents list. The advanced panel also lists pending permissions with the native approval/rejection actions and tool details, along with plan and final approvals. Questions requiring free-text input must be answered in the native session. If the native turn has already finished, **Reprendre après résolution des permissions** reconciles its saved completion receipt without sending another prompt. A completed failed review returns to the Builder within the configured correction limit. External account permissions (for example a denied GitHub label change) still require intervention from someone with access. A timeout is an observation deadline, not a cancellation or a reason to send the task again.
 
 ### Continue after the correction limit or change a phase model
 
-When a workflow stops for intervention, or is paused with no turn in flight, **Continuer le workflow** offers **Repasser par le Planner** and **Continuer depuis cette phase** (Planner, Builder or Reviewer). Choose 1–10 additional correction cycles and optional instructions. The total cycle count and prior results remain recorded; the limit can be extended again at a later checkpoint. Replanning observes the configured human approval policy.
+When a workflow stops for intervention, or is paused with no turn in flight, **Continuer le workflow** offers **Repasser par le Plan** and **Continuer depuis cette phase** (Plan, Code or Review). Choose 1–10 additional correction cycles and optional instructions. The total cycle count and prior results remain recorded; the limit can be extended again at a later checkpoint. Replanning observes the configured human approval policy.
 
 Select a discovered harness, model and permission mode, then **Appliquer le harnais et le modèle** to change a phase before continuing. This saves the configuration without launching a turn. Only that role receives a new native session, with the saved plan, review, test results and repository context in its next briefing. The previous native session remains in Paseo history, and its ID is saved in the reconfiguration event. Planner and Reviewer remain read-only. Pause and wait for an active turn to finish first; uncertain accepted operations must be reconciled before replacement.
 
@@ -252,11 +232,11 @@ Select a discovered harness, model and permission mode, then **Appliquer le harn
 
 After validation, **Bilan et prochaines étapes** shows implementation and review summaries, verification results, and the next action. **Créer une PR brouillon** asks the Builder to inspect Git/GitHub, reuse an existing matching PR or create a draft when appropriate, and return the real link or a concrete blocker. This explicitly authorizes the delivery Git operations; the agent must preserve unrelated changes and must not merge or force-push. The plugin checks that successful validation still matches the current repository before dispatch. No external PR is created automatically at pipeline completion.
 
-The message composer remains available after completion. At a stopped checkpoint, select Planner, Builder or Reviewer to ask a question. Its response appears in the timeline and the original checkpoint is restored: a question does not restart implementation or approve a pending plan. While a pipeline turn is running, messages are queued as before; the UI acknowledges receipt and explains any pause or permission preventing delivery. Post-completion follow-ups reacquire the repository lock and retain operation IDs and completion receipts for recovery.
+The panel's message composer remains available after completion. At a stopped checkpoint, select Plan, Code or Review to ask a question. Its response appears in the timeline and the original checkpoint is restored: a question does not restart implementation or approve a pending plan. While a pipeline turn is running, messages are queued as before; the UI acknowledges receipt and explains any pause or permission preventing delivery. Post-completion follow-ups reacquire the repository lock and retain operation IDs and completion receipts for recovery.
 
 Launch snapshots are retained after successful validation for delivery and are cleaned up on explicit closure. Older completed workflows may already have lost their snapshot; follow-up questions can still use saved artifacts and current Git context. If a snapshot is missing, the Builder must not stage uncommitted files whose ownership can no longer be proved; it reports the action needed instead. Already committed work can still be assessed for a PR.
 
-Stage results are rendered directly in native Planner, Builder and Reviewer threads using Paseo's official timeline transformers, including existing saved responses. The transformer matches known plugin-owned reports, normalizes the SDK presentation separator and replaces their visible presentation with structured cards. Canonical messages remain unchanged for recovery. Machine handoff prompts are collapsed; summaries, changes, acceptance criteria and Markdown tables are readable, with details expandable on demand. At a stopped checkpoint, **Poursuivre jusqu’à l’objectif** is directly available under the latest role report and above the Team timeline. Native actions read live workflow state and use the same revision/idempotency checks as the panel. Technical logs and earlier iterations are collapsed by default.
+Stage results are also rendered directly in the role sessions (opened from the subagents list, or from the panel) using Paseo's official timeline transformers, including existing saved responses. The transformer matches known plugin-owned reports, normalizes the SDK presentation separator and replaces their visible presentation with structured cards. Canonical messages remain unchanged for recovery. Machine handoff prompts are collapsed; summaries, changes, acceptance criteria and Markdown tables are readable, with details expandable on demand. At a stopped checkpoint, **Poursuivre jusqu’à l’objectif** is directly available under the latest role report and above the panel timeline. Native actions read live workflow state and use the same revision/idempotency checks as the panel. Technical logs and earlier iterations are collapsed by default.
 
 ### Restart recovery
 
@@ -285,16 +265,26 @@ npm ci
 npm run check
 ```
 
-- `shared/`: Zod contracts for configuration, structured stage results and RPCs.
-- `server/`: deterministic transitions, repository snapshots, test execution, atomic persistence and SDK integration.
-- `client/`: React Native panel and native timeline card renderer, respecting the current Paseo theme and compact layout.
-- `tests/`: state-machine, SDK adapter, repository, command runner, configuration and mocked host UI tests.
+- `shared/`: Zod contracts for configuration, structured stage results and RPCs; the default-team settings (`team-composition.ts`); translations (`i18n.ts`, `i18n-en.ts`).
+- `server/`: deterministic transitions, repository snapshots, test execution, atomic persistence and SDK integration. `team-provider.ts` is the native Team Auto provider; `team-timeline.ts` projects a workflow into native thread items.
+- `client/`: React Native settings screen, Team card, advanced panel, history and native timeline renderers, respecting the current Paseo theme and compact layout.
+- `tests/`: state-machine, SDK adapter, repository, command runner, configuration, translation coverage and mocked host UI tests.
+
+### Team Auto thread projection
+
+The Team Auto provider replays the workflow as native timeline items with stable IDs: an `assistant_message` per orchestrator message, a `tool_call` with `sub_agent` detail per role operation (updated in place from running to completed within the same native turn), a `todo` per plan version and a `shell` `tool_call` per verification run. The actions inside a sub-agent row are read from that role session's canonical timeline (the tool calls that follow its operation prompt, last 200 entries). Messages that depend on the moment they were shown (a plan awaiting approval, open questions, a pending permission, the mission summary) and the user's messages are recorded once in the session persistence, so a daemon restart replays the same conversation in the same order. The Team Auto turn stays open while an operation runs, so each sub-agent row completes in the native turn where it started.
+
+Role sessions created for a Team Auto mission are child agents of the Team Auto agent (the SDK's `parent` option). If that agent is no longer loaded, the role is created as a regular session instead of failing the mission.
+
+### Translations
+
+French text is the message key, gettext style: `t('Texte français', { param })` looks up `shared/i18n-en.ts` when the language is English, and untranslated text stays readable. `tests/i18n.test.ts` fails if a marked text has no English entry, if placeholders differ, if an entry is unused, or if French interface text is left outside `t()`. The client reads the language with `useT()` (`client/i18n.ts`); the server reads the same host-scoped setting when it projects the thread.
 
 Mutating RPCs carry a request ID and expected workflow revision. Repeated identical requests are idempotent; conflicting writes require a refresh. Agent creation has stable idempotency keys. Before a prompt is sent, its operation ID is persisted and embedded in the prompt. The native timeline is a projection: failure to publish a card does not rerun the agent.
 
 The plugin directly uses SDK methods and lifecycle hooks. It does not need the Paseo handoff/advisor/committee skills to be installed. Native sessions remain separate; their histories are not physically merged.
 
-At a checkpoint in an automatic workflow, enter a message and choose **Réviser le plan avec le Reviewer**.
+At a checkpoint in an automatic workflow, enter a message and choose **Réviser le plan avec la Revue**.
 The persistent Reviewer session can discuss the plan or return a complete proposal. The current plan and
 its approval stay intact during that conversation. **Adopter ce plan** creates a new version with the
 Reviewer session, model and operation as provenance, invalidates the current approval and applies the
@@ -302,10 +292,10 @@ configured validation policy. A paused workflow stays paused. Earlier versions a
 remain in the saved record; proposals survive plugin and daemon restarts. The plan checkpoint identifies
 the current version and its source.
 
-This explicit revision flow starts from Team. Importing additional conversations initiated directly in
+This explicit revision flow starts from the advanced panel. Importing additional conversations initiated directly in
 the native Reviewer thread is still pending; the engine retains ambiguous native operations for inspection
 instead of guessing a final plan. Discussion replies and proposals use distinct validated JSON contracts,
-rendered as readable text and plan fields in Team and native progress cards.
+rendered as readable text and plan fields in the panel and native progress cards.
 
 Snapshot capture currently rejects repositories whose captured files and diffs exceed 20 MiB. Generated ignored files are excluded. A snapshot failure is explicit rather than silently losing context.
 
@@ -314,6 +304,8 @@ Snapshot capture currently rejects repositories whose captured files and diffs e
 The local implementation has typechecking, automated tests and compilation of both entries with Paseo 0.11.2's official plugin compiler. UI tests use a mocked React Native/Paseo host; they are not native device tests.
 
 An authenticated **Opus 5.5 → GPT-6.1-Sol → Sonnet 5.5** smoke run completed on an isolated daemon, including a deliberately failed verification, a failed review, one correction and a passing review. Manual handoff, automatic recovery across a plugin reload, native progress cards and desktop/compact web rendering were also checked. Fable was listed but required usage credits on the tested account; model availability is not an entitlement guarantee.
+
+The single-thread Team Auto was checked on an isolated 0.11.2 daemon with real Claude and Codex roles: four complete missions (plan, **go**, implementation, `node --test`, review, summary), role sessions listed as native subagents instead of tabs, an identical thread after a daemon restart, the default team applied to a new conversation, the settings page and Team card, and a complete mission in English, on desktop and 390 px web viewports without page errors. Not checked for real: a permission answered from the subagents list, a correction cycle (covered by unit tests) and native iOS/Android apps.
 
 See [isolated validation](docs/isolated-validation.md) for evidence, fixes and remaining limits.
 
@@ -348,7 +340,7 @@ requires at least 65% line coverage for loaded modules; the report excludes unim
 and the panel is exercised separately through its bundled renderer test. CI runs both commands
 on Node 22, 24 and 26. `npm run format` applies the repository formatting rules.
 
-At an idle plan checkpoint, **Récupérer le plan du thread Reviewer** reads the final reply to the latest native user prompt (within the last 100 canonical timeline entries). It never sends a prompt or approves a plan. Ask the Reviewer for the following JSON, using the workflow ID and current plan version shown in Team:
+At an idle plan checkpoint, **Récupérer le plan du thread Revue** reads the final reply to the latest native user prompt (within the last 100 canonical timeline entries). It never sends a prompt or approves a plan. Ask the Reviewer for the following JSON, using the workflow ID and current plan version shown in the advanced panel:
 
 ```json
 {
@@ -365,12 +357,12 @@ At an idle plan checkpoint, **Récupérer le plan du thread Reviewer** reads the
 }
 ```
 
-For discussion, use `kind: "discussion"` and omit `plan`. Incomplete, ambiguous, foreign or stale replies are rejected. Team retains the source session, native turn and canonical cursor; repeated imports do not duplicate the decision. The native turn's model/permission selection is not asserted because the API snapshot does not prove its historical configuration. Review the imported proposal and choose **Adopter ce plan** separately; adoption invalidates current verification and follows the configured validation policy. Native import observes repository stability during retrieval; it does not certify that an earlier native conversation left the repository untouched.
+For discussion, use `kind: "discussion"` and omit `plan`. Incomplete, ambiguous, foreign or stale replies are rejected. The workflow retains the source session, native turn and canonical cursor; repeated imports do not duplicate the decision. The native turn's model/permission selection is not asserted because the API snapshot does not prove its historical configuration. Review the imported proposal and choose **Adopter ce plan** separately; adoption invalidates current verification and follows the configured validation policy. Native import observes repository stability during retrieval; it does not certify that an earlier native conversation left the repository untouched.
 
 ### Custom definition catalogue (API foundation)
 
 Custom graphs can be saved independently of V1 workflow executions. This API does
-not yet launch graphs or provide a visual editor. Existing Team launches still use
+not yet launch graphs or provide a visual editor. Existing Team Auto and panel launches still use
 the historical Planner → Builder → Reviewer engine.
 
 - `teams.save_definition({ workspaceId, expectedRevision: 0, definition })` creates
@@ -466,7 +458,7 @@ A retry with a saved binding only observes it, even with a stale client revision
 uncertainty never triggers a resend or replacement. Lost creation responses reuse
 the same native idempotency key. Concurrent preparations can create an unused
 session before a revision conflict; they cannot dispatch it here. This internal
-helper sends no prompt, executes no test, and does not expose graph launch in Team.
+helper sends no prompt, executes no test, and does not expose graph launch in Team Auto or the panel.
 Durable completion receipts, read-only filesystem verification, tests and explicit
 human/clarification handling remain prerequisites for a public executor.
 
@@ -485,4 +477,4 @@ launch RPC/UI, completion receipt, artifact consumption or automatic transition.
 Native clients can still modify sessions concurrently; the SDK offers no atomic
 empty-session-and-send operation, so this is not a claim of exactly-once native
 execution. Read-only verification and completion receipts remain required before
-connecting the graph executor to Team.
+connecting the graph executor to Team Auto.

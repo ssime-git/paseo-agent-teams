@@ -46,7 +46,7 @@ test('the default team keeps available saved choices and falls back to the autom
     ).builder.provider,
     'codex/gpt-6.1-sol',
   );
-  assert.deepEqual(saved, { roles: saved.roles, validation: 'plan', maxCorrections: 2 });
+  assert.deepEqual(saved, { roles: saved.roles, validation: 'plan', maxCorrections: 2, language: 'fr' });
 });
 
 async function load(t: { after(fn: () => unknown): void }, entry: string) {
@@ -116,9 +116,9 @@ test('settings list eligible models per role and save a complete document agains
   const selects = view.root.findAll((n) => (n.type as unknown) === 'Select');
   assert.deepEqual(
     selects.map((s) => s.props.label),
-    ['Plan', 'Code', 'Revue', 'Mode par défaut', 'Corrections automatiques'],
+    ['Langue de l’interface', 'Plan', 'Code', 'Revue', 'Mode par défaut', 'Corrections automatiques'],
   );
-  const [plan, code] = selects;
+  const [language, plan, code] = selects;
   // Read-only roles only offer read-only capable harnesses; the Builder only write-capable ones.
   assert.deepEqual(
     code.props.options.map((o: { value: string }) => o.value),
@@ -127,18 +127,22 @@ test('settings list eligible models per role and save a complete document agains
   assert.equal(code.props.options[0].label, 'Automatique (Codex · GPT-6.1-Sol)');
   assert.match(code.props.error, /n’est plus disponible/);
   await act(async () => plan.props.onValueChange('claude/claude-sonnet-5-5'));
-  await act(async () => selects[4].props.onValueChange('0'));
+  await act(async () => selects[5].props.onValueChange('0'));
   assert.deepEqual(saves[0], {
     revision: 'r1',
     values: {
       roles: { builder: { provider: 'gone/model' }, planner: { provider: 'claude/claude-sonnet-5-5' } },
       validation: 'plan',
       maxCorrections: 2,
+      language: 'fr',
     },
   });
   assert.equal((saves[1].values as { maxCorrections: number }).maxCorrections, 0);
   await act(async () => code.props.onValueChange('auto'));
   assert.deepEqual((saves[2].values as { roles: object }).roles, {});
+  // The language is saved with the rest of the document and announced to registered titles.
+  await act(async () => language.props.onValueChange('en'));
+  assert.equal((saves[3].values as { language: string }).language, 'en');
 });
 
 test('the Team card shows this thread mission team, or the default team before the first message', async (t) => {

@@ -91,10 +91,9 @@ test('clarification UI never selects the recommendation and permits explicit fre
     answers: [{ questionId: 'scope', text: '' }],
   });
   assert.equal(answers.length, 0);
-  await act(() => renderer.root.findByProps({ accessibilityLabel: 'Ouvrir la session du Planner' }).props.onPress());
+  await act(() => renderer.root.findByProps({ accessibilityLabel: 'Ouvrir la session du Plan' }).props.onPress());
   assert.equal(opens, 1);
-  const importButton = () =>
-    renderer.root.findByProps({ accessibilityLabel: 'Importer les réponses natives du Planner' });
+  const importButton = () => renderer.root.findByProps({ accessibilityLabel: 'Importer les réponses natives du Plan' });
   await act(() => importButton().props.onPress());
   assert.equal(imports, 1);
   await act(() => renderer.update(React.createElement(Clarifications, { ...props, busy: true })));

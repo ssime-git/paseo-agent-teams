@@ -1,10 +1,10 @@
 import { Pressable, Text, View } from 'react-native';
+import { useT } from './i18n';
+import { PR_REQUEST } from './texts';
 import type { PluginHostProps } from '@getpaseo/plugin/client';
 import type { Workflow, Action } from '../shared/contracts';
 import { Markdown } from './markdown';
 import { StageResult } from './stage-result';
-export const PR_REQUEST =
-  'Crée une pull request brouillon pour ce travail validé si une PR est pertinente. Vérifie le dépôt, la branche et une éventuelle PR existante. Donne son lien, ou explique précisément le blocage et les prochaines étapes. Préserve mes autres modifications.';
 export function CompletionSummary({
   workflow: w,
   colors: c,
@@ -16,9 +16,11 @@ export function CompletionSummary({
   busy: boolean;
   onAction(action: Action['action'], extra?: Partial<Action>): Promise<void> | undefined;
 }) {
+  const t = useT();
   const closed = w.events.some((e) => e.kind === 'closed');
   const testsPassed =
-    w.testsApproved && (w.tests.length > 0 ? w.tests.every((t) => t.exitCode === 0 && !t.timedOut) : w.allowNoTests);
+    w.testsApproved &&
+    (w.tests.length > 0 ? w.tests.every((test) => test.exitCode === 0 && !test.timedOut) : w.allowNoTests);
   const validated = !closed && w.review?.verdict === 'pass' && testsPassed;
   const button = (label: string, action: () => void) => (
     <Pressable
@@ -34,49 +36,58 @@ export function CompletionSummary({
   return (
     <View style={{ padding: 12, gap: 12, borderWidth: 1, borderColor: c.border, borderRadius: 8 }}>
       <Text accessibilityRole="header" style={{ color: c.foreground, fontWeight: '600' }}>
-        Bilan et prochaines étapes
+        {t('Bilan et prochaines étapes')}
       </Text>
       <Text style={{ color: c.foreground }}>
         {closed
-          ? 'Workflow fermé par l’utilisateur.'
+          ? t('Workflow fermé par l’utilisateur.')
           : validated
-            ? 'Travail validé par la review et les vérifications enregistrées.'
-            : 'Validation à terminer avant publication.'}
+            ? t('Travail validé par la revue et les vérifications enregistrées.')
+            : t('Validation à terminer avant publication.')}
       </Text>
       {w.build ? <StageResult role="builder" text={JSON.stringify(w.build)} colors={c} /> : null}
       {w.review ? <StageResult role="reviewer" text={JSON.stringify(w.review)} colors={c} /> : null}
       <Text style={{ color: c.foregroundMuted }}>
         {w.tests.length
-          ? `${w.tests.filter((t) => t.exitCode === 0 && !t.timedOut).length}/${w.tests.length} tests réussis.`
+          ? t('{passed}/{total} tests réussis.', {
+              passed: w.tests.filter((test) => test.exitCode === 0 && !test.timedOut).length,
+              total: w.tests.length,
+            })
           : w.allowNoTests
-            ? 'Absence de tests explicitement acceptée.'
-            : 'Aucun test exécuté.'}
+            ? t('Absence de tests explicitement acceptée.')
+            : t('Aucun test exécuté.')}
       </Text>
       <Text style={{ color: c.foregroundMuted }}>
         {w.status === 'awaiting_final'
-          ? 'Prochaine étape : approuver la validation finale ci-dessous.'
+          ? t('Prochaine étape : approuver la validation finale ci-dessous.')
           : validated
-            ? 'Prochaine étape : créer une PR si ce travail doit être intégré à une autre branche, ou demander les étapes de livraison à l’équipe. Le dépôt sera revérifié avant création.'
-            : 'Prochaine étape : consulter les résultats et reprendre le travail si nécessaire.'}
+            ? t(
+                'Prochaine étape : créer une PR si ce travail doit être intégré à une autre branche, ou demander les étapes de livraison à l’équipe. Le dépôt sera revérifié avant création.',
+              )
+            : t('Prochaine étape : consulter les résultats et reprendre le travail si nécessaire.')}
       </Text>
       {w.status === 'completed'
-        ? button('Demander les prochaines étapes', () => {
+        ? button(t('Demander les prochaines étapes'), () => {
             void onAction('followup', {
               role: 'planner',
-              message:
+              message: t(
                 'Résume le résultat de ce workflow, ce qui reste à faire et les prochaines étapes concrètes. Dis si une PR est utile ou si une autre action de livraison est nécessaire.',
+              ),
             });
           })
         : null}
       {w.status === 'completed' && validated
-        ? button((w.repositoryTargets?.length ?? 1) > 1 ? 'Créer les PR brouillons' : 'Créer une PR brouillon', () => {
-            void onAction('followup', { purpose: 'pull_request', message: PR_REQUEST });
-          })
+        ? button(
+            (w.repositoryTargets?.length ?? 1) > 1 ? t('Créer les PR brouillons') : t('Créer une PR brouillon'),
+            () => {
+              void onAction('followup', { purpose: 'pull_request', message: t(PR_REQUEST) });
+            },
+          )
         : null}
       {w.followupResult ? (
         <>
           <Text accessibilityRole="header" style={{ color: c.foreground, fontWeight: '600' }}>
-            Dernière réponse de l’équipe
+            {t('Dernière réponse de l’équipe')}
           </Text>
           <Markdown source={w.followupResult} colors={c} />
         </>

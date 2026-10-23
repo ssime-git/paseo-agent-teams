@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from './i18n';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { PluginHostProps } from '@getpaseo/plugin/client';
 import type { TestResult } from '../shared/contracts';
@@ -12,6 +13,7 @@ export function TestLog({
   colors: PluginHostProps['theme']['colors'];
   loading?: boolean;
 }) {
+  const t = useT();
   const failed = result.exitCode !== 0 || result.timedOut;
   const [open, setOpen] = useState(failed);
   return (
@@ -26,7 +28,7 @@ export function TestLog({
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Sortie du test ${result.command}`}
+        accessibilityLabel={t('Sortie du test {command}', { command: result.command })}
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen((v) => !v)}
         style={{ padding: 10, gap: 6, flexDirection: 'row', alignItems: 'center' }}
@@ -46,10 +48,12 @@ export function TestLog({
           contentContainerStyle={{ padding: 10 }}
         >
           <Text selectable style={{ color: c.foregroundMuted, fontSize: 11, lineHeight: 17, fontFamily: 'monospace' }}>
-            {loading ? 'Chargement des sorties…' : `${result.stdout}\n${result.stderr}`.trim() || 'Aucune sortie.'}
+            {loading
+              ? t('Chargement des sorties…')
+              : `${result.stdout}\n${result.stderr}`.trim() || t('Aucune sortie.')}
           </Text>
           {result.truncated ? (
-            <Text style={{ color: c.statusWarning, fontSize: 11 }}>Sortie tronquée à la limite de capture.</Text>
+            <Text style={{ color: c.statusWarning, fontSize: 11 }}>{t('Sortie tronquée à la limite de capture.')}</Text>
           ) : null}
         </ScrollView>
       ) : null}

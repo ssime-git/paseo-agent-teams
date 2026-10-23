@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from './i18n';
 import { Pressable, Text, View } from 'react-native';
 import type { PluginHostProps } from '@getpaseo/plugin/client';
 import type { Role } from '../shared/contracts';
@@ -15,9 +16,10 @@ export function StageResult({
   text: string;
   colors: PluginHostProps['theme']['colors'];
 }) {
-  const result = renderEvent(role, text);
+  const t = useT();
+  const result = renderEvent(role, text, t);
   const [expanded, setExpanded] = useState(false);
-  if (result.kind === 'markdown') return <Markdown source={eventMarkdown(result)} colors={c} />;
+  if (result.kind === 'markdown') return <Markdown source={eventMarkdown(result, t)} colors={c} />;
   const value = result.kind === 'plan' ? result.plan : result.kind === 'build' ? result.build : result.review;
   const summary = value.summary;
   const long = summary.length > 420;
@@ -52,7 +54,7 @@ export function StageResult({
               fontSize: 12,
             }}
           >
-            {result.review.verdict === 'pass' ? '✓ Review validée' : '↻ Corrections demandées'}
+            {result.review.verdict === 'pass' ? t('✓ Revue validée') : t('↻ Corrections demandées')}
           </Text>
         </View>
       ) : null}
@@ -60,40 +62,40 @@ export function StageResult({
       {long ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={expanded ? 'Réduire le résumé' : 'Lire le résumé complet'}
+          accessibilityLabel={expanded ? t('Réduire le résumé') : t('Lire le résumé complet')}
           onPress={() => setExpanded((v) => !v)}
         >
           <Text style={{ color: c.accent, fontSize: 12, paddingVertical: 5 }}>
-            {expanded ? 'Réduire' : 'Lire la suite'}
+            {expanded ? t('Réduire') : t('Lire la suite')}
           </Text>
         </Pressable>
       ) : null}
       <View style={{ gap: 0 }}>
         {result.kind === 'plan' ? (
           <>
-            <Disclosure title="Tâches" count={result.plan.tasks.length} colors={c}>
+            <Disclosure title={t('Tâches')} count={result.plan.tasks.length} colors={c}>
               {bullets(result.plan.tasks)}
             </Disclosure>
-            <Disclosure title="Critères d’acceptation" count={result.plan.acceptance.length} colors={c}>
+            <Disclosure title={t('Critères d’acceptation')} count={result.plan.acceptance.length} colors={c}>
               {bullets(result.plan.acceptance)}
             </Disclosure>
-            <Disclosure title="Commandes de test" count={result.plan.tests.length} colors={c}>
-              {bullets(result.plan.tests.map((t) => '`' + t.command + '`'))}
+            <Disclosure title={t('Commandes de test')} count={result.plan.tests.length} colors={c}>
+              {bullets(result.plan.tests.map((test) => '`' + test.command + '`'))}
             </Disclosure>
           </>
         ) : result.kind === 'build' ? (
           <>
-            <Disclosure title="Changements" count={result.build.changes.length} colors={c}>
+            <Disclosure title={t('Changements')} count={result.build.changes.length} colors={c}>
               {bullets(result.build.changes)}
             </Disclosure>
             {result.build.remaining.length ? (
-              <Disclosure title="Reste à faire" count={result.build.remaining.length} colors={c}>
+              <Disclosure title={t('Reste à faire')} count={result.build.remaining.length} colors={c}>
                 {bullets(result.build.remaining)}
               </Disclosure>
             ) : null}
           </>
         ) : result.review.issues.length ? (
-          <Disclosure title="Points à corriger" count={result.review.issues.length} colors={c}>
+          <Disclosure title={t('Points à corriger')} count={result.review.issues.length} colors={c}>
             {bullets(result.review.issues)}
           </Disclosure>
         ) : null}

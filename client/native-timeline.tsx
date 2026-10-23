@@ -1,4 +1,5 @@
 import type { PluginClientContext, PluginTimelineItemProps } from '@getpaseo/plugin/client';
+import { useT } from './i18n';
 import { Text, View } from 'react-native';
 import type { z } from 'zod';
 import { nativeArtifactSchema, nativeArtifactsRpc, nativeBriefSchema } from '../shared/contracts';
@@ -11,7 +12,18 @@ import { showTeamWorkflow } from './drafts';
 
 import { nativeMessageIndex, projectNativeReport } from './native-projection';
 type Artifact = z.infer<typeof nativeArtifactSchema>;
+function Brief({ item, theme: { colors: c } }: PluginTimelineItemProps<{ text: string }>) {
+  const t = useT();
+  return (
+    <View style={{ paddingVertical: 8 }}>
+      <Disclosure title={t('Contexte transmis à l’agent')} colors={c}>
+        <Markdown source={item.data.text} colors={c} />
+      </Disclosure>
+    </View>
+  );
+}
 function NativeReport(props: PluginTimelineItemProps<Artifact> & { onOpen(): void }) {
+  const t = useT();
   const {
     item: { data },
     theme: { colors: c },
@@ -29,7 +41,7 @@ function NativeReport(props: PluginTimelineItemProps<Artifact> & { onOpen(): voi
     >
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: c.accent }} />
-        <Text style={{ color: c.foreground, fontSize: 13, fontWeight: '600' }}>{roleLabel[data.role]}</Text>
+        <Text style={{ color: c.foreground, fontSize: 13, fontWeight: '600' }}>{t(roleLabel[data.role])}</Text>
         <Text style={{ color: c.foregroundMuted, fontSize: 11, marginLeft: 'auto' }}>AGENT TEAMS</Text>
       </View>
       <StageResult role={data.role} text={data.text} colors={c} />
@@ -70,13 +82,7 @@ export function addNativeTimeline(client: PluginClientContext) {
       kind: 'agent-teams-brief',
       version: 1,
       schema: nativeBriefSchema,
-      Component: ({ item, theme: { colors: c } }) => (
-        <View style={{ paddingVertical: 8 }}>
-          <Disclosure title="Contexte transmis à l’agent" colors={c}>
-            <Markdown source={item.data.text} colors={c} />
-          </Disclosure>
-        </View>
-      ),
+      Component: Brief,
     }),
     client.addTimelineTransformer({
       id: 'team-operation-brief',

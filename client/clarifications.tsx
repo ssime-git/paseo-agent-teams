@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from './i18n';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import type { PluginHostProps } from '@getpaseo/plugin/client';
 import type { Action, Workflow } from '../shared/contracts';
@@ -18,34 +19,34 @@ export function Clarifications({
   onImport(): void;
   onOpenPlanner?: () => void;
 }) {
+  const t = useT();
   const pending = workflow.clarifications?.find((v) => !v.resolvedAt);
   const [showNative, setShowNative] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   if (!pending || workflow.status === 'completed') return null;
   return (
     <View style={{ gap: 14, padding: 12, borderWidth: 1, borderColor: c.border, borderRadius: 8 }}>
-      <Text style={{ color: c.foreground, fontWeight: '600' }}>En attente de réponse</Text>
+      <Text style={{ color: c.foreground, fontWeight: '600' }}>{t('En attente de réponse')}</Text>
       <Text style={{ color: c.foregroundMuted }}>{pending.request.summary}</Text>
       <Text style={{ color: c.foregroundMuted }}>
-        Aucun choix n’est appliqué automatiquement. Le Planner reprendra après toutes les réponses.
+        {t('Aucun choix n’est appliqué automatiquement. Le Plan reprendra après toutes les réponses.')}
       </Text>
       {workflow.agents.planner ? (
         <View style={{ gap: 8 }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Préparer une réponse native"
+            accessibilityLabel={t('Préparer une réponse native')}
             onPress={() => setShowNative((v) => !v)}
             style={{ padding: 12, minHeight: 44 }}
           >
-            <Text style={{ color: c.accent }}>Préparer une réponse native</Text>
+            <Text style={{ color: c.accent }}>{t('Préparer une réponse native')}</Text>
           </Pressable>
           {showNative ? (
             <>
               <Text style={{ color: c.foregroundMuted }}>
-                Copiez ce modèle dans la session du Planner. Pour chaque question, remplacez le texte vide par votre
-                réponse, ou remplacez « text » par « optionId » avec un identifiant proposé ci-dessous. Vous pouvez
-                retirer les questions auxquelles vous répondrez plus tard. Attendez la fin du tour natif puis importez
-                explicitement les réponses. Un modèle vide ne vaut pas réponse.
+                {t(
+                  'Copiez ce modèle dans la session du Plan. Pour chaque question, remplacez le texte vide par votre réponse, ou remplacez « text » par « optionId » avec un identifiant proposé ci-dessous. Vous pouvez retirer les questions auxquelles vous répondrez plus tard. Attendez la fin du tour natif puis importez explicitement les réponses. Un modèle vide ne vaut pas réponse.',
+                )}
               </Text>
               <Text selectable style={{ color: c.foreground }}>
                 {JSON.stringify(
@@ -68,21 +69,21 @@ export function Clarifications({
               {onOpenPlanner ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Ouvrir la session du Planner"
+                  accessibilityLabel={t('Ouvrir la session du Plan')}
                   onPress={onOpenPlanner}
                   style={{ padding: 12, minHeight: 44 }}
                 >
-                  <Text style={{ color: c.accent }}>Ouvrir la session du Planner</Text>
+                  <Text style={{ color: c.accent }}>{t('Ouvrir la session du Plan')}</Text>
                 </Pressable>
               ) : null}
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Importer les réponses natives du Planner"
+                accessibilityLabel={t('Importer les réponses natives du Plan')}
                 disabled={busy || !!workflow.operation}
                 onPress={onImport}
                 style={{ padding: 12, minHeight: 44, opacity: busy || workflow.operation ? 0.5 : 1 }}
               >
-                <Text style={{ color: c.accent }}>Importer les réponses natives du Planner</Text>
+                <Text style={{ color: c.accent }}>{t('Importer les réponses natives du Plan')}</Text>
               </Pressable>
             </>
           ) : null}
@@ -101,7 +102,9 @@ export function Clarifications({
             <Text style={{ color: c.foreground, fontWeight: '600' }}>{q.title}</Text>
             {answer ? (
               <Text style={{ color: c.statusSuccess }}>
-                Réponse enregistrée : {q.options.find((o) => o.id === answer.optionId)?.label ?? answer.text}
+                {t('Réponse enregistrée : {answer}', {
+                  answer: q.options.find((o) => o.id === answer.optionId)?.label ?? answer.text ?? '',
+                })}
               </Text>
             ) : (
               <>
@@ -124,15 +127,15 @@ export function Clarifications({
                     <Text style={{ color: c.foreground }}>
                       {o.label}
                       {o.id === q.recommendedOptionId && !/\((?:recommandé|recommended)\)/i.test(o.label)
-                        ? ' (recommandé)'
+                        ? ` ${t('(recommandé)')}`
                         : ''}
                     </Text>
                     <Text style={{ color: c.foregroundMuted }}>{o.tradeoff}</Text>
                   </Pressable>
                 ))}
                 <TextInput
-                  accessibilityLabel={`Réponse libre : ${q.title}`}
-                  placeholder="Réponse libre"
+                  accessibilityLabel={t('Réponse libre : {question}', { question: q.title })}
+                  placeholder={t('Réponse libre')}
                   placeholderTextColor={c.foregroundMuted}
                   multiline
                   editable={!busy}
@@ -149,12 +152,12 @@ export function Clarifications({
                 />
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Envoyer la réponse : ${q.title}`}
+                  accessibilityLabel={t('Envoyer la réponse : {question}', { question: q.title })}
                   disabled={busy || !drafts[key]?.trim()}
                   onPress={() => send(undefined, drafts[key].trim())}
                   style={{ padding: 12, minHeight: 44, opacity: busy || !drafts[key]?.trim() ? 0.5 : 1 }}
                 >
-                  <Text style={{ color: c.accent }}>Envoyer la réponse</Text>
+                  <Text style={{ color: c.accent }}>{t('Envoyer la réponse')}</Text>
                 </Pressable>
               </>
             )}

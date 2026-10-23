@@ -158,7 +158,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   );
   assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, true);
   assert.match(JSON.stringify(renderer.toJSON()), /Décrivez la tâche pour démarrer/);
-  assert.equal(renderer.root.findAllByProps({ label: 'planner · modèle' }).length, 0);
+  assert.equal(renderer.root.findAllByProps({ label: 'Plan · modèle' }).length, 0);
   await act(async () =>
     renderer.root.findByProps({ accessibilityLabel: 'Personnaliser les modèles et réglages' }).props.onPress(),
   );
@@ -169,14 +169,14 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   assert.equal(modelSelects[1].props.value, 'org/codex-from-daemon');
   const reviewerMode = renderer.root
     .findAll((node) => String(node.type) === 'SettingsSelect')
-    .find((x) => x.props.label === 'reviewer · permissions')!;
+    .find((x) => x.props.label === 'Revue · permissions')!;
   assert.deepEqual(
     reviewerMode.props.options.map((o: { value: string }) => o.value),
     ['plan'],
   );
   const reviewerHarness = renderer.root
     .findAll((node) => String(node.type) === 'SettingsSelect')
-    .find((x) => x.props.label === 'reviewer · harnais')!;
+    .find((x) => x.props.label === 'Revue · harnais')!;
   assert.ok(
     reviewerHarness.props.options.some(
       (o: { label: string; value: string }) => o.label === 'Claude — credits' && o.value === 'credit-account',
@@ -237,7 +237,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, false);
   const builderHarness = renderer.root
     .findAll((node) => String(node.type) === 'SettingsSelect')
-    .find((x) => x.props.label === 'builder · harnais')!;
+    .find((x) => x.props.label === 'Code · harnais')!;
   await act(async () => {
     builderHarness.props.onValueChange('opencode');
   });
@@ -255,7 +255,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     validation.props.onValueChange('autonomous');
   });
   assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.disabled, false);
-  assert.match(JSON.stringify(renderer.toJSON()), /Le Planner choisit les commandes de test/);
+  assert.match(JSON.stringify(renderer.toJSON()), /Le Plan choisit les commandes de test/);
   await act(async () => {
     renderer.root.findByProps({ accessibilityLabel: 'Démarrer le workflow' }).props.onPress();
   });
@@ -339,7 +339,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   await act(async () => {
     renderer.update(React.createElement(TeamsPanel, props));
   });
-  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Phase Review' }).props.disabled, true);
+  assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Phase Revue' }).props.disabled, true);
   Object.assign(registry.workflows[0] as object, { status: 'permission', workspaceId: 'workspace' });
   registry.permissions = [
     {
@@ -407,7 +407,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   });
   assert.match(JSON.stringify(renderer.toJSON()), /Continuer le workflow/);
   await act(async () => {
-    renderer.root.findByProps({ accessibilityLabel: 'Repasser par le Planner' }).props.onPress();
+    renderer.root.findByProps({ accessibilityLabel: 'Repasser par le Plan' }).props.onPress();
   });
   assert.equal((registry.actions.at(-1) as { action: string }).action, 'continue');
   assert.equal((registry.actions.at(-1) as { role: string }).role, 'planner');
@@ -458,7 +458,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
   assert.equal((registry.actions.at(-1) as { action: string }).action, 'followup');
   assert.equal((registry.actions.at(-1) as { role: string }).role, 'reviewer');
   assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Message à l’équipe' }).props.value, '');
-  assert.match(JSON.stringify(renderer.toJSON()), /Message transmis à reviewer/);
+  assert.match(JSON.stringify(renderer.toJSON()), /Message transmis à Revue/);
   Object.assign(registry.workflows[0] as object, {
     followupResult: '[Ouvrir la PR](https://github.com/example/project/pull/1)',
   });
@@ -495,7 +495,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     });
     assert.equal((registry.actions.at(-1) as { action: string }).action, 'adopt_plan');
     await act(async () => {
-      renderer.root.findByProps({ accessibilityLabel: 'Récupérer le plan du thread Reviewer' }).props.onPress();
+      renderer.root.findByProps({ accessibilityLabel: 'Récupérer le plan du thread Revue' }).props.onPress();
     });
     assert.equal((registry.actions.at(-1) as { action: string }).action, 'import_reviewer_plan');
     assert.match(JSON.stringify(renderer.toJSON()), /Réponse native récupérée/);
@@ -505,7 +505,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
         .props.onChangeText('Propose une route dédiée');
     });
     await act(async () => {
-      renderer.root.findByProps({ accessibilityLabel: 'Réviser le plan avec le Reviewer' }).props.onPress();
+      renderer.root.findByProps({ accessibilityLabel: 'Réviser le plan avec la Revue' }).props.onPress();
     });
     assert.equal((registry.actions.at(-1) as { purpose: string }).purpose, 'plan_revision');
     assert.equal((registry.actions.at(-1) as { role: string }).role, 'reviewer');
@@ -516,7 +516,7 @@ test('compact panel discovers models, launches a workflow, renders approvals and
     renderer.update(React.createElement(TeamsPanel, props));
   });
   assert.equal(renderer.root.findByProps({ accessibilityLabel: 'Adopter ce plan' }).props.disabled, true);
-  assert.equal(renderer.root.findAllByProps({ accessibilityLabel: 'Récupérer le plan du thread Reviewer' }).length, 0);
+  assert.equal(renderer.root.findAllByProps({ accessibilityLabel: 'Récupérer le plan du thread Revue' }).length, 0);
   let card!: ReturnType<typeof create>;
   await act(async () => {
     card = create(

@@ -32,7 +32,7 @@ This repeats for every phase and every correction cycle, and persistent sessions
 ## État de l’implémentation
 
 - Implémenté : artefacts ciblés par rôle, contexte dépôt réduit au diff et aux fichiers modifiés, résumé des tests en échec, option de sessions neuves par correction.
-- Le panneau affiche les objectifs de handoff 4k / 8k / 12k et la dernière estimation fournie par le moteur. Ces objectifs concernent le prompt transmis, pas tout l’historique natif.
+- Le panneau avancé affiche les objectifs de handoff 4k / 8k / 12k et la dernière estimation fournie par le moteur. Ces objectifs concernent le prompt transmis, pas tout l’historique natif.
 - `estimateTokens` estime la taille à partir des octets UTF-8 divisés par quatre ; il ne s’agit pas du tokenizer du modèle. Les blocs fixes du prompt peuvent dépasser l’objectif : ce n’est pas une limite stricte de tokens.
 - Les sorties complètes des tests restent dans l’état persistant et sont consultables dans les cartes dépliables ; leur export en fichiers référencés reste à faire.
-- La maquette HTML sert de référence visuelle. L’application charge `index.client.tsx` et les composants React Native, pas le HTML. En développement, installer le dossier local puis utiliser `paseo plugin reload paseo-agent-teams` pour recompiler les changements.
+- Les maquettes HTML (`docs/mockup-panel.html`, `docs/mockups/single-thread.html`) servent de référence visuelle. L’application charge `index.client.tsx` et les composants React Native, pas le HTML. En développement, installer le dossier local puis utiliser `paseo plugin reload paseo-agent-teams` pour recompiler les changements.

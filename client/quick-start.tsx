@@ -1,4 +1,6 @@
 import type { PluginButtonContentProps } from '@getpaseo/plugin/client';
+import { useT } from './i18n';
+import { roleTitle } from '../shared/team-composition';
 import { useRpc } from '@getpaseo/plugin/client';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -21,6 +23,7 @@ export function QuickStart(
   const { theme, host, workspaceId, layout, close, openPanel, openHistory } = props;
   const agentId = props.context === 'agent' ? props.agentId : undefined;
   const c = theme.colors;
+  const t = useT();
   const catalogCall = useRpc(catalogRpc),
     createCall = useRpc(createRpc),
     listCall = useRpc(listRpc);
@@ -52,7 +55,7 @@ export function QuickStart(
           );
         }
       } catch (e) {
-        if (live) setError(errorMessage(e));
+        if (live) setError(errorMessage(e, t));
       }
     };
     void refresh();
@@ -73,18 +76,18 @@ export function QuickStart(
         setConfig((cur) => ({ ...cur, roles: defaultRoles(value.providers, cur.roles) }));
       })
       .catch((e) => {
-        if (live) setError(errorMessage(e));
+        if (live) setError(errorMessage(e, t));
       });
     return () => {
       live = false;
     };
   }, [workspaceId, refresh, JSON.stringify(config.repositoryPaths)]);
   const issue = !catalog
-    ? 'Chargement…'
+    ? t('Chargement…')
     : ((catalog.launchIssue || undefined) ??
-      (catalog.blockingWorkflow ? 'Un workflow conserve le verrou de ce dépôt.' : undefined) ??
-      configurationIssue(config, catalog.providers) ??
-      (!task.trim() ? 'Décrivez la tâche.' : undefined));
+      (catalog.blockingWorkflow ? t('Un workflow conserve le verrou de ce dépôt.') : undefined) ??
+      configurationIssue(config, catalog.providers, t) ??
+      (!task.trim() ? t('Décrivez la tâche.') : undefined));
   const updateRole = (role: Role, harness: string, modelId?: string) => {
     const provider = catalog?.providers.find((p) => p.id === harness);
     const model =
@@ -112,7 +115,7 @@ export function QuickStart(
       close();
       openPanel();
     } catch (e) {
-      setError(errorMessage(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -147,19 +150,19 @@ export function QuickStart(
           </View>
           <View style={{ flex: 1, gap: 3 }}>
             <Text style={{ color: c.foreground, fontWeight: '600', fontSize: 18 }}>Team Auto</Text>
-            <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>Plusieurs modèles. Un seul objectif.</Text>
+            <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{t('Plusieurs modèles. Un seul objectif.')}</Text>
           </View>
           {openHistory ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Historique des workflows"
+              accessibilityLabel={t('Historique des workflows')}
               onPress={() => {
                 close();
                 openHistory();
               }}
               style={{ padding: 8 }}
             >
-              <Text style={{ color: c.foregroundMuted }}>Historique ↗</Text>
+              <Text style={{ color: c.foregroundMuted }}>{t('Historique ↗')}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -170,6 +173,7 @@ export function QuickStart(
             {liveWorkflow.task}
           </Text>
           <TeamRoster
+            t={t}
             config={liveWorkflow.config}
             workflow={liveWorkflow}
             providers={catalog?.providers}
@@ -178,7 +182,7 @@ export function QuickStart(
           />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Ouvrir l’équipe active"
+            accessibilityLabel={t('Ouvrir l’équipe active')}
             onPress={() => {
               setView({ selected: liveWorkflow.id, showNew: false });
               close();
@@ -186,15 +190,15 @@ export function QuickStart(
             }}
             style={{ padding: 13, borderRadius: 12, backgroundColor: c.accent, alignItems: 'center' }}
           >
-            <Text style={{ color: c.accentForeground, fontWeight: '600' }}>Ouvrir l’équipe →</Text>
+            <Text style={{ color: c.accentForeground, fontWeight: '600' }}>{t('Ouvrir l’équipe →')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Préparer une nouvelle mission"
+            accessibilityLabel={t('Préparer une nouvelle mission')}
             onPress={() => setInspectNew(true)}
             style={{ padding: 10, alignItems: 'center' }}
           >
-            <Text style={{ color: c.foregroundMuted }}>Préparer une nouvelle mission</Text>
+            <Text style={{ color: c.foregroundMuted }}>{t('Préparer une nouvelle mission')}</Text>
           </Pressable>
         </View>
       ) : (
@@ -210,10 +214,12 @@ export function QuickStart(
             onRefresh={() => setRefresh((value) => value + 1)}
           />
           <View style={section}>
-            <Text style={{ color: c.foreground, fontWeight: '600', fontSize: 15 }}>Que voulez-vous accomplir ?</Text>
+            <Text style={{ color: c.foreground, fontWeight: '600', fontSize: 15 }}>
+              {t('Que voulez-vous accomplir ?')}
+            </Text>
             <TextInput
-              accessibilityLabel="Tâche pour l’équipe"
-              placeholder="Construire une fonctionnalité, corriger un bug…"
+              accessibilityLabel={t('Tâche pour l’équipe')}
+              placeholder={t('Construire une fonctionnalité, corriger un bug…')}
               placeholderTextColor={c.foregroundMuted}
               multiline
               value={task}
@@ -232,28 +238,30 @@ export function QuickStart(
               }}
             />
             <Text style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
-              L’équipe prépare le plan, développe, teste et relit. Les modèles se passent la main automatiquement.
+              {t(
+                'L’équipe prépare le plan, développe, teste et relit. Les modèles se passent la main automatiquement.',
+              )}
             </Text>
-            <TeamRoster config={config} providers={catalog?.providers} colors={c} compact={layout.compact} />
+            <TeamRoster t={t} config={config} providers={catalog?.providers} colors={c} compact={layout.compact} />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Personnaliser les modèles et réglages"
+              accessibilityLabel={t('Personnaliser les modèles et réglages')}
               accessibilityState={{ expanded: advanced }}
               onPress={() => setAdvanced((v) => !v)}
               style={{ paddingVertical: 8 }}
             >
               <Text style={{ color: c.accent, fontSize: 12 }}>
-                {advanced ? 'Masquer les réglages ⌃' : 'Personnaliser les modèles et réglages ⌄'}
+                {advanced ? t('Masquer les réglages ⌃') : t('Personnaliser les modèles et réglages ⌄')}
               </Text>
             </Pressable>
             <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-              {config.mode === 'manual' ? 'Relais manuel' : 'Relais automatique'} ·{' '}
+              {config.mode === 'manual' ? t('Relais manuel') : t('Relais automatique')} ·{' '}
               {config.validation === 'plan'
-                ? 'Vous validez le plan'
+                ? t('Vous validez le plan')
                 : config.validation === 'final'
-                  ? 'Vous validez le résultat'
-                  : 'Validation autonome configurée'}{' '}
-              · {config.maxCorrections} corrections maximum
+                  ? t('Vous validez le résultat')
+                  : t('Validation autonome configurée')}{' '}
+              · {t('{count} corrections maximum', { count: config.maxCorrections })}
             </Text>
           </View>
           {advanced ? (
@@ -280,14 +288,12 @@ export function QuickStart(
                       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
                         <View style={{ width: 76, minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: roleColors[role] }} />
-                          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-                            {role[0].toUpperCase() + role.slice(1)}
-                          </Text>
+                          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{t(roleTitle[role])}</Text>
                         </View>
                         <CompactSelect
                           hideLabel
                           colors={c}
-                          label={`${role} · harnais`}
+                          label={`${t(roleTitle[role])} · ${t('harnais')}`}
                           value={harness}
                           options={(catalog?.providers ?? []).map((p) => ({ label: p.label, value: p.id }))}
                           onValueChange={(id) => updateRole(role, id)}
@@ -296,7 +302,7 @@ export function QuickStart(
                         <CompactSelect
                           hideLabel
                           colors={c}
-                          label={`${role} · modèle`}
+                          label={`${t(roleTitle[role])} · ${t('modèle')}`}
                           value={model}
                           options={(provider?.models ?? []).map((m) => ({ label: m.label, value: m.id }))}
                           onValueChange={(id) => updateRole(role, harness, id)}
@@ -305,7 +311,7 @@ export function QuickStart(
                       </View>
                       {selection.modeId === INSTRUCTION_READ_ONLY ? (
                         <Text style={{ color: c.statusWarning, fontSize: 11 }}>
-                          Lecture seule par consigne, sans sandbox garantie.
+                          {t('Lecture seule par consigne, sans sandbox garantie.')}
                         </Text>
                       ) : null}
                     </View>
@@ -325,18 +331,18 @@ export function QuickStart(
                 />
                 <CompactSelect
                   colors={c}
-                  label="Validation humaine"
+                  label={t('Validation humaine')}
                   value={config.validation}
                   options={[
-                    { label: 'Après le plan', value: 'plan' },
-                    { label: 'À la fin', value: 'final' },
-                    { label: 'Autonome', value: 'autonomous' },
+                    { label: t('Après le plan'), value: 'plan' },
+                    { label: t('À la fin'), value: 'final' },
+                    { label: t('Autonome'), value: 'autonomous' },
                   ]}
                   onValueChange={(v) => setConfig((cur) => ({ ...cur, validation: v as Config['validation'] }))}
                 />
                 <CompactSwitch
                   colors={c}
-                  label="Poursuivre jusqu’à l’objectif"
+                  label={t('Poursuivre jusqu’à l’objectif')}
                   value={config.goalMode ?? false}
                   onValueChange={(goalMode) =>
                     setConfig((cur) => ({
@@ -351,13 +357,13 @@ export function QuickStart(
                 {config.goalMode ? (
                   <>
                     <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-                      Développer et tester, corriger, puis revoir le plan si nécessaire. Après la première approbation,
-                      les commandes peuvent évoluer automatiquement. Les permissions et blocages externes restent
-                      visibles. Budget de 2 h ; pause possible à tout moment.
+                      {t(
+                        'Développer et tester, corriger, puis revoir le plan si nécessaire. Après la première approbation, les commandes peuvent évoluer automatiquement. Les permissions et blocages externes restent visibles. Budget de 2 h ; pause possible à tout moment.',
+                      )}
                     </Text>
                     <CompactSelect
                       colors={c}
-                      label="Budget de tours d’agents"
+                      label={t('Budget de tours d’agents')}
                       value={String(config.goalMaxTurns ?? 30)}
                       options={[10, 20, 30, 50, 100].map((n) => ({ label: String(n), value: String(n) }))}
                       onValueChange={(v) => setConfig((cur) => ({ ...cur, goalMaxTurns: Number(v) }))}
@@ -366,24 +372,25 @@ export function QuickStart(
                 ) : null}
                 <CompactSwitch
                   colors={c}
-                  label="Auto-accept du Builder"
+                  label={t('Auto-accept du Code')}
                   value={config.builderAutoAccept}
                   onValueChange={(builderAutoAccept) => setConfig((cur) => ({ ...cur, builderAutoAccept }))}
                 />
                 <Text style={{ color: c.foregroundMuted, fontSize: 11 }}>
-                  Mode autonome natif du Builder ; les autres rôles restent en lecture seule. Désactivez pour valider
-                  ses demandes dans Team.
+                  {t(
+                    'Mode autonome natif du Code ; les autres rôles restent en lecture seule. Désactivez pour valider ses demandes dans l’équipe.',
+                  )}
                 </Text>
                 <CompactSwitch
                   colors={c}
-                  label="Corrections automatiques"
+                  label={t('Corrections automatiques')}
                   value={config.autoFix}
                   onValueChange={(v) => setConfig((cur) => ({ ...cur, autoFix: v }))}
                 />
                 {config.autoFix ? (
                   <CompactSelect
                     colors={c}
-                    label={config.goalMode ? 'Corrections avant retour au Planner' : 'Cycles maximum'}
+                    label={config.goalMode ? t('Corrections avant retour au Plan') : t('Cycles maximum')}
                     value={String(config.maxCorrections)}
                     options={Array.from({ length: 11 }, (_, i) => ({ label: String(i), value: String(i) }))}
                     onValueChange={(v) => setConfig((cur) => ({ ...cur, maxCorrections: Number(v) }))}
@@ -391,7 +398,7 @@ export function QuickStart(
                 ) : null}
                 <CompactSwitch
                   colors={c}
-                  label="Session neuve à chaque correction"
+                  label={t('Session neuve à chaque correction')}
                   value={config.freshSessionPerCycle}
                   onValueChange={(v) => setConfig((cur) => ({ ...cur, freshSessionPerCycle: v }))}
                 />
@@ -409,7 +416,7 @@ export function QuickStart(
             ) : null}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Lancer l’équipe"
+              accessibilityLabel={t('Lancer l’équipe')}
               disabled={busy || !!issue}
               onPress={() => void start()}
               style={{
@@ -422,7 +429,7 @@ export function QuickStart(
               }}
             >
               <Text style={{ color: c.accentForeground, fontSize: 14, fontWeight: '500' }}>
-                {busy ? 'Lancement…' : 'Lancer l’équipe'}
+                {busy ? t('Lancement…') : t('Lancer l’équipe')}
               </Text>
             </Pressable>
           </View>
@@ -430,7 +437,7 @@ export function QuickStart(
       )}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Ouvrir le panneau complet"
+        accessibilityLabel={t('Ouvrir le panneau complet')}
         onPress={() => {
           setView({ showNew: true, showConfig: true });
           close();
@@ -438,7 +445,7 @@ export function QuickStart(
         }}
         style={{ padding: 12 }}
       >
-        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>Ouvrir le panneau complet ↗</Text>
+        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{t('Ouvrir le panneau complet ↗')}</Text>
       </Pressable>
     </ScrollView>
   );

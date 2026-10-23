@@ -1,4 +1,6 @@
 import { createElement } from 'react';
+import { onLanguage } from './language-signal';
+import { translate } from '../shared/i18n';
 import { TEAM_PROVIDER_ID } from '../shared/team-composition';
 import { TEAM_SETTINGS_SCREEN } from './routes';
 import type { ComponentType } from 'react';
@@ -10,6 +12,11 @@ export function addThreadAccess(
   Card: ComponentType<PluginButtonContentProps & { openSettings(): void; openPanel(): void }>,
 ) {
   const lifetime = new AbortController();
+  let label = translate('fr', 'Équipe');
+  const removeLanguage = onLanguage((language) => {
+    label = translate(language, 'Équipe');
+    for (const { button } of pills.values()) button.update({ title: label, label });
+  });
   const pills = new Map<string, { workspaceId: string; button: PluginButtonRegistration }>();
   const remove = (id: string) => {
     pills.get(id)?.button.remove();
@@ -31,8 +38,8 @@ export function addThreadAccess(
         workspaceId,
         agentId: agent.id,
         button: {
-          title: 'Équipe',
-          label: 'Équipe',
+          title: label,
+          label,
           icon: 'Workflow',
           behavior: {
             kind: 'popover',
@@ -68,6 +75,7 @@ export function addThreadAccess(
       if (!lifetime.signal.aborted) console.error('Agent Teams thread access:', error);
     });
   return () => {
+    removeLanguage();
     lifetime.abort();
     for (const id of pills.keys()) remove(id);
   };
