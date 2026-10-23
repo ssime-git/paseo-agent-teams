@@ -425,3 +425,12 @@ matches; old summary-only checkpoints remain readable. Planner clarifications ar
 not final plans and are rejected here; their graph waiting/resume contract remains
 to be designed. Native dispatch/recovery, test execution and human-action
 authorization must still be connected before exposing execution.
+
+Internal `observeGraphDispatch` inspects a bound native session through the official
+client SDK without sending, waiting for a model, answering permissions or changing
+checkpoints. It requires the exact persisted prompt, rejects later user prompts,
+incomplete histories and changed epochs, and limits pagination to ten 100-entry
+pages. Missing/unresumable sessions (including empty Codex threads) remain uncertain.
+An idle session with an accepted prompt proves acceptance only, even if an assistant
+message exists: durable completion receipts still need to be connected. This helper
+is not a graph executor or permission to resend an uncertain operation.
