@@ -22,6 +22,17 @@ const activationSchema = z
     operationId: z.uuid(),
     stepId: z.string(),
     result: resultSchema.optional(),
+    // Bind the exact session and prompt before dispatch, never infer delivery.
+    dispatch: z
+      .object({
+        agentId: z.uuid(),
+        prompt: z
+          .string()
+          .min(1)
+          .max(256 * 1024),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -59,6 +70,14 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
     }
     operations.add(activation.operationId);
     const step = graph.steps.find((item) => item.id === next)!;
+    if (
+      activation.dispatch &&
+      (step.contract === 'human' ||
+        !activation.dispatch.prompt.includes(`[agent-teams-operation:${activation.operationId}]`))
+    ) {
+      fail();
+      return;
+    }
     if (!activation.result) {
       status = step.contract === 'human' ? 'waiting_human' : 'running';
       continue;
@@ -82,7 +101,8 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
     if (next === null) status = ['success', 'approve'].includes(edge.outcome) ? 'succeeded' : 'failed';
   }
   const resolved = state.activations.filter((activation) => activation.result !== undefined).length;
-  if (state.revision !== 1 + state.activations.length + resolved) fail();
+  const bound = state.activations.filter((activation) => activation.dispatch !== undefined).length;
+  if (state.revision !== 1 + state.activations.length + resolved + bound) fail();
   if (state.activations.length > graph.maxTransitions) fail();
   if (status === 'ready' && state.activations.length === graph.maxTransitions) status = 'exhausted';
   if (state.status !== status || state.nextStepId !== next) fail();
@@ -170,4 +190,30 @@ export function resolveGraphArtifact(raw: GraphCheckpoint, operationId: string, 
     summary: artifact.value.summary,
     artifact,
   });
+}
+
+// This is a durable dispatch intent, not proof that a native turn was accepted.
+// After a crash the executor must inspect this session using the operation UUID;
+// uncertainty must retain the intent rather than create a replacement session.
+export function bindGraphDispatch(
+  raw: GraphCheckpoint,
+  operationId: string,
+  dispatch: NonNullable<GraphCheckpoint['activations'][number]['dispatch']>,
+): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const binding = activationSchema.shape.dispatch.unwrap().parse(dispatch);
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
+  if (activation.dispatch) {
+    if (activation.dispatch.agentId !== binding.agentId || activation.dispatch.prompt !== binding.prompt)
+      throw new TeamError('GRAPH_DISPATCH_CONFLICT', 'Operation already bound to a different session or prompt');
+    return state;
+  }
+  if (state.status !== 'running' || activation.result)
+    throw new TeamError('GRAPH_NOT_RUNNING', 'Only a pending model activation can bind a native dispatch');
+  if (!binding.prompt.includes(`[agent-teams-operation:${operationId}]`))
+    throw new TeamError('GRAPH_OPERATION_MARKER_REQUIRED', 'Dispatch prompt must include its operation marker');
+  activation.dispatch = binding;
+  state.revision++;
+  return graphCheckpointSchema.parse(state);
 }

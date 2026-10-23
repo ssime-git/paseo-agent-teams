@@ -388,6 +388,14 @@ stable operation UUID and consumes budget before a future caller may dispatch.
 After restart, a pending activation retains its UUID; the future executor must
 reconcile that operation with the native runtime before sending anything again.
 A saved checkpoint alone does not guarantee exactly-once native delivery.
+Internal `GraphCheckpoints.bindDispatch` now records the exact native agent UUID
+and prompt before dispatch. The prompt must contain its operation marker. This
+intent is immutable: changing the session or prompt conflicts, even after resolution;
+an identical retry is idempotent across reloads. Human steps and already resolved
+unbound operations cannot acquire an intent. Binding consumes no additional step
+budget and does not prove native acceptance or completion. A future executor must
+reconcile the saved session and operation marker; it must not resend an uncertain
+operation or create a replacement session. Older unbound checkpoints remain readable.
 
 Checkpoints use a separate directory supplied to `GraphCheckpoints`, outside V1
 execution files. Immutable, atomically published revisions reject competing writes.

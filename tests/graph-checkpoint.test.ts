@@ -242,3 +242,85 @@ test('plan contract retains commands and rejects forged provenance on replay', a
   corrupt.activations[0].result!.summary = 'Different summary';
   assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
 });
+
+test('native dispatch intent survives reload and immutable retries without implying delivery', async (t) => {
+  const { store, state } = await setup(t);
+  const operationId = randomUUID();
+  await store.reserve(state.id, 'owner', 1, operationId);
+  const dispatch = { agentId: randomUUID(), prompt: `Implement task\n[agent-teams-operation:${operationId}]` };
+  await assert.rejects(
+    store.bindDispatch(state.id, 'owner', 2, operationId, { ...dispatch, prompt: 'Missing marker' }),
+    /operation marker/,
+  );
+  const bound = await store.bindDispatch(state.id, 'owner', 2, operationId, dispatch);
+  assert.equal(bound.status, 'running');
+  assert.equal(bound.revision, 3);
+  assert.equal(bound.activations.length, 1);
+  assert.equal(bound.activations[0].result, undefined);
+  const restarted = new GraphCheckpoints(store.directory);
+  assert.deepEqual(await restarted.get(state.id, 'owner'), bound);
+  assert.deepEqual(await restarted.bindDispatch(state.id, 'owner', 2, operationId, dispatch), bound);
+  for (const replacement of [
+    { ...dispatch, agentId: randomUUID() },
+    { ...dispatch, prompt: 'Different' },
+  ])
+    await assert.rejects(restarted.bindDispatch(state.id, 'owner', 3, operationId, replacement), /already bound/);
+  await assert.rejects(restarted.bindDispatch(state.id, 'other', 3, operationId, dispatch), /access denied/);
+  await assert.rejects(restarted.bindDispatch(state.id, 'owner', 3, randomUUID(), dispatch), /Unknown/);
+  assert.deepEqual(await restarted.get(state.id, 'owner'), bound);
+  const resolved = await restarted.resolveArtifact(
+    state.id,
+    'owner',
+    3,
+    operationId,
+    '{"summary":"Done","changes":[],"remaining":[]}',
+  );
+  assert.equal(resolved.revision, 4);
+  assert.deepEqual(resolved.activations[0].dispatch, dispatch);
+  assert.deepEqual(await restarted.bindDispatch(state.id, 'owner', 2, operationId, dispatch), resolved);
+  const corrupt = structuredClone(resolved);
+  corrupt.revision--;
+  assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+});
+
+test('competing native bindings retain one winner and reject stale writes without deleting evidence', async (t) => {
+  const { store, state } = await setup(t);
+  const operationId = randomUUID();
+  await store.reserve(state.id, 'owner', 1, operationId);
+  const rival = new GraphCheckpoints(store.directory);
+  const outcomes = await Promise.allSettled([
+    store.bindDispatch(state.id, 'owner', 2, operationId, {
+      agentId: randomUUID(),
+      prompt: `First [agent-teams-operation:${operationId}]`,
+    }),
+    rival.bindDispatch(state.id, 'owner', 2, operationId, {
+      agentId: randomUUID(),
+      prompt: `Second [agent-teams-operation:${operationId}]`,
+    }),
+  ]);
+  assert.equal(outcomes.filter((item) => item.status === 'fulfilled').length, 1);
+  assert.equal(outcomes.filter((item) => item.status === 'rejected').length, 1);
+  const current = await rival.get(state.id, 'owner');
+  assert.equal(current.revision, 3);
+  assert.equal(current.activations.length, 1);
+  assert.ok(current.activations[0].dispatch);
+  const revision = await readFile(join(store.directory, state.id, '2.json'), 'utf8');
+  assert.equal(JSON.parse(revision).activations[0].dispatch, undefined);
+});
+
+test('human decisions and already resolved legacy operations cannot acquire native dispatch intent', async (t) => {
+  const { store, state } = await setup(t, true);
+  const operationId = randomUUID(),
+    humanId = randomUUID();
+  await store.reserve(state.id, 'owner', 1, operationId);
+  await store.resolve(state.id, 'owner', 2, operationId, { outcome: 'success', summary: 'Legacy build' });
+  const waiting = await store.reserve(state.id, 'owner', 3, humanId);
+  const dispatch = { agentId: randomUUID(), prompt: 'Must not send' };
+  await assert.rejects(store.bindDispatch(state.id, 'owner', 4, operationId, dispatch), /pending model/);
+  await assert.rejects(store.bindDispatch(state.id, 'owner', 4, humanId, dispatch), /pending model/);
+  assert.deepEqual(await store.get(state.id, 'owner'), waiting);
+  const corrupt = structuredClone(waiting);
+  corrupt.activations[1].dispatch = dispatch;
+  corrupt.revision++;
+  assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+});
