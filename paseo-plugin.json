@@ -1,11 +1,11 @@
 {
   "id": "paseo-agent-teams",
   "name": "Agent Teams",
-  "description": "One-thread Plan, Code, Test and Review teams across coding harnesses, with a default team and a French or English interface.",
+  "description": "Run a Plan, Code, Test and Review team of coding agents in one Paseo thread.",
   "media": [
-    "docs/screenshots/team-thread-desktop.png",
-    "docs/screenshots/team-settings.png",
-    "docs/screenshots/team-card.png"
+    "docs/screenshots/plan-ready.png",
+    "docs/screenshots/correction.png",
+    "docs/screenshots/settings.png"
   ],
   "requirements": {
     "paseo": ">=0.11.2 <0.13.0"

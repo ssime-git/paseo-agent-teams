@@ -64,7 +64,15 @@ export function contributeServer(server: PluginServerContext) {
       await connecting;
     }
     if (disposed) throw new TeamError('PLUGIN_DISPOSED', 'Plugin disposed');
-    engine ??= new Engine(store, new PaseoRuntime(recoveryClient, directory, () => nativeApi));
+    engine ??= new Engine(
+      store,
+      new PaseoRuntime(
+        recoveryClient,
+        directory,
+        () => nativeApi,
+        async () => (await savedTeam())?.language ?? 'fr',
+      ),
+    );
     return engine;
   };
   server.handle(createRpc, async (input, context) => {

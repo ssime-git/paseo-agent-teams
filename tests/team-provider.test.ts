@@ -352,3 +352,32 @@ test('a language change never re-emits finished rows, which Paseo would show twi
   await new Promise((resolve) => setTimeout(resolve, 1700));
   assert.equal(rows().length, 1);
 });
+
+test('/team-status answers in the thread with who has control and the team', async (t) => {
+  const s = await setup(t, 'en');
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Ship it' }] });
+  const w = s.workflow();
+  w.status = 'running';
+  w.phase = 'building';
+  w.operation = { id: 'op-build', role: 'builder', phase: 'building', state: 'sent', startedAt: 'now' };
+  w.events.push({
+    id: 'd',
+    at: 'now',
+    kind: 'dispatch',
+    role: 'builder',
+    text: 'Starting builder',
+    operationId: 'op-build',
+  });
+  w.revision++;
+  await s.connection.send({ type: 'session.interrupt', sessionId: 'session', requestId: 'stop' });
+  w.status = 'running';
+  await s.prompt('status', { type: 'command', name: 'team-status', arguments: '' });
+  const said = s.events.flatMap((e) =>
+    e.type === 'timeline.item' && e.item.type === 'assistant_message' ? [e.item.text] : [],
+  );
+  assert.match(
+    said.at(-1)!,
+    /^\*\*Code is working\.\*\*\n\nPlan · Codex · Detected — Code · Codex · Detected — Review · Codex · Detected\n\nCorrection 0\/2\.$/,
+  );
+});

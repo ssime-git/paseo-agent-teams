@@ -365,3 +365,19 @@ Demande utilisateur : implémenter et tester les quatre axes ci-dessous, avec un
 - **Vérifications complémentaires :** autorisation accordée depuis la liste des sous-agents, cycle de correction réel, changement de langue à chaud sur deux clients, mobile anglais avec export/import. Deux défauts trouvés et corrigés : lignes dupliquées après un changement de langue, titre répété dans la carte sur mobile.
 - **Limites :** journaux du moteur et réponses des modèles non traduits, par conception. Aucune application iOS/Android native testée.
 
+
+
+### 23 octobre 2026, 22:40 (Europe/Paris) — passage bloqué par un éditeur actif
+
+- **Contrôle préalable :** aucun `AGENTS.md` trouvé dans le dépôt ou ses parents applicables. Contrat, politique utilisateur absent et derniers commits consultés ; HEAD `6d29531` (après `4dc538a`, `bd65055`, `fc77059`, `aeffb19`). `paseo ls --all --global --json` confirme un autre éditeur **running** dans ce dépôt : `58d48f16-d70b-41a5-a4c2-c1c31160da83`, Claude Opus 5.5, session « et si on redesignait la team. je souhaite qu’au lieu d’avoir ». Ce passage est `4827d11e-8b67-4a02-8c9f-a0420496cf4a`. Preuve locale : `/tmp/teams-roadmap-current-agents.json`.
+- **Blocage :** nombreuses suppressions indexées de composants et tests et modifications locales du client, de l’entrée plugin et des traductions/tests. Cet état appartient au travail en cours ; aucune restauration, aucun changement de code, aucun verrou supprimé. Conformément à la règle de non-concurrence, arrêt de l’implémentation dès la détection ; seule cette entrée documentaire est ajoutée. Aucun commit ni push pour éviter d’embarquer ou de perturber l’index de l’autre éditeur.
+- **Vérification / limites :** aucun `npm run check`, test de modèle ou essai d’intégration lancé sur cet arbre en cours de refonte ; aucune nouvelle validation revendiquée et aucune case cochée. Aucun daemon redémarré, aucun plugin rechargé. Ce passage n’est pas un incrément fonctionnel validé.
+- **Point de reprise :** au prochain passage, vérifier de nouveau agents/workflows et état Git, puis lire les commits de la refonte avant de choisir le prochain incrément compatible. Le précédent point de reprise de l’axe 3 reste le reçu durable de fin de tour lié à l’opération/session exacte, suivi de la consommation des artefacts typés ; vérifier son applicabilité à l’architecture effectivement livrée. Ne pas recréer les composants supprimés par la refonte ni refaire les preuves déjà acquises.
+- **Intervention nécessaire :** aucune question utilisateur supplémentaire ; attendre la fin du travail concurrent. `paseo schedule ls --json` confirme la tâche existante `f873454c`, « Agent Teams — roadmap et tests (5 h) », active. Elle reste active, les critères globaux n’étant pas tous validés ; aucune autre tâche créée.
+
+### 23 octobre 2026, soir (Europe/Paris) — une seule interface : Team Auto
+
+- **Décision de l’utilisateur :** l’ancienne interface est retirée. Plus de panneau Agent Teams, d’écran d’historique, de commandes « Options avancées » ni de prototype de pastille New workspace. Tout passe par le thread Team Auto et Paramètres → Plugins → Agent Teams. **Ne pas recréer de panneau ni d’écran séparé** : toute nouvelle interface doit s’intégrer au thread ou aux réglages.
+- **Conséquence sur les axes :** l’axe 3 (workflows personnalisés) et les éléments d’interface des axes 1–2 qui supposaient le panneau sont à reformuler dans ce cadre. Le moteur conserve Manual Switch, le mode objectif, les dépôts multiples et les révisions du Reviewer, accessibles seulement par RPC.
+- **Aussi :** `/team-status` répond dans le thread ; titres des sessions de rôle traduits ; documentation réécrite (README, `docs/architecture.md`, `docs/isolated-validation.md`) avec des captures en anglais.
+

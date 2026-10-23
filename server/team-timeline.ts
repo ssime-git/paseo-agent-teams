@@ -346,6 +346,37 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
   return out;
 }
 
+/** The answer to `/team-status`: who has control, what is awaited, the team and the correction count. */
+export function statusReport(w: Workflow, ctx: TeamTimelineContext) {
+  const t = ctx.t;
+  const role = w.operation?.role;
+  const state = w.clarifications?.some((q) => !q.resolvedAt)
+    ? t('Des questions attendent votre réponse.')
+    : w.status === 'awaiting_plan'
+      ? t('Le plan attend votre accord.')
+      : w.status === 'awaiting_final'
+        ? t('Le résultat attend votre accord.')
+        : w.status === 'permission' && role
+          ? t('Le rôle {role} attend une autorisation.', { role: t(roleTitle[role]) })
+          : w.status === 'paused'
+            ? t('Équipe en pause. Envoyez `/team-resume` pour reprendre.')
+            : w.status === 'attention'
+              ? t('Intervention nécessaire : {error}', { error: w.error ?? t('Tour interrompu.') })
+              : w.status === 'completed'
+                ? t('Mission terminée.')
+                : w.operation?.phase === 'testing'
+                  ? t('Les tests sont en cours.')
+                  : role
+                    ? t('{role} travaille.', { role: t(roleTitle[role]) })
+                    : t('L’équipe prépare la prochaine étape.');
+  const team = (['planner', 'builder', 'reviewer'] as const)
+    .map((r) => `${t(roleTitle[r])} · ${ctx.label(r)}`)
+    .join(' — ');
+  return [`**${state}**`, team, t('Correction {cycle}/{max}.', { cycle: w.cycle, max: w.config.maxCorrections })].join(
+    '\n\n',
+  );
+}
+
 /** A native message the provider showed once, anchored after the first `at` workflow events. */
 export interface TranscriptEntry {
   id: string;

@@ -69,9 +69,8 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
   assert.equal(registrations.length, 1); // Only the Team Auto thread gets the Team pill.
   assert.equal(registrations[0].button.label, 'Équipe');
   const content = registrations[0].button.behavior.Content({}) as { props: Record<string, () => void> };
-  content.props.openPanel();
   content.props.openSettings();
-  assert.deepEqual(opened, [{ id: 'agent-teams', options: { workspaceId: 'w1' } }, { settings: 'agent-teams' }]);
+  assert.deepEqual(opened, [{ settings: 'agent-teams' }]);
   observer.update({
     type: 'agent_update',
     payload: { kind: 'upsert', agent: { id: 'a', workspaceId: 'w2', provider: team } },

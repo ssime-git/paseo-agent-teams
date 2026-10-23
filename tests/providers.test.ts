@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveProviderProfiles, nativeMode, workflowModes } from '../server/providers';
-import { configReady, configurationIssue, initialConfig } from '../client/configuration';
-import { DEFAULT_MODE, DEFAULT_MODEL, INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
+import { DEFAULT_MODE, INSTRUCTION_READ_ONLY, readOnlyMode } from '../shared/provider-selection';
 test('separate accounts retain their provider IDs and inherited harness family without exposing credentials', () => {
   const entries = {
     'credit-account': {
@@ -21,16 +20,10 @@ test('separate accounts retain their provider IDs and inherited harness family w
   assert.equal(profiles.families.misleading, 'misleading');
   assert.equal(profiles.labels['credit-account'], 'Claude — credits');
   assert.doesNotMatch(JSON.stringify(profiles), /never-expose-this|CLAUDE_CONFIG_DIR|private/);
-  const config = initialConfig();
-  config.roles = {
-    planner: { provider: 'claude/model', modeId: 'plan' },
-    builder: { provider: 'codex/model', modeId: 'auto' },
-    reviewer: { provider: 'credit-account/fable', modeId: 'plan' },
-  };
-  assert.equal(configReady(config), false);
-  assert.equal(configReady(config, [{ id: 'credit-account', family: 'claude' }]), true);
-  config.roles.reviewer.modeId = 'bypassPermissions';
-  assert.equal(configReady(config, [{ id: 'credit-account', family: 'claude' }]), false);
+  // A read-only role on the separate account is judged by its inherited harness family.
+  assert.equal(readOnlyMode('credit-account', 'plan'), false);
+  assert.equal(readOnlyMode(profiles.families['credit-account'], 'plan'), true);
+  assert.equal(readOnlyMode(profiles.families['credit-account'], 'bypassPermissions'), false);
 });
 test('arbitrary detected harnesses support native permissions or explicit instruction-only roles', () => {
   const pi = workflowModes('pi', []);
@@ -47,15 +40,9 @@ test('arbitrary detected harnesses support native permissions or explicit instru
   assert.equal(workflowModes('opencode', openCode), openCode);
   assert.equal(nativeMode('opencode', 'plan', openCode), 'plan');
   assert.throws(() => nativeMode('opencode', INSTRUCTION_READ_ONLY, openCode), /Unavailable mode/);
-  const config = initialConfig();
-  config.roles = {
-    planner: { provider: 'opencode/zen/free', modeId: 'plan' },
-    builder: { provider: `pi/${DEFAULT_MODEL}`, modeId: DEFAULT_MODE },
-    reviewer: { provider: 'custom/model', modeId: INSTRUCTION_READ_ONLY },
-  };
-  assert.equal(configReady(config), true);
-  config.roles.reviewer.modeId = 'full-access';
-  assert.equal(configReady(config), false);
+  assert.equal(readOnlyMode('opencode', 'plan'), true);
+  assert.equal(readOnlyMode('custom', INSTRUCTION_READ_ONLY), true);
+  assert.equal(readOnlyMode('custom', 'full-access'), false);
 });
 test('Codex read-only is supported through native sandbox options even when absent from mode discovery', () => {
   const modes = [
@@ -68,13 +55,6 @@ test('Codex read-only is supported through native sandbox options even when abse
   assert.throws(() => nativeMode('codex', 'read-only', [{ id: 'full-access' }]), /Unavailable mode/);
   assert.equal(workflowModes('claude', modes), modes);
   assert.equal(workflowModes('codex', [{ id: 'read-only', label: 'Read only' }]).length, 1);
-  const config = initialConfig();
-  config.roles = {
-    planner: { provider: 'claude/model', modeId: 'plan' },
-    builder: { provider: 'codex/model', modeId: 'auto' },
-    reviewer: { provider: 'codex/model', modeId: '' },
-  };
-  assert.match(configurationIssue(config)!, /Revue.*lecture seule/);
-  config.roles.reviewer.modeId = 'read-only';
-  assert.equal(configReady(config), true);
+  assert.equal(readOnlyMode('codex', ''), false);
+  assert.equal(readOnlyMode('codex', 'read-only'), true);
 });

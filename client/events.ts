@@ -133,15 +133,3 @@ export function renderEvent(role: Role | undefined, text: string, t: Translate =
 }
 
 export const roleLabel: Record<Role, string> = roleTitle;
-export const phaseRole = {
-  planning: 'planner',
-  building: 'builder',
-  testing: undefined,
-  reviewing: 'reviewer',
-} as const;
-export const steps = [
-  { phase: 'planning', label: 'Plan', role: 'planner' },
-  { phase: 'building', label: 'Code', role: 'builder' },
-  { phase: 'testing', label: 'Tests', role: undefined },
-  { phase: 'reviewing', label: 'Revue', role: 'reviewer' },
-] as const;

@@ -9,7 +9,7 @@ import type { PluginClientContext, PluginButtonContentProps, PluginButtonRegistr
 /** The Team pill appears only in Team Auto threads; other harness threads stay untouched. */
 export function addThreadAccess(
   client: PluginClientContext,
-  Card: ComponentType<PluginButtonContentProps & { openSettings(): void; openPanel(): void }>,
+  Card: ComponentType<PluginButtonContentProps & { openSettings(): void }>,
 ) {
   const lifetime = new AbortController();
   let label = translate('fr', 'Équipe');
@@ -47,7 +47,6 @@ export function addThreadAccess(
               createElement(Card, {
                 ...props,
                 openSettings: () => client.openSettings(TEAM_SETTINGS_SCREEN),
-                openPanel: () => client.openPanel('agent-teams', { workspaceId }),
               }),
           },
         },

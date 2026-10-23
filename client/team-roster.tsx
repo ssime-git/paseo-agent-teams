@@ -30,7 +30,10 @@ export function teamControl(w: Workflow, t: Translate = french): { title: string
   if (w.status === 'permission')
     return { title: t('Autorisation attendue'), detail: t('Une demande nécessite votre décision.') };
   if (w.status === 'attention')
-    return { title: t('Votre attention est nécessaire'), detail: w.error ?? t('Ouvrez l’équipe pour reprendre.') };
+    return {
+      title: t('Votre attention est nécessaire'),
+      detail: w.error ?? t('Répondez dans le thread ou envoyez `/team-resume` pour reprendre.'),
+    };
   if (w.phase === 'testing')
     return { title: t('Les tests ont la main'), detail: t('Exécution des commandes de validation.') };
   const role =

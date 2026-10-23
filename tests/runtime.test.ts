@@ -687,3 +687,34 @@ test('role activity lists the tool calls of one operation turn, latest state per
   ]);
   assert.deepEqual(await h.runtime.activity(savedWorkflow(), 'builder', 'unknown'), []);
 });
+
+test('Team Auto role sessions are titled in the interface language', async () => {
+  const titles: string[] = [];
+  const api = {
+    config: { get: async () => ({ config: { providers: {} } }) },
+    workspaces: {
+      ref: () => ({
+        agents: {
+          create: async (input: { title: string }) => {
+            titles.push(input.title);
+            return { id: 'agent' };
+          },
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  const w = {
+    id: 'workflow',
+    workspaceId: 'workspace',
+    ownerAgentId: 'team-auto',
+    config: { roles: { reviewer: { provider: 'claude/discovered', modeId: 'plan' } } },
+  } as unknown as Workflow;
+  await new PaseoRuntime(
+    api,
+    '/unused',
+    () => api,
+    async () => 'en',
+  ).agent(w, 'reviewer');
+  await new PaseoRuntime(api, '/unused').agent(w, 'reviewer');
+  assert.deepEqual(titles, ['Review', 'Revue']);
+});

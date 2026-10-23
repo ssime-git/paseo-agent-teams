@@ -7,7 +7,14 @@ import {
   type ProviderConfigState,
 } from '@getpaseo/plugin/server/provider';
 import { configSchema, roles, type Action, type Config, type Role, type Workflow } from '../shared/contracts';
-import { stateNarrations, teamThread, transcriptItem, type RoleAction, type TranscriptEntry } from './team-timeline';
+import {
+  stateNarrations,
+  statusReport,
+  teamThread,
+  transcriptItem,
+  type RoleAction,
+  type TranscriptEntry,
+} from './team-timeline';
 import { roleTitle, TEAM_PROVIDER_ID, type TeamProviderChoice } from '../shared/team-composition';
 import { translator, type Language, type Translate } from '../shared/i18n';
 import { readOnlyMode } from '../shared/provider-selection';
@@ -499,6 +506,16 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         const item = transcriptItem(shown);
         session.emitted.set(item.id, JSON.stringify(item));
         emit({ type: 'timeline.item', sessionId, item });
+        if (prompt.input.type === 'command' && prompt.input.name === 'team-status' && w) {
+          const report = { id: `status:${prompt.clientMessageId}`, role: 'assistant' as const, at };
+          if (!session.saved.transcript?.some((e) => e.id === report.id)) {
+            record(session.saved, {
+              ...report,
+              text: statusReport(w, { label: label(sessionId, w), activity: () => undefined, t }),
+            });
+            persist(sessionId, session.saved);
+          }
+        }
         const turnId = `team:turn:${prompt.clientMessageId}`;
         session.turn = turnId;
         session.accepted.add(prompt.clientMessageId);

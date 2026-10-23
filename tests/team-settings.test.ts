@@ -169,7 +169,6 @@ test('the Team card shows this thread mission team, or the default team before t
     layout: { compact: false },
     close: () => actions.push('close'),
     openSettings: () => actions.push('settings'),
-    openPanel: () => actions.push('panel'),
   };
   let view!: ReturnType<typeof create>;
   await act(async () => {
@@ -188,5 +187,5 @@ test('the Team card shows this thread mission team, or the default team before t
   assert.doesNotMatch(text, /Équipe par défaut\./);
   const links = view.root.findAll((n) => (n.type as unknown) === 'Pressable' && n.props.onPress && !n.props.disabled);
   for (const link of links) await act(async () => link.props.onPress());
-  assert.deepEqual(actions, ['close', 'settings', 'close', 'panel']);
+  assert.deepEqual(actions, ['close', 'settings']);
 });

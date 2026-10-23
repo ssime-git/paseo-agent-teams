@@ -2,13 +2,11 @@ import type { PluginClientContext, PluginTimelineItemProps } from '@getpaseo/plu
 import { useT } from './i18n';
 import { Text, View } from 'react-native';
 import type { z } from 'zod';
-import { nativeArtifactSchema, nativeArtifactsRpc, nativeBriefSchema } from '../shared/contracts';
+import { cardSchema, nativeArtifactSchema, nativeArtifactsRpc, nativeBriefSchema } from '../shared/contracts';
 import { roleLabel } from './events';
 import { StageResult } from './stage-result';
 import { Disclosure } from './disclosure';
 import { Markdown } from './markdown';
-import { LiveWorkflowAction } from './workflow-action';
-import { showTeamWorkflow } from './drafts';
 
 import { nativeMessageIndex, projectNativeReport } from './native-projection';
 type Artifact = z.infer<typeof nativeArtifactSchema>;
@@ -22,7 +20,8 @@ function Brief({ item, theme: { colors: c } }: PluginTimelineItemProps<{ text: s
     </View>
   );
 }
-function NativeReport(props: PluginTimelineItemProps<Artifact> & { onOpen(): void }) {
+/** A role's structured result, shown in that role's own session. */
+function NativeReport(props: PluginTimelineItemProps<Artifact>) {
   const t = useT();
   const {
     item: { data },
@@ -45,16 +44,31 @@ function NativeReport(props: PluginTimelineItemProps<Artifact> & { onOpen(): voi
         <Text style={{ color: c.foregroundMuted, fontSize: 11, marginLeft: 'auto' }}>AGENT TEAMS</Text>
       </View>
       <StageResult role={data.role} text={data.text} colors={c} />
-      <View style={{ borderTopWidth: 1, borderTopColor: c.border, paddingTop: 12 }}>
-        <LiveWorkflowAction
-          eventId={data.eventId}
-          workflowId={data.workflowId}
-          workspaceId={data.workspaceId}
-          colors={c}
-          hostId={props.host.id}
-          onOpen={props.onOpen}
-        />
-      </View>
+    </View>
+  );
+}
+/** Progress cards written by earlier versions remain readable in existing threads. */
+function LegacyProgress({ item: { data }, theme: { colors: c } }: PluginTimelineItemProps<z.infer<typeof cardSchema>>) {
+  const t = useT();
+  return (
+    <View
+      style={{
+        padding: 12,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: c.border,
+        borderRadius: 8,
+        backgroundColor: c.surface1,
+      }}
+    >
+      <Text style={{ color: c.foreground, fontWeight: '600' }}>Agent Teams</Text>
+      {data.artifact ? (
+        <Disclosure title={t('Voir le compte rendu de l’étape')} colors={c}>
+          <StageResult role={data.artifact.role} text={data.artifact.text} colors={c} />
+        </Disclosure>
+      ) : data.detail ? (
+        <Markdown source={data.detail} colors={c} />
+      ) : null}
     </View>
   );
 }
@@ -68,15 +82,13 @@ export function addNativeTimeline(client: PluginClientContext) {
       kind: 'agent-teams-report',
       version: 1,
       schema: nativeArtifactSchema,
-      Component: (props) => (
-        <NativeReport
-          {...props}
-          onOpen={() => {
-            showTeamWorkflow(`${props.host.id}:${props.item.data.workspaceId}`, props.item.data.workflowId);
-            client.openPanel('agent-teams', { workspaceId: props.item.data.workspaceId });
-          }}
-        />
-      ),
+      Component: NativeReport,
+    }),
+    client.addTimelineRenderer({
+      kind: 'agent-teams-progress',
+      version: 1,
+      schema: cardSchema,
+      Component: LegacyProgress,
     }),
     client.addTimelineRenderer({
       kind: 'agent-teams-brief',

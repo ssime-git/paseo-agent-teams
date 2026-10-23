@@ -36,17 +36,15 @@ function markedTexts() {
 /** Texts translated through a variable, e.g. `t(roleTitle[role])` or `t(errorTexts[code])`. */
 async function dynamicTexts() {
   const { errorTexts } = await import('../client/errors');
-  const { steps, fieldLabels } = await import('../client/events');
-  const { hint, validation, PR_REQUEST } = await import('../client/texts');
+  const { fieldLabels } = await import('../client/events');
+  const { hint, validation } = await import('../client/texts');
   const { models, modes, commands } = await import('../server/team-provider');
   return [
     ...Object.values(roleTitle),
     ...Object.values(errorTexts),
-    ...steps.map((s) => s.label),
     ...Object.values(fieldLabels),
     ...Object.values(hint),
     ...validation.map((v) => v.label),
-    PR_REQUEST,
     ...models.map((m) => m.description),
     ...modes.map((m) => m.label),
     ...commands.map((c) => c.description),

@@ -6,9 +6,9 @@
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",
-    "docs/screenshots/team-thread-desktop.png",
-    "docs/screenshots/team-settings.png",
-    "docs/screenshots/team-card.png",
+    "docs/screenshots/plan-ready.png",
+    "docs/screenshots/correction.png",
+    "docs/screenshots/settings.png",
     "index.client.ts",
     "index.client.tsx",
     "index.server.ts",

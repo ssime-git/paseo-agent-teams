@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { roles, type Config, type Role, type Workflow, type Permission } from '../shared/contracts';
 import { resolveRepositories } from './scopes';
 import { roleTitle } from '../shared/team-composition';
+import { translate, type Language } from '../shared/i18n';
 import { captureRepositories, repositoryContext, scopeFingerprint } from './repository-context';
 import { runCommand } from './commands';
 import { providerProfiles, nativeMode, builderMode } from './providers';
@@ -22,6 +23,8 @@ export class PaseoRuntime implements Runtime {
     private api: PaseoApi,
     private directory: string,
     private nativeApi: () => PaseoApi | undefined = () => api,
+    /** Interface language for the role session titles shown in the subagents list. */
+    private language: () => Promise<Language> = async () => 'fr',
   ) {}
   async validateSelection(w: Workflow, role: Role, selection: Config['roles'][Role]) {
     const profiles = await providerProfiles(this.api);
@@ -119,7 +122,7 @@ export class PaseoRuntime implements Runtime {
       },
       env: { GIT_OPTIONAL_LOCKS: '0' },
       // Inside a Team Auto thread the parent already names the team; the subagent list shows the role.
-      title: w.ownerAgentId ? roleTitle[role] : `Agent Teams · ${role}`,
+      title: w.ownerAgentId ? translate(await this.language(), roleTitle[role]) : `Agent Teams · ${role}`,
       labels: { 'agent-teams-workflow': w.id, 'agent-teams-role': role },
     };
     const agents = this.api.workspaces.ref(w.workspaceId).agents;

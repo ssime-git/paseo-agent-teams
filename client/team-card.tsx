@@ -7,8 +7,8 @@ import { TeamRoster } from './team-roster';
 import { useT } from './i18n';
 
 /** The Team Auto composer pill: who is on the team and who has control. The mission itself is the thread. */
-export function TeamCard(props: PluginButtonContentProps & { openSettings(): void; openPanel(): void }) {
-  const { theme, workspaceId, layout, close, openSettings, openPanel } = props;
+export function TeamCard(props: PluginButtonContentProps & { openSettings(): void }) {
+  const { theme, workspaceId, layout, close, openSettings } = props;
   const agentId = props.context === 'agent' ? props.agentId : undefined;
   const c = theme.colors;
   const t = useT();
@@ -90,7 +90,6 @@ export function TeamCard(props: PluginButtonContentProps & { openSettings(): voi
         }}
       >
         {link(t('Modifier l’équipe par défaut'), openSettings)}
-        {link(t('Options avancées'), openPanel, true)}
       </View>
     </View>
   );
