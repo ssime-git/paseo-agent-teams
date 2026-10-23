@@ -187,6 +187,8 @@ export const eventSchema = z.object({
   kind: z.string(),
   role: roleSchema.optional(),
   text: z.string(),
+  /** Links dispatch, result and test events to the native operation that produced them. */
+  operationId: z.string().optional(),
 });
 export const workflowSchema = z.object({
   version: z.literal(1),
@@ -202,6 +204,8 @@ export const workflowSchema = z.object({
     .optional(),
   task: z.string(),
   config: configSchema,
+  /** Native Team Auto agent that owns this mission; role agents are created as its children. */
+  ownerAgentId: z.string().optional(),
   agents: z.partialRecord(roleSchema, z.string()),
   phase: z.enum(['planning', 'building', 'testing', 'reviewing', 'manual', 'done', 'followup']),
   status: z.enum([

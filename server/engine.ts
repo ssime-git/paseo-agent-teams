@@ -85,8 +85,15 @@ export class Engine {
     });
     return next;
   }
-  private event(w: Workflow, kind: string, text: string, role?: Role) {
-    w.events.push({ id: randomUUID(), at: new Date().toISOString(), kind, text, ...(role ? { role } : {}) });
+  private event(w: Workflow, kind: string, text: string, role?: Role, operationId?: string) {
+    w.events.push({
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      kind,
+      text,
+      ...(role ? { role } : {}),
+      ...(operationId ? { operationId } : {}),
+    });
   }
   private async save(w: Workflow) {
     const entries = Object.entries(w.requests);
@@ -114,7 +121,7 @@ export class Engine {
   async list(workspaceId: string) {
     return (await this.store.all()).filter((w) => w.workspaceId === workspaceId);
   }
-  async create(workspaceId: string, task: string, config: Config, requestId: string) {
+  async create(workspaceId: string, task: string, config: Config, requestId: string, ownerAgentId?: string) {
     const key = `create:${requestId}`,
       hash = digest({ workspaceId, task, config });
     const existing = (await this.store.all()).find((w) => key in w.requests);
@@ -155,6 +162,7 @@ export class Engine {
           workspaceId,
           task,
           config,
+          ...(ownerAgentId ? { ownerAgentId } : {}),
           ...prepared,
           agents: {},
           phase: config.mode === 'auto' ? 'planning' : 'manual',
@@ -829,7 +837,7 @@ export class Engine {
       current.status = 'running';
       current.handoffTokens = estimateTokens(prompt);
       delete current.error;
-      this.event(current, 'dispatch', `Starting ${role}`, role);
+      this.event(current, 'dispatch', `Starting ${role}`, role, current.operation.id);
       await this.save(current);
       return { w: current, role, prompt };
     });
@@ -872,6 +880,8 @@ export class Engine {
         w,
         'tests',
         results.map((r) => `${r.command} → ${r.exitCode ?? 'interrompu'}`).join('\n') || 'No tests',
+        undefined,
+        op.id,
       );
       w.phase = controller.signal.aborted ? STAGE_TRANSITIONS.builder : STAGE_TRANSITIONS.tests;
       if (w.status !== 'paused') {
@@ -957,7 +967,7 @@ export class Engine {
     text: string,
     fingerprint?: string,
   ) {
-    this.event(w, 'assistant', text, op.role);
+    this.event(w, 'assistant', text, op.role, op.id);
     if (op.readOnlyFingerprint && fingerprint !== op.readOnlyFingerprint) {
       w.status = 'attention';
       w.error =

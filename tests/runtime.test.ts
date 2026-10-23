@@ -614,3 +614,76 @@ test('checkpoint inactivity checks every role including active turns with an idl
   }
   assert.equal(await adapter().runtime.canClose(w), true);
 });
+
+test('Team Auto roles are native children of the orchestrator agent, and degrade to tabs when it is gone', async () => {
+  const created: { parent?: string; idempotencyKey: string }[] = [];
+  let missing = false;
+  const api = {
+    config: { get: async () => ({ config: { providers: {} } }) },
+    workspaces: {
+      ref: () => ({
+        agents: {
+          create: async (input: { parent?: string; idempotencyKey: string }) => {
+            created.push(input);
+            if (input.parent && missing) throw new Error(`Caller agent ${input.parent} not found`);
+            return { id: `agent-${created.length}` };
+          },
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  const runtime = new PaseoRuntime(api, '/unused');
+  const w = {
+    id: 'workflow',
+    workspaceId: 'workspace',
+    ownerAgentId: 'team-auto',
+    config: { roles: { builder: { provider: 'codex/discovered', modeId: 'auto' } } },
+  } as unknown as Workflow;
+  assert.equal(await runtime.agent(w, 'builder'), 'agent-1');
+  assert.equal(created[0].parent, 'team-auto');
+  missing = true;
+  assert.equal(await runtime.agent(w, 'builder'), 'agent-3');
+  assert.equal(created[2].parent, undefined);
+  assert.equal(created[2].idempotencyKey, created[1].idempotencyKey);
+  await assert.rejects(
+    new PaseoRuntime(
+      {
+        ...api,
+        workspaces: {
+          ref: () => ({
+            agents: {
+              create: async () => {
+                throw new Error('Provider unavailable');
+              },
+            },
+          }),
+        },
+      } as unknown as PaseoApi,
+      '/unused',
+    ).agent(w, 'builder'),
+    /Provider unavailable/,
+  );
+});
+
+test('role activity lists the tool calls of one operation turn, latest state per call', async () => {
+  const tool = (callId: string, detail: unknown, status = 'completed') => ({
+    item: { type: 'tool_call', callId, name: 'tool', status, error: null, detail },
+  });
+  const entries = [
+    { item: { type: 'user_message', text: '[agent-teams-operation:old]\nOld' } },
+    tool('old', { type: 'read', filePath: 'old.ts' }),
+    { item: { type: 'user_message', text: '[agent-teams-operation:operation]\nTask' } },
+    tool('a', { type: 'shell', command: 'npm   test' }, 'running'),
+    tool('b', { type: 'edit', filePath: 'src/a.ts' }),
+    tool('a', { type: 'shell', command: 'npm   test' }),
+    { item: { type: 'assistant_message', text: 'done' } },
+    { item: { type: 'user_message', text: 'native follow-up' } },
+    tool('c', { type: 'read', filePath: 'later.ts' }),
+  ];
+  const h = adapter({}, entries);
+  assert.deepEqual(await h.runtime.activity(savedWorkflow(), 'builder', 'operation'), [
+    { toolName: 'Shell', summary: 'npm test' },
+    { toolName: 'Edit', summary: 'src/a.ts' },
+  ]);
+  assert.deepEqual(await h.runtime.activity(savedWorkflow(), 'builder', 'unknown'), []);
+});

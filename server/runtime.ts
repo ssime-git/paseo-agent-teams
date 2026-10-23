@@ -11,6 +11,8 @@ import { runCommand } from './commands';
 import { providerProfiles, nativeMode, builderMode } from './providers';
 import { DEFAULT_MODEL, INSTRUCTION_READ_ONLY, readOnlyMode, parseProvider } from '../shared/provider-selection';
 import type { Outcome, Runtime, CheckScope } from './engine';
+import type { RoleAction } from './team-timeline';
+import type { AgentTimelineItem } from '@getpaseo/protocol/agent-types';
 
 export { readOnlyMode } from '../shared/provider-selection';
 export class PaseoRuntime implements Runtime {
@@ -96,7 +98,7 @@ export class PaseoRuntime implements Runtime {
       });
       if (features?.some((f) => f.id === 'auto_accept' && f.type === 'toggle')) featureValues = { auto_accept: true };
     }
-    const agent = await this.api.workspaces.ref(w.workspaceId).agents.create({
+    const options = {
       idempotencyKey: `${w.id}-${role}${w.config.freshSessionPerCycle && w.cycle ? `-c${w.cycle}` : ''}${w.agentGenerations?.[role] ? `-g${w.agentGenerations[role]}` : ''}`,
       config: {
         ...selection,
@@ -115,10 +117,20 @@ export class PaseoRuntime implements Runtime {
             : 'Read-only pipeline role: analyze and report. Never edit files. Do not call EnterPlanMode or ExitPlanMode or request native plan approval. Return your result directly; human checkpoints are managed by the Agent Teams plugin.',
       },
       env: { GIT_OPTIONAL_LOCKS: '0' },
-      title: `Agent Teams · ${role}`,
+      // Inside a Team Auto thread the parent already names the team; the subagent list shows the role.
+      title: w.ownerAgentId ? role[0].toUpperCase() + role.slice(1) : `Agent Teams · ${role}`,
       labels: { 'agent-teams-workflow': w.id, 'agent-teams-role': role },
-    });
-    return agent.id;
+    };
+    const agents = this.api.workspaces.ref(w.workspaceId).agents;
+    if (!w.ownerAgentId) return (await agents.create(options)).id;
+    // Native Team Auto missions keep their roles as child agents of the orchestrator thread.
+    try {
+      return (await agents.create({ ...options, parent: w.ownerAgentId })).id;
+    } catch (error) {
+      // A closed orchestrator degrades to a regular role tab instead of blocking the mission.
+      if (!/Caller agent .* not found/.test(String(error))) throw error;
+      return (await agents.create(options)).id;
+    }
   }
   async skillContext(w: Workflow, role: Role) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -307,6 +319,24 @@ export class PaseoRuntime implements Runtime {
     }
     return { entries, cursor };
   }
+  /** Tool calls the role session made while handling one plugin operation, newest last. */
+  async activity(w: Workflow, role: Role, operationId: string): Promise<RoleAction[]> {
+    const id = w.agents[role];
+    if (!id) return [];
+    // Bounded read: a very long turn can push its prompt out of the page; the row then keeps only its result.
+    const page = await this.api.agents
+      .ref(id)
+      .timeline.refetch({ direction: 'before', limit: 200, projection: 'canonical' });
+    const marker = `[agent-teams-operation:${operationId}]`;
+    const start = page.entries.findLastIndex((e) => e.item.type === 'user_message' && e.item.text.startsWith(marker));
+    if (start < 0) return [];
+    const calls = new Map<string, RoleAction>();
+    for (const entry of page.entries.slice(start + 1)) {
+      if (entry.item.type === 'user_message') break;
+      if (entry.item.type === 'tool_call') calls.set(entry.item.callId, describeToolCall(entry.item));
+    }
+    return [...calls.values()];
+  }
   async tests(w: Workflow, signal: AbortSignal) {
     if (!w.testsApproved || !w.plan) throw new TeamError('TESTS_NOT_APPROVED', 'Test commands are not approved');
     const results = [];
@@ -355,5 +385,33 @@ export class PaseoRuntime implements Runtime {
         detail: (w.error ?? w.review?.summary ?? w.build?.summary ?? w.plan?.summary ?? w.task).slice(0, 8000),
       },
     });
+  }
+}
+
+const clip = (text: string, max = 140) => {
+  const line = text.replace(/\s+/g, ' ').trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+};
+export function describeToolCall(item: Extract<AgentTimelineItem, { type: 'tool_call' }>): RoleAction {
+  const d = item.detail;
+  switch (d.type) {
+    case 'shell':
+      return { toolName: 'Shell', summary: clip(d.command) };
+    case 'read':
+      return { toolName: 'Read', summary: d.filePath };
+    case 'edit':
+      return { toolName: 'Edit', summary: d.filePath };
+    case 'write':
+      return { toolName: 'Write', summary: d.filePath };
+    case 'search':
+      return { toolName: 'Search', summary: clip(d.query) };
+    case 'fetch':
+      return { toolName: 'Fetch', summary: clip(d.url) };
+    case 'sub_agent':
+      return { toolName: 'Agent', summary: clip(d.description ?? d.subAgentType ?? '') || undefined };
+    case 'plain_text':
+      return { toolName: clip(d.label ?? item.name, 40), summary: d.text ? clip(d.text) : undefined };
+    default:
+      return { toolName: clip(item.name, 40) };
   }
 }

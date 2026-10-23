@@ -183,8 +183,12 @@ export function contributeServer(server: PluginServerContext) {
       },
       list: (workspaceId) => store.all().then((all) => all.filter((w) => w.workspaceId === workspaceId)),
       get: (id, workspaceId) => store.authorize(id, workspaceId),
-      create: async (workspaceId, task, config, requestId) =>
-        (await bind()).create(workspaceId, task, config, requestId),
+      create: async (workspaceId, task, config, requestId, ownerAgentId) =>
+        (await bind()).create(workspaceId, task, config, requestId, ownerAgentId),
+      activity: async (w, role, operationId) => {
+        await bind();
+        return new PaseoRuntime(recoveryClient!, directory, () => nativeApi).activity(w, role, operationId);
+      },
       action: async (input) => {
         await store.authorize(input.id, input.workspaceId);
         return (await bind()).action(input);

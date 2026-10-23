@@ -23,19 +23,27 @@ policy; it does not silently approve missing tests. Native Team Auto keeps Build
 auto-accept off. A running mission's composition can be changed explicitly from
 the Team panel; the native model settings are frozen once a mission starts.
 
-Click the **Team Auto** composer pill to see the composition and who currently
-has control: Planner, Builder, Reviewer, tests, or you. The same view offers a
-simple mission composer with advanced configuration collapsed. During a mission,
-open the team to answer questions, approve a plan or resolve native permissions.
-One remaining clarification can also be answered directly with free text in the
-native chat. Multiple questions require the explicit answers in Team.
+The whole mission stays in the Team Auto thread. The orchestrator speaks in normal
+assistant messages, and each Planner, Builder and Reviewer turn appears as a native
+sub-agent row that expands to show the role's actions and result. The plan is a
+native task list, and verification runs are Shell rows. Role sessions are created
+as child agents of the Team Auto thread, so they appear in Paseo's **subagents**
+list above the composer instead of as separate tabs. A pending permission is
+answered from that list.
+
+Reply **go** (or `ok`, `oui`, `lgtm`…) to approve a waiting plan or result, or
+describe what to change. Answer one question directly; answer several with one
+numbered line each (`1. …`, `2. …`). The Team Auto composer pill still shows the
+composition and who currently has control.
 
 Native commands: `/team-status`, `/team-pause`, `/team-resume`, `/team-approve`,
 and `/team-approve-no-tests` (explicit acceptance of a plan without tests).
-Messages and structured reports appear in the native Team conversation; individual
-role sessions stay accessible. Closing a native session pauses its unfinished
-workflow. Reloading restores its durable workflow association without resending
+While a role works, the Team Auto turn stays open; use the stop button to pause.
+Closing a native session pauses its unfinished workflow. After a daemon restart,
+the thread is replayed with the same messages and rows, without resending
 accepted agent turns.
+
+![Team Auto mission in one thread, with native sub-agent rows](docs/screenshots/team-thread-desktop.png)
 
 This provider currently accepts plain text. Images, attachments, output schemas,
 steering, custom system prompts, MCP servers, tool policies and provider options

@@ -6,7 +6,8 @@ import {
   type ProviderInput,
   type ProviderConfigState,
 } from '@getpaseo/plugin/server/provider';
-import { configSchema, roles, type Action, type Config, type Workflow } from '../shared/contracts';
+import { configSchema, roles, type Action, type Config, type Role, type Workflow } from '../shared/contracts';
+import { stateNarrations, teamThread, transcriptItem, type RoleAction, type TranscriptEntry } from './team-timeline';
 import { TEAM_PROVIDER_ID, type TeamProviderChoice } from '../shared/team-composition';
 import { readOnlyMode } from '../shared/provider-selection';
 
@@ -18,11 +19,31 @@ export interface TeamProviderBackend {
   ownerWorkspace(agentId: string, cwd: string): Promise<string>;
   list(workspaceId: string): Promise<Workflow[]>;
   get(id: string, workspaceId: string): Promise<Workflow>;
-  create(workspaceId: string, task: string, config: Config, requestId: string): Promise<Workflow>;
+  create(workspaceId: string, task: string, config: Config, requestId: string, ownerAgentId: string): Promise<Workflow>;
   action(input: Action): Promise<Workflow>;
+  /** Actions of the role session for one operation, shown inside its sub-agent row. */
+  activity?(w: Workflow, role: Role, operationId: string): Promise<RoleAction[]>;
 }
 const savedSchema = z
-  .object({ key: z.uuid(), workspaceId: z.string().min(1), config: configSchema, workflowId: z.string().optional() })
+  .object({
+    key: z.uuid(),
+    workspaceId: z.string().min(1),
+    config: configSchema,
+    workflowId: z.string().optional(),
+    // Messages shown once in the native thread, so a restart replays the same conversation.
+    transcript: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            role: z.enum(['user', 'assistant']),
+            text: z.string(),
+            at: z.number().int().min(0),
+          })
+          .strict(),
+      )
+      .optional(),
+  })
   .strict();
 type Saved = z.infer<typeof savedSchema>;
 const models = [
@@ -45,6 +66,15 @@ const commands = [
   { name: 'team-approve-no-tests', description: 'Approuver explicitement sans commande de test' },
 ];
 const waiting = new Set(['paused', 'attention', 'permission', 'awaiting_plan', 'awaiting_final', 'completed']);
+const ACTIVITY_BACKFILL = 8;
+const TRANSCRIPT_LIMIT = 300;
+function record(saved: Saved, ...entries: TranscriptEntry[]) {
+  saved.transcript = [
+    ...(saved.transcript ?? []),
+    ...entries.map((e) => ({ ...e, text: e.text.slice(0, 8000) })),
+  ].slice(-TRANSCRIPT_LIMIT);
+}
+const approval = /^\s*(go|ok|okay|oui|yes|valide|validé|approve|approuvé|lgtm|vas-y|c'est bon|c’est bon)\s*[.!]*\s*$/i;
 
 /** A native model selection backed by the existing V1 engine, never another orchestrator. */
 export function createTeamProvider(backend: TeamProviderBackend): ProviderRegistration {
@@ -71,7 +101,8 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           choices: TeamProviderChoice[];
           turn?: string;
           revision?: number;
-          events: Set<string>;
+          emitted: Map<string, string>;
+          activity: Map<string, RoleAction[]>;
           accepted: Set<string>;
         }
       >();
@@ -109,87 +140,60 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         };
         emit({ type: 'session.config', sessionId, config: state });
       };
+      const label = (sessionId: string, w: Workflow) => (role: Role) => {
+        const selection = w.config.roles[role].provider;
+        const [harness, ...rest] = selection.split('/');
+        const model = rest.join('/');
+        const choice = sessions.get(sessionId)?.choices.find((p) => p.id === harness);
+        return `${choice?.label ?? harness} · ${choice?.models.find((m) => m.id === model)?.label ?? model}`;
+      };
+      const refreshActivity = async (sessionId: string, w: Workflow) => {
+        const session = sessions.get(sessionId)!;
+        if (!backend.activity) return;
+        const live = w.operation && w.operation.phase !== 'testing' ? w.operation : undefined;
+        const pending = w.events
+          .filter((e) => e.kind === 'assistant' && e.role && e.operationId && !session.activity.has(e.operationId))
+          .slice(-ACTIVITY_BACKFILL);
+        // Older finished turns stay without actions rather than fetching a whole history on reopen.
+        for (const e of w.events)
+          if (e.kind === 'assistant' && e.operationId && !pending.includes(e) && !session.activity.has(e.operationId))
+            session.activity.set(e.operationId, []);
+        const jobs = [
+          ...pending.map((e) => ({ id: e.operationId!, role: e.role! })),
+          ...(live ? [{ id: live.id, role: live.role }] : []),
+        ];
+        for (const job of jobs) {
+          try {
+            session.activity.set(job.id, await backend.activity(w, job.role, job.id));
+          } catch {
+            /* The role session may be gone; its row keeps the structured result. */
+          }
+        }
+      };
       const project = async (sessionId: string) => {
         const session = sessions.get(sessionId);
         if (!session?.saved.workflowId) return;
         const w = await backend.get(session.saved.workflowId, session.saved.workspaceId);
         if (closed || sessions.get(sessionId) !== session) return;
-        for (const event of w.events) {
-          if (session.events.has(event.id)) continue;
-          session.events.add(event.id);
-          if (event.kind === 'assistant' && event.role)
-            emit({
-              type: 'timeline.item',
-              sessionId,
-              timestamp: event.at,
-              item: {
-                type: 'plugin',
-                id: `team:${event.id}`,
-                pluginId: 'paseo-agent-teams',
-                kind: 'agent-teams-progress',
-                version: 1,
-                data: {
-                  workflowId: w.id,
-                  workspaceId: w.workspaceId,
-                  status: `${w.phase} · ${w.status}`,
-                  detail: '',
-                  artifact: { role: event.role, text: event.text },
-                  cycle: w.cycle,
-                  maxCorrections: w.config.maxCorrections,
-                },
-              },
-            });
+        await refreshActivity(sessionId, w);
+        if (closed || sessions.get(sessionId) !== session) return;
+        const ctx = { label: label(sessionId, w), activity: (id: string) => session.activity.get(id) };
+        const fresh = stateNarrations(w, ctx).filter((n) => !session.saved.transcript?.some((e) => e.id === n.id));
+        if (fresh.length) {
+          record(session.saved, ...fresh.map((n) => ({ ...n, role: 'assistant' as const, at: w.events.length })));
+          persist(sessionId, session.saved);
         }
-        if (session.revision !== w.revision) {
-          const role =
-            w.operation?.role ??
-            (w.phase === 'planning'
-              ? 'planner'
-              : w.phase === 'building'
-                ? 'builder'
-                : w.phase === 'reviewing'
-                  ? 'reviewer'
-                  : undefined);
-          const detail =
-            w.status === 'completed'
-              ? 'Mission terminée.'
-              : w.clarifications?.some((q) => !q.resolvedAt)
-                ? 'En attente de réponse. Ouvrez Team Auto pour répondre aux questions.'
-                : w.status === 'awaiting_plan'
-                  ? 'Le plan attend votre accord. Ouvrez Team Auto ou utilisez /team-approve.'
-                  : w.status === 'awaiting_final'
-                    ? 'Le résultat attend votre accord. Ouvrez Team Auto ou utilisez /team-approve.'
-                    : w.status === 'permission'
-                      ? 'Une autorisation est attendue dans Team Auto.'
-                      : w.status === 'paused'
-                        ? 'Équipe en pause.'
-                        : w.status === 'attention'
-                          ? (w.error ?? 'Votre attention est nécessaire.')
-                          : w.phase === 'testing'
-                            ? 'Les tests ont la main.'
-                            : `${role ?? 'Équipe'} · ${role ? w.config.roles[role].provider : ''} a la main.`;
-          emit({
-            type: 'timeline.item',
-            sessionId,
-            item: {
-              type: 'plugin',
-              id: `team:status:${w.id}`,
-              pluginId: 'paseo-agent-teams',
-              kind: 'agent-teams-progress',
-              version: 1,
-              data: {
-                workflowId: w.id,
-                workspaceId: w.workspaceId,
-                status: `${w.phase} · ${w.status}`,
-                detail,
-                cycle: w.cycle,
-                maxCorrections: w.config.maxCorrections,
-              },
-            },
-          });
-          session.revision = w.revision;
+        for (const item of teamThread(w, ctx, session.saved.transcript ?? [])) {
+          const json = JSON.stringify(item);
+          const previous = session.emitted.get(item.id);
+          // Narrations are immutable; tool calls and todos are updated in place by identity.
+          if (previous === json || (previous && item.type === 'assistant_message')) continue;
+          session.emitted.set(item.id, json);
+          emit({ type: 'timeline.item', sessionId, item });
         }
-        if (session.turn && (waiting.has(w.status) || w.clarifications?.some((q) => !q.resolvedAt))) {
+        const unanswered = w.clarifications?.some((q) => !q.resolvedAt);
+        // Keep the turn open while a role works: its sub-agent row must complete in the same native turn.
+        if (session.turn && (unanswered || (waiting.has(w.status) && (!w.operation || w.status === 'attention')))) {
           emit({ type: 'session.turn', sessionId, turnId: session.turn, state: 'completed' });
           session.turn = undefined;
         }
@@ -289,7 +293,8 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             agentId: z.string().min(1).parse(input.config.env.PASEO_AGENT_TEAMS_AGENT_ID),
             cwd: input.config.cwd,
             choices: opened.choices,
-            events: new Set(),
+            emitted: new Map(),
+            activity: new Map(),
             accepted: new Set(),
           });
           emit({
@@ -378,7 +383,9 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           return;
         }
         if (session.turn)
-          throw new Error('L’équipe travaille déjà. Utilisez la modale pour suivre ou mettre en pause.');
+          throw new Error(
+            'L’équipe travaille déjà. Attendez la fin du tour, ou arrêtez-le pour mettre l’équipe en pause.',
+          );
         if (prompt.outputSchema || prompt.delivery === 'steer') throw new Error('Unsupported Team prompt capability');
         const text =
           prompt.input.type === 'message'
@@ -405,6 +412,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         let w = session.saved.workflowId
           ? await backend.get(session.saved.workflowId, session.saved.workspaceId)
           : undefined;
+        const at = w?.events.length ?? 0;
         if (prompt.input.type === 'command') {
           const command = prompt.input.name;
           if (!commands.some((c) => c.name === command)) throw new Error('Unknown Team command');
@@ -420,7 +428,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
               ...(command === 'team-approve-no-tests' ? { allowNoTests: true } : {}),
             });
         } else if (!w) {
-          w = await backend.create(session.saved.workspaceId, text, session.saved.config, requestId);
+          w = await backend.create(session.saved.workspaceId, text, session.saved.config, requestId, session.agentId);
           session.saved.workflowId = w.id;
           persist(sessionId, session.saved);
         } else if (!(requestId in w.requests) && !(`create:${requestId}` in w.requests)) {
@@ -428,34 +436,45 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           const unanswered = pending?.request.questions.filter(
             (q) => !pending.answers.some((a) => a.questionId === q.id),
           );
-          if (pending && unanswered?.length !== 1)
-            throw new Error('Plusieurs questions sont en attente. Répondez dans la modale Team Auto.');
+          const answers = pending && unanswered ? answerQuestions(unanswered, text) : undefined;
+          if (pending && !answers)
+            throw new Error(
+              `${unanswered?.length ?? 0} questions sont en attente. Répondez une par ligne : « 1. … », « 2. … ».`,
+            );
           w = await backend.action({
             id: w.id,
             workspaceId: w.workspaceId,
             expectedRevision: w.revision,
             requestId,
-            action: pending
-              ? 'answer_clarification'
-              : w.status === 'completed' ||
-                  ['awaiting_plan', 'awaiting_final', 'paused', 'attention'].includes(w.status)
-                ? 'followup'
-                : 'message',
             ...(pending
-              ? { clarificationId: pending.id, answers: [{ questionId: unanswered![0].id, text }] }
-              : { role: w.phase === 'done' ? 'builder' : w.activeRole, message: text, purpose: 'message' }),
+              ? { action: 'answer_clarification', clarificationId: pending.id, answers: answers! }
+              : approval.test(text) && ['awaiting_plan', 'awaiting_final'].includes(w.status)
+                ? { action: 'approve' }
+                : {
+                    action:
+                      w.status === 'completed' ||
+                      ['awaiting_plan', 'awaiting_final', 'paused', 'attention'].includes(w.status)
+                        ? 'followup'
+                        : 'message',
+                    role: w.phase === 'done' ? 'builder' : w.activeRole,
+                    message: text,
+                    purpose: 'message',
+                  }),
           });
         }
-        emit({
-          type: 'timeline.item',
-          sessionId,
-          item: {
-            type: 'user_message',
-            id: `team:user:${prompt.clientMessageId}`,
-            text: prompt.input.type === 'command' ? `/${prompt.input.name}` : text,
-            clientMessageId: prompt.clientMessageId,
-          },
-        });
+        const shown = {
+          id: prompt.clientMessageId,
+          role: 'user' as const,
+          text: prompt.input.type === 'command' ? `/${prompt.input.name}` : text,
+          at,
+        };
+        if (!session.saved.transcript?.some((e) => e.id === shown.id)) {
+          record(session.saved, shown);
+          persist(sessionId, session.saved);
+        }
+        const item = transcriptItem(shown);
+        session.emitted.set(item.id, JSON.stringify(item));
+        emit({ type: 'timeline.item', sessionId, item });
         const turnId = `team:turn:${prompt.clientMessageId}`;
         session.turn = turnId;
         session.accepted.add(prompt.clientMessageId);
@@ -508,4 +527,14 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
       };
     },
   };
+}
+
+/** One remaining question takes the whole reply; several take one numbered line each. */
+export function answerQuestions(questions: { id: string }[], text: string) {
+  if (questions.length === 1) return [{ questionId: questions[0].id, text }];
+  const parts = text.split(/^\s*(\d+)[.)]\s+/m).slice(1);
+  const answers = new Map<number, string>();
+  for (let i = 0; i + 1 < parts.length; i += 2) answers.set(Number(parts[i]), parts[i + 1].trim());
+  if (answers.size !== questions.length || questions.some((_, i) => !answers.get(i + 1))) return undefined;
+  return questions.map((q, i) => ({ questionId: q.id, text: answers.get(i + 1)! }));
 }

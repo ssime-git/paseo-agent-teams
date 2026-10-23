@@ -40,8 +40,8 @@ async function setup(t: { after(fn: () => Promise<void>): void }) {
       assert.equal(workspaceId, w.workspaceId);
       return structuredClone(w);
     },
-    create: async (workspaceId, task, config, requestId) => {
-      calls.push({ kind: 'create', value: { workspaceId, task, config, requestId } });
+    create: async (workspaceId, task, config, requestId, ownerAgentId) => {
+      calls.push({ kind: 'create', value: { workspaceId, task, config, requestId, ownerAgentId } });
       created = true;
       w = { ...w, config, task, requests: { [`create:${requestId}`]: 'receipt' } };
       return structuredClone(w);
@@ -207,36 +207,93 @@ test('native Team resolves late agent placement before creating the first workfl
   );
 });
 
-test('native Team projects builder and reviewer handoffs into one conversation without dispatching another request', async (t) => {
+test('native Team projects role turns as native sub-agents in one conversation without dispatching another request', async (t) => {
   const s = await setup(t);
   await s.open();
   await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Follow the team' }] });
   const w = s.workflow();
+  const plan = { summary: 'Plan', tasks: ['Index', 'Search'], acceptance: ['Works'], tests: [{ command: 'npm test' }] };
+  w.events.push(
+    { id: 'e1', at: 'now', kind: 'dispatch', role: 'planner', text: 'Starting planner', operationId: 'op-plan' },
+    { id: 'e2', at: 'now', kind: 'assistant', role: 'planner', text: JSON.stringify(plan), operationId: 'op-plan' },
+    { id: 'e3', at: 'now', kind: 'dispatch', role: 'builder', text: 'Starting builder', operationId: 'op-build' },
+  );
   w.status = 'running';
   w.phase = 'building';
-  w.operation = { id: 'build', role: 'builder', phase: 'building', state: 'sent', startedAt: 'now' };
+  w.operation = { id: 'op-build', role: 'builder', phase: 'building', state: 'sent', startedAt: 'now' };
   w.revision++;
   await s.prompt('status', { type: 'command', name: 'team-status', arguments: '' });
-  w.phase = 'reviewing';
-  w.operation.role = 'reviewer';
-  w.revision++;
-  await s.prompt('status', { type: 'command', name: 'team-status', arguments: '' });
-  const details = s.events
-    .filter((e) => e.type === 'timeline.item' && e.item.type === 'plugin')
-    .map((e) => JSON.stringify(e));
-  assert.ok(details.some((e) => e.includes('builder · codex/detected/model a la main.')));
-  assert.ok(details.some((e) => e.includes('reviewer · codex/detected/model a la main.')));
-  assert.equal(s.calls.filter((c) => c.kind === 'create').length, 1);
-  assert.equal(s.calls.filter((c) => c.kind === 'action').length, 0);
+  const items = () => s.events.flatMap((e) => (e.type === 'timeline.item' ? [e.item] : []));
+  const build = items().filter((i) => i.type === 'tool_call' && i.callId === 'team-agent-op-build');
+  assert.equal(build.length, 1);
+  assert.ok(build[0].type === 'tool_call' && build[0].status === 'running' && build[0].detail.type === 'sub_agent');
+  assert.match(JSON.stringify(build[0]), /Builder · Codex · Detected/);
+  assert.ok(items().some((i) => i.type === 'todo' && i.items.length === 2));
+  assert.equal(
+    items().some((i) => i.type === 'plugin'),
+    false,
+  );
+  // The orchestrator turn stays open while a role works, so the row completes in the same native turn.
+  assert.equal(
+    s.events.some((e) => e.type === 'session.turn' && e.turnId === 'team:turn:status' && e.state === 'completed'),
+    false,
+  );
+  w.events.push({
+    id: 'e4',
+    at: 'now',
+    kind: 'assistant',
+    role: 'builder',
+    text: JSON.stringify({ summary: 'Built', changes: ['src/a.ts'], remaining: [] }),
+    operationId: 'op-build',
+  });
+  delete w.operation;
   w.status = 'awaiting_final';
   w.revision++;
-  await s.prompt('status', { type: 'command', name: 'team-status', arguments: '' });
-  assert.equal(s.events.filter((e) => e.type === 'session.prompt_result' && e.clientMessageId === 'status').length, 1);
-  assert.equal(
-    s.events.filter((e) => e.type === 'session.turn' && e.turnId === 'team:turn:status' && e.state === 'completed')
-      .length,
-    1,
+  await new Promise((resolve) => setTimeout(resolve, 1700)); // Next provider poll.
+  const updates = items().filter((i) => i.type === 'tool_call' && i.callId === 'team-agent-op-build');
+  const last = updates.at(-1);
+  assert.equal(last?.type === 'tool_call' && last.status, 'completed');
+  assert.match(JSON.stringify(updates.at(-1)), /src\/a\.ts/);
+  assert.equal(s.calls.filter((c) => c.kind === 'create').length, 1);
+  assert.equal((s.calls[0].value as { ownerAgentId?: string }).ownerAgentId, '00000000-0000-4000-8000-000000000001');
+  assert.ok(
+    s.events.some((e) => e.type === 'session.turn' && e.turnId === 'team:turn:status' && e.state === 'completed'),
   );
+});
+
+test('native Team approves on an explicit short reply and maps numbered answers to several questions', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Prepare a plan' }] });
+  await s.prompt('go', { type: 'message', content: [{ type: 'text', text: 'Go !' }] });
+  assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'approve');
+  await s.prompt('change', { type: 'message', content: [{ type: 'text', text: 'go further, add docs' }] });
+  assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'followup');
+  const question = {
+    id: 'a',
+    title: 'A?',
+    options: [
+      { id: 'x', label: 'X', tradeoff: 'x' },
+      { id: 'y', label: 'Y', tradeoff: 'y' },
+    ],
+    recommendedOptionId: 'x',
+  };
+  s.workflow().clarifications = [
+    {
+      id: 'batch',
+      at: 'now',
+      answers: [],
+      request: { kind: 'clarification', summary: 'Clarify', questions: [question, { ...question, id: 'b' }] },
+    },
+  ];
+  const before = s.calls.length;
+  await s.prompt('partial', { type: 'message', content: [{ type: 'text', text: 'only one answer' }] });
+  assert.equal(s.calls.length, before);
+  await s.prompt('answers', { type: 'message', content: [{ type: 'text', text: '1. Ctrl+K\n2. All screens' }] });
+  assert.deepEqual((s.calls.at(-1)?.value as { answers: unknown }).answers, [
+    { questionId: 'a', text: 'Ctrl+K' },
+    { questionId: 'b', text: 'All screens' },
+  ]);
 });
 
 test('literal native slash commands stay explicit actions and are never forwarded to a model', async (t) => {
