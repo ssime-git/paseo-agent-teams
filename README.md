@@ -434,3 +434,22 @@ pages. Missing/unresumable sessions (including empty Codex threads) remain uncer
 An idle session with an accepted prompt proves acceptance only, even if an assistant
 message exists: durable completion receipts still need to be connected. This helper
 is not a graph executor or permission to resend an uncertain operation.
+
+
+Internal `prepareGraphDispatch` stages one already-reserved activation. It verifies
+the workspace's canonical Git identity and discovered provider/model/mode, creates
+a native session with an operation-specific idempotency key, and binds the exact
+prompt before any future send. The prompt carries the frozen definition revision,
+task, step instruction, full structured result history and result schema. Context
+above 256 KiB fails without silent truncation or session creation. Analysis currently
+requires verified Codex read-only sandbox or Claude plan permissions; unsupported
+analysis harnesses fail explicitly rather than downgrade to instructions alone.
+Team Auto recursion is rejected and auto-accept is never enabled by this helper.
+
+A retry with a saved binding only observes it, even with a stale client revision;
+uncertainty never triggers a resend or replacement. Lost creation responses reuse
+the same native idempotency key. Concurrent preparations can create an unused
+session before a revision conflict; they cannot dispatch it here. This internal
+helper sends no prompt, executes no test, and does not expose graph launch in Team.
+Durable completion receipts, read-only filesystem verification, tests and explicit
+human/clarification handling remain prerequisites for a public executor.
