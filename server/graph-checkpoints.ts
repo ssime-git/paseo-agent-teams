@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   createGraphCheckpoint,
   bindGraphDispatch,
+  claimGraphDispatch,
   graphCheckpointSchema,
   reserveGraphActivation,
   resolveGraphActivation,
@@ -96,6 +97,16 @@ export class GraphCheckpoints {
     dispatch: NonNullable<GraphCheckpoint['activations'][number]['dispatch']>,
   ) {
     return this.update(id, workspaceId, expectedRevision, (state) => bindGraphDispatch(state, operationId, dispatch));
+  }
+
+  async claimDispatch(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    attemptId: string,
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) => claimGraphDispatch(state, operationId, attemptId));
   }
 
   async resolve(

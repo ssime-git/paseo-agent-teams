@@ -26,6 +26,7 @@ const activationSchema = z
     dispatch: z
       .object({
         agentId: z.uuid(),
+        attemptId: z.uuid().optional(),
         prompt: z
           .string()
           .min(1)
@@ -102,7 +103,8 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
   }
   const resolved = state.activations.filter((activation) => activation.result !== undefined).length;
   const bound = state.activations.filter((activation) => activation.dispatch !== undefined).length;
-  if (state.revision !== 1 + state.activations.length + resolved + bound) fail();
+  const attempted = state.activations.filter((activation) => activation.dispatch?.attemptId !== undefined).length;
+  if (state.revision !== 1 + state.activations.length + resolved + bound + attempted) fail();
   if (state.activations.length > graph.maxTransitions) fail();
   if (status === 'ready' && state.activations.length === graph.maxTransitions) status = 'exhausted';
   if (state.status !== status || state.nextStepId !== next) fail();
@@ -202,6 +204,7 @@ export function bindGraphDispatch(
 ): GraphCheckpoint {
   const state = graphCheckpointSchema.parse(raw);
   const binding = activationSchema.shape.dispatch.unwrap().parse(dispatch);
+  if (binding.attemptId) throw new TeamError('GRAPH_INVALID_DISPATCH', 'Bind without an attempt first');
   const activation = state.activations.find((item) => item.operationId === operationId);
   if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
   if (activation.dispatch) {
@@ -214,6 +217,21 @@ export function bindGraphDispatch(
   if (!binding.prompt.includes(`[agent-teams-operation:${operationId}]`))
     throw new TeamError('GRAPH_OPERATION_MARKER_REQUIRED', 'Dispatch prompt must include its operation marker');
   activation.dispatch = binding;
+  state.revision++;
+  return graphCheckpointSchema.parse(state);
+}
+
+// Only the caller whose unique attempt wins publication may send. A saved attempt
+// is never an invitation to retry, including a crash before the native call.
+export function claimGraphDispatch(raw: GraphCheckpoint, operationId: string, attemptId: string): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  z.uuid().parse(attemptId);
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (!activation?.dispatch || activation.result || state.status !== 'running')
+    throw new TeamError('GRAPH_NOT_RUNNING', 'A pending bound activation is required');
+  if (activation.dispatch.attemptId)
+    throw new TeamError('GRAPH_DISPATCH_CLAIMED', 'Native dispatch already attempted; inspect without resending');
+  activation.dispatch.attemptId = attemptId;
   state.revision++;
   return graphCheckpointSchema.parse(state);
 }

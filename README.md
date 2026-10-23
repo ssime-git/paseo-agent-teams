@@ -453,3 +453,20 @@ session before a revision conflict; they cannot dispatch it here. This internal
 helper sends no prompt, executes no test, and does not expose graph launch in Team.
 Durable completion receipts, read-only filesystem verification, tests and explicit
 human/clarification handling remain prerequisites for a public executor.
+
+
+Internal `sendGraphDispatch` now sends an already-bound activation once. An
+immutable checkpoint revision records a unique attempt before native I/O; only
+the writer that publishes that revision may send. Subsequent calls inspect the
+saved session, including after a crash before sending or a lost response. An
+uncertain attempt is retained and never automatically retried. The preflight
+requires an idle session without permissions or conversation content; Paseo
+0.11.2's fresh empty window is recognized by its explicit zero sequence bounds.
+The 20-second initial-send budget does not wait for model completion, and an
+expired preflight cannot later send. Native sends use the operation message UUID
+and `steer` to avoid interrupting a turn. This is an internal boundary with no
+launch RPC/UI, completion receipt, artifact consumption or automatic transition.
+Native clients can still modify sessions concurrently; the SDK offers no atomic
+empty-session-and-send operation, so this is not a claim of exactly-once native
+execution. Read-only verification and completion receipts remain required before
+connecting the graph executor to Team.
