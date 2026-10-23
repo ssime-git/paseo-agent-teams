@@ -39,6 +39,7 @@ The team plans, implements, runs the planned tests and reviews the result. A fai
 - One open question is answered with your whole reply. Several questions are answered with one numbered line each (`1. …`, `2. …`).
 - Commands: `/team-status`, `/team-pause`, `/team-resume`, `/team-approve`, and `/team-approve-no-tests` (explicit acceptance of a plan without tests).
 - While a role works, the Team Auto turn stays open. Use the stop button to pause the team; a turn already accepted by a role is allowed to finish.
+- When a role needs a permission, the thread says so. Open that role from the subagents pill (it reads **N working** while a role is active) and answer with Paseo's own **Accept / Deny**; the mission resumes on its own.
 - Closing a Team Auto session pauses its unfinished workflow. After a daemon restart, the thread is replayed with the same messages and rows.
 
 Team Auto accepts plain text. Images, attachments, output schemas, steering, custom system prompts, MCP servers, tool policies and provider options are rejected explicitly rather than silently discarded.
@@ -305,7 +306,7 @@ The local implementation has typechecking, automated tests and compilation of bo
 
 An authenticated **Opus 5.5 → GPT-6.1-Sol → Sonnet 5.5** smoke run completed on an isolated daemon, including a deliberately failed verification, a failed review, one correction and a passing review. Manual handoff, automatic recovery across a plugin reload, native progress cards and desktop/compact web rendering were also checked. Fable was listed but required usage credits on the tested account; model availability is not an entitlement guarantee.
 
-The single-thread Team Auto was checked on an isolated 0.11.2 daemon with real Claude and Codex roles: four complete missions (plan, **go**, implementation, `node --test`, review, summary), role sessions listed as native subagents instead of tabs, an identical thread after a daemon restart, the default team applied to a new conversation, the settings page and Team card, and a complete mission in English, on desktop and 390 px web viewports without page errors. Not checked for real: a permission answered from the subagents list, a correction cycle (covered by unit tests) and native iOS/Android apps.
+The single-thread Team Auto was checked on an isolated 0.11.2 daemon with real Claude and Codex roles: complete missions in French and English (plan, **go**, implementation, verification, review, summary); role sessions listed as native subagents instead of tabs; permissions accepted from the Code session opened through that list; a real correction cycle after a failed verification and a rejected review; an identical thread after a daemon restart; the default team applied to a new conversation; and a language change followed live by two open clients without duplicated rows. Web checks covered 1440 px and 390 × 844 viewports, including the advanced panel and configuration export/import, with no horizontal overflow or page errors. Native iOS/Android apps were not tested.
 
 See [isolated validation](docs/isolated-validation.md) for evidence, fixes and remaining limits.
 
