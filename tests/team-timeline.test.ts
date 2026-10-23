@@ -68,7 +68,7 @@ test('a planned, built, rejected and corrected mission reads as native sub-agent
   );
   const first = agents[1];
   assert.ok(first.type === 'tool_call' && first.detail.type === 'sub_agent');
-  assert.equal(first.detail.subAgentType, 'Builder · Codex · GPT-6.1');
+  assert.equal(first.detail.subAgentType, 'Code · Codex · GPT-6.1');
   assert.match(first.detail.log, /^\[Edit\] src\/palette\.ts\n\[Shell\]\nPalette built/);
   const correction = agents[3];
   assert.ok(correction.type === 'tool_call' && correction.detail.type === 'sub_agent');

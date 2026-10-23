@@ -24,7 +24,7 @@ auto-accept off. A running mission's composition can be changed explicitly from
 the Team panel; the native model settings are frozen once a mission starts.
 
 The whole mission stays in the Team Auto thread. The orchestrator speaks in normal
-assistant messages, and each Planner, Builder and Reviewer turn appears as a native
+assistant messages, and each Plan, Code and Revue turn appears as a native
 sub-agent row that expands to show the role's actions and result. The plan is a
 native task list, and verification runs are Shell rows. Role sessions are created
 as child agents of the Team Auto thread, so they appear in Paseo's **subagents**
@@ -33,8 +33,16 @@ answered from that list.
 
 Reply **go** (or `ok`, `oui`, `lgtm`…) to approve a waiting plan or result, or
 describe what to change. Answer one question directly; answer several with one
-numbered line each (`1. …`, `2. …`). The Team Auto composer pill still shows the
-composition and who currently has control.
+numbered line each (`1. …`, `2. …`).
+
+**Default team.** Paseo **Settings → Plugins → Agent Teams** (or *Agent Teams ·
+Équipe par défaut* in the Command Center) chooses the model for Plan, Code and
+Revue, the default validation mode and the number of automatic corrections.
+Every new Team Auto conversation starts from it. Read-only roles only offer
+harnesses with a read-only mode; Code only offers write-capable ones. A saved
+model that is no longer available falls back to the automatic pick. Before the
+first message, the composer settings still adjust the roles for one conversation.
+The **Équipe** pill in a Team Auto thread shows the team and who has control.
 
 Native commands: `/team-status`, `/team-pause`, `/team-resume`, `/team-approve`,
 and `/team-approve-no-tests` (explicit acceptance of a plan without tests).
@@ -66,7 +74,7 @@ its client extension; selecting Team Auto as a native provider does not.
 
 Real captures from an isolated Paseo installation and a demo repository. The mobile capture uses a compact 390 × 844 viewport.
 
-**Available before the first chat:** choose **Nouveau workspace agent** in the sidebar, select your project and configure the team.
+**Advanced panel (Manual Switch, full configuration):** *Agent Teams · Options avancées* in the Command Center, or **Options avancées** in the Équipe pill.
 
 ![Agent mode available next to New workspace](docs/screenshots/new-workspace.png)
 
@@ -127,9 +135,9 @@ paseo plugin reload paseo-agent-teams
 
 The application renders `index.client.tsx` and the React Native components in `client/`. `docs/mockup-panel.html` is a visual reference. The Mode agent popover and full panel share workspace-scoped draft configuration and task text, including across responsive panel remounts.
 
-To start directly in team mode, choose **Nouveau workspace agent** in the sidebar (open the navigation menu on mobile). This entry is available before creating a chat. Choose a known project or enter its directory on the indicated host; the plugin opens its workspace and immediately shows the full team configuration. No native agent is created until you launch the workflow.
+To start in team mode, create a chat and choose **Agent Teams → Team Auto** in the model picker. The plugin adds no sidebar entries.
 
-From a workspace, **Search** (the Command Center) also offers **Nouveau workspace agent** and **Open Agent Teams**. The native New workspace screen has no host-scoped plugin commands, so use the sidebar entry there. Existing threads show **Mode agent** in the composer, opening the configurable team popover. Released SDKs require an existing agent for composer pills. With the [proposed client extension](docs/upstream/README.md), this plugin additionally registers a **Mode agent** pill directly above the native New workspace composer, scoped to the selected host, project and draft text.
+The Command Center offers *Agent Teams · Équipe par défaut*, *Agent Teams · Historique* and, in a workspace, *Agent Teams · Options avancées*. Only Team Auto threads show the **Équipe** pill; other harness threads are left untouched. With the [proposed client extension](docs/upstream/README.md), this plugin additionally registers a **Mode agent** pill directly above the native New workspace composer, scoped to the selected host, project and draft text.
 
 Hand-offs between roles carry compact artifacts and a bounded diff rather than the whole conversation; the panel shows the hand-off size, and **fresh session per correction** (optional) restarts a role's session on each correction cycle. After source changes:
 
@@ -188,7 +196,7 @@ If a workflow in another workspace holds that repository lock, the launch form s
 
 ### Workflow history
 
-**Historique des workflows** is available from the sidebar, Command Center, panel header and Mode agent popover. It lists workflows across all workspaces on that host, with search by task, directory or identifier. Closed workflows remain in this history; closing releases their repository lock and retains their saved record.
+**Agent Teams · Historique** is available from the Command Center and the advanced panel header. Team Auto missions are also simply their native threads. It lists workflows across all workspaces on that host, with search by task, directory or identifier. Closed workflows remain in this history; closing releases their repository lock and retains their saved record.
 
 Open a record to read the plan, implementation report, review, test outputs and recorded events. This view reads persisted data without resolving the native workspace, so it also works after that workspace is deleted. Opening a closed record does not resume it or start an agent. Internal execution receipts, request fingerprints, configuration and snapshot paths are excluded from this history API.
 

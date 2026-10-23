@@ -198,7 +198,7 @@ test('team popover discovers role choices, shares scoped drafts, retries idempot
       React.createElement(QuickStart, { ...props, workspaceId: 'live-workspace', layout: { compact: false } }),
     ),
   );
-  assert.match(JSON.stringify(other.toJSON()), /Reviewer a la main/);
+  assert.match(JSON.stringify(other.toJSON()), /Revue a la main/);
   assert.equal(other.root.findAllByProps({ accessibilityLabel: 'Tâche pour l’équipe' }).length, 0);
   await act(async () => other.root.findByProps({ accessibilityLabel: 'Ouvrir l’équipe active' }).props.onPress());
   assert.equal(opened, 3);

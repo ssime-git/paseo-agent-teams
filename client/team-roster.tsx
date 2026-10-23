@@ -2,19 +2,19 @@ import { Pressable, Text, View } from 'react-native';
 import type { PluginHostProps } from '@getpaseo/plugin/client';
 import { roles, type Config, type Role, type Workflow } from '../shared/contracts';
 import { parseProvider } from '../shared/provider-selection';
-import { teamModelLabel, type TeamProviderChoice } from '../shared/team-composition';
+import { roleTitle, teamModelLabel, type TeamProviderChoice } from '../shared/team-composition';
 
 const identity = {
-  planner: { label: 'Plan', name: 'Planner', color: '#9b8afb', initial: 'P' },
-  builder: { label: 'Code', name: 'Builder', color: '#62a8ff', initial: 'B' },
-  reviewer: { label: 'Revue', name: 'Reviewer', color: '#e9b65f', initial: 'R' },
+  planner: { label: roleTitle.planner, name: roleTitle.planner, color: '#9b8afb', initial: 'P' },
+  builder: { label: roleTitle.builder, name: roleTitle.builder, color: '#62a8ff', initial: 'C' },
+  reviewer: { label: roleTitle.reviewer, name: roleTitle.reviewer, color: '#e9b65f', initial: 'R' },
 };
 export function teamControl(w: Workflow): { title: string; detail: string; role?: Role } {
   if (w.status === 'completed')
     return { title: 'Mission terminée', detail: 'Le résultat est conservé dans l’historique.' };
   if (w.status === 'paused') return { title: 'Équipe en pause', detail: 'Le contexte est conservé pour la reprise.' };
   if (w.clarifications?.some((q) => !q.resolvedAt))
-    return { title: 'À vous de répondre', detail: 'Le Planner attend votre précision.' };
+    return { title: 'À vous de répondre', detail: 'Le Plan attend votre précision.' };
   if (w.status === 'awaiting_plan' || w.status === 'awaiting_final')
     return {
       title: 'À vous de valider',
@@ -56,7 +56,7 @@ export function TeamRoster({
   compact = false,
   onRole,
 }: {
-  config: Config;
+  config: Pick<Config, 'roles'>;
   providers?: TeamProviderChoice[];
   workflow?: Workflow;
   colors: PluginHostProps['theme']['colors'];

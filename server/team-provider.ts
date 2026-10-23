@@ -8,10 +8,12 @@ import {
 } from '@getpaseo/plugin/server/provider';
 import { configSchema, roles, type Action, type Config, type Role, type Workflow } from '../shared/contracts';
 import { stateNarrations, teamThread, transcriptItem, type RoleAction, type TranscriptEntry } from './team-timeline';
-import { TEAM_PROVIDER_ID, type TeamProviderChoice } from '../shared/team-composition';
+import { roleTitle, TEAM_PROVIDER_ID, type TeamProviderChoice } from '../shared/team-composition';
 import { readOnlyMode } from '../shared/provider-selection';
 
 export interface TeamProviderBackend {
+  /** Validation mode preselected for new conversations, from the default team settings. */
+  defaultMode?(): Promise<'plan' | 'final' | 'autonomous'>;
   open(
     cwd: string,
     workspaceId: string,
@@ -129,7 +131,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           settings: roles.map((role) => ({
             type: 'select',
             id: role,
-            label: role === 'planner' ? 'Planifier' : role === 'builder' ? 'Développer' : 'Relire',
+            label: roleTitle[role],
             value: session.saved.config.roles[role].provider,
             options: session.choices
               .filter((p) => p.modes.some((m) => role === 'builder' || readOnlyMode(p.family, m.id)))
@@ -235,7 +237,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           emit({
             type: 'catalog',
             requestId: input.requestId,
-            catalog: { models, modes, defaultModel: 'auto', defaultMode: 'plan' },
+            catalog: { models, modes, defaultModel: 'auto', defaultMode: (await backend.defaultMode?.()) ?? 'plan' },
           });
           return;
         }

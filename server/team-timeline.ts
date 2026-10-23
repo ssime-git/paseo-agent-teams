@@ -1,6 +1,7 @@
 import type { ProviderTimelineItem } from '@getpaseo/plugin/server/provider';
 import { parseResult } from './result-parser';
 import type { Role, Workflow } from '../shared/contracts';
+import { roleTitle as roleName } from '../shared/team-composition';
 
 /** One action of a role session, rendered by Paseo as a `[Tool] summary` line of a sub-agent. */
 export interface RoleAction {
@@ -13,7 +14,6 @@ export interface TeamTimelineContext {
   /** Recent actions of the role session that handled an operation, when known. */
   activity(operationId: string): RoleAction[] | undefined;
 }
-const roleName: Record<Role, string> = { planner: 'Planner', builder: 'Builder', reviewer: 'Reviewer' };
 const MAX_ACTIONS = 40;
 
 function result(role: Role, text: string) {
@@ -279,7 +279,7 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
   if (w.status === 'permission' && w.operation)
     out.push({
       id: `permission:${w.operation.id}`,
-      text: `${roleName[w.operation.role]} attend une autorisation. Ouvrez-le depuis la liste des sous-agents, au-dessus du message.`,
+      text: `Le rôle ${roleName[w.operation.role]} attend une autorisation. Ouvrez-le depuis la liste des sous-agents, au-dessus du message.`,
     });
   if (w.status === 'awaiting_final')
     out.push({

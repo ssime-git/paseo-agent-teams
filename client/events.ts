@@ -1,3 +1,4 @@
+import { roleTitle } from '../shared/team-composition';
 import {
   clarificationSchema,
   buildSchema,
@@ -126,7 +127,7 @@ export function renderEvent(role: Role | undefined, text: string): Rendered {
   return { kind: 'markdown', text };
 }
 
-export const roleLabel: Record<Role, string> = { planner: 'Planner', builder: 'Builder', reviewer: 'Reviewer' };
+export const roleLabel: Record<Role, string> = roleTitle;
 export const phaseRole = {
   planning: 'planner',
   building: 'builder',

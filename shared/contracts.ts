@@ -424,3 +424,18 @@ export const nativeArtifactsRpc = defineRpc({
   output: z.object({ revision: z.string(), records: z.array(nativeArtifactSchema).optional() }),
 });
 export const nativeBriefSchema = z.object({ text: z.string() });
+
+/** Harnesses, models and modes this host can use for team roles, independent of any workspace. */
+export const teamChoicesRpc = defineRpc({
+  name: 'teams.choices',
+  input: z.object({}),
+  output: z.array(
+    z.object({
+      id: z.string(),
+      family: z.string(),
+      label: z.string().optional(),
+      models: z.array(z.object({ id: z.string(), label: z.string().optional(), isDefault: z.boolean() })),
+      modes: z.array(z.object({ id: z.string(), label: z.string().optional() })),
+    }),
+  ),
+});

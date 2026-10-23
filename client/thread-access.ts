@@ -1,13 +1,13 @@
 import { createElement } from 'react';
-import { HISTORY_SCREEN } from './routes';
+import { TEAM_PROVIDER_ID } from '../shared/team-composition';
+import { TEAM_SETTINGS_SCREEN } from './routes';
 import type { ComponentType } from 'react';
 import type { PluginClientContext, PluginButtonContentProps, PluginButtonRegistration } from '@getpaseo/plugin/client';
 
+/** The Team pill appears only in Team Auto threads; other harness threads stay untouched. */
 export function addThreadAccess(
   client: PluginClientContext,
-  QuickStart?: ComponentType<
-    PluginButtonContentProps & { openPanel(workspaceId?: string): void; openHistory?(): void }
-  >,
+  Card: ComponentType<PluginButtonContentProps & { openSettings(): void; openPanel(): void }>,
 ) {
   const lifetime = new AbortController();
   const pills = new Map<string, { workspaceId: string; button: PluginButtonRegistration }>();
@@ -15,9 +15,9 @@ export function addThreadAccess(
     pills.get(id)?.button.remove();
     pills.delete(id);
   };
-  const apply = (agent: { id: string; workspaceId?: string | null }) => {
+  const apply = (agent: { id: string; workspaceId?: string | null; provider?: string | null }) => {
     if (lifetime.signal.aborted) return;
-    if (!agent.workspaceId) {
+    if (!agent.workspaceId || agent.provider?.split('/')[0] !== TEAM_PROVIDER_ID) {
       remove(agent.id);
       return;
     }
@@ -31,32 +31,18 @@ export function addThreadAccess(
         workspaceId,
         agentId: agent.id,
         button: {
-          title: QuickStart ? 'Team Auto' : 'Ouvrir Agent Teams',
-          label: QuickStart ? 'Team Auto' : 'Agent Teams',
+          title: 'Équipe',
+          label: 'Équipe',
           icon: 'Workflow',
-          behavior: QuickStart
-            ? {
-                kind: 'popover',
-                Content: (props: PluginButtonContentProps) =>
-                  createElement(QuickStart, {
-                    ...props,
-                    openHistory: () => client.openScreen({ screenId: HISTORY_SCREEN }),
-                    openPanel: (target?: string) =>
-                      client.openPanel('agent-teams', { workspaceId: target ?? workspaceId }),
-                  }),
-              }
-            : {
-                kind: 'menu',
-                items: [
-                  {
-                    kind: 'item',
-                    id: 'open',
-                    title: 'Ouvrir le panneau',
-                    icon: 'Workflow',
-                    behavior: { kind: 'action', onPress: () => client.openPanel('agent-teams', { workspaceId }) },
-                  },
-                ],
-              },
+          behavior: {
+            kind: 'popover',
+            Content: (props: PluginButtonContentProps) =>
+              createElement(Card, {
+                ...props,
+                openSettings: () => client.openSettings(TEAM_SETTINGS_SCREEN),
+                openPanel: () => client.openPanel('agent-teams', { workspaceId }),
+              }),
+          },
         },
       }),
     });

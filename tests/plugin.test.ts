@@ -23,6 +23,10 @@ test('plugin list is a read and history/action require workspace ownership', asy
     },
     on() {},
     registerProvider() {},
+    registerSettings: () => ({
+      read: async () => ({ status: 'ready', revision: '0', values: {} }),
+      subscribe: () => () => {},
+    }),
     before() {},
   } as unknown as PluginServerContext;
   const cleanup = contributeServer(fake);
@@ -68,6 +72,10 @@ test('catalog reveals lock owner metadata across workspaces of the same reposito
     },
     on() {},
     registerProvider() {},
+    registerSettings: () => ({
+      read: async () => ({ status: 'ready', revision: '0', values: {} }),
+      subscribe: () => () => {},
+    }),
     before() {},
   } as unknown as PluginServerContext);
   t.after(async () => {
@@ -123,6 +131,10 @@ test('closed workflow history survives a missing native workspace and excludes e
     },
     on() {},
     registerProvider() {},
+    registerSettings: () => ({
+      read: async () => ({ status: 'ready', revision: '0', values: {} }),
+      subscribe: () => () => {},
+    }),
     before() {},
   } as unknown as PluginServerContext);
   t.after(async () => {

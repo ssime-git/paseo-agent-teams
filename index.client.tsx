@@ -4,15 +4,15 @@ import { addNativeTimeline } from './client/native-timeline';
 import { TeamsPanel, ProgressCard } from './client/panel';
 import { cardSchema } from './shared/contracts';
 import { addThreadAccess } from './client/thread-access';
-import { QuickStart } from './client/quick-start';
-import { NEW_TEAM_SCREEN, NewTeamSidebar, NewTeamWorkspace } from './client/new-workspace';
+import { TeamCard } from './client/team-card';
+import { TeamSettings } from './client/team-settings';
 import { addCreationAccess } from './client/new-workspace-pill';
-import { WorkflowHistory, HistorySidebar } from './client/history';
-import { HISTORY_SCREEN } from './client/routes';
+import { WorkflowHistory } from './client/history';
+import { HISTORY_SCREEN, TEAM_SETTINGS_SCREEN } from './client/routes';
 export default function contribute(client: PluginClientContext) {
   client.addScreen({
     id: HISTORY_SCREEN,
-    title: 'Historique des workflows',
+    title: 'Agent Teams · Historique',
     Component: (props) => (
       <WorkflowHistory
         key={props.params.id ?? 'index'}
@@ -21,34 +21,27 @@ export default function contribute(client: PluginClientContext) {
       />
     ),
   });
-  client.addSidebarHeaderItem({ id: HISTORY_SCREEN, title: 'Historique des workflows', Component: HistorySidebar });
   client.addCommandCenterItem({
     id: HISTORY_SCREEN,
-    title: 'Historique des workflows',
+    title: 'Agent Teams · Historique',
     icon: 'History',
     keywords: ['Agent Teams', 'fermés', 'workflow history'],
     context: 'global',
     onSelect: ({ openScreen }) => openScreen({ screenId: HISTORY_SCREEN }),
   });
-  client.addScreen({
-    id: NEW_TEAM_SCREEN,
-    title: 'Nouveau workspace agent',
-    Component: (props) => (
-      <NewTeamWorkspace {...props} onOpen={(workspaceId) => client.openPanel('agent-teams', { workspaceId })} />
-    ),
-  });
-  client.addSidebarHeaderItem({
-    id: 'new-agent-workspace',
-    title: 'Nouveau workspace agent',
-    Component: NewTeamSidebar,
+  client.addSettingsScreen({
+    id: TEAM_SETTINGS_SCREEN,
+    title: 'Agent Teams',
+    icon: 'Workflow',
+    Component: TeamSettings,
   });
   client.addCommandCenterItem({
-    id: 'new-agent-workspace',
-    title: 'Nouveau workspace agent',
-    icon: 'Workflow',
-    keywords: ['mode agent', 'Agent Teams', 'new workspace', 'équipe', 'workflow'],
+    id: 'agent-teams-settings',
+    title: 'Agent Teams · Équipe par défaut',
+    icon: 'Settings',
+    keywords: ['Agent Teams', 'Team Auto', 'modèles', 'équipe', 'réglages'],
     context: 'global',
-    onSelect: ({ openScreen }) => openScreen({ screenId: NEW_TEAM_SCREEN }),
+    onSelect: ({ openSettings }) => openSettings(TEAM_SETTINGS_SCREEN),
   });
   client.addWorkspacePanel({
     id: 'agent-teams',
@@ -70,8 +63,9 @@ export default function contribute(client: PluginClientContext) {
   });
   client.addCommandCenterItem({
     id: 'open-agent-teams',
-    title: 'Open Agent Teams',
+    title: 'Agent Teams · Options avancées',
     icon: 'Workflow',
+    keywords: ['Agent Teams', 'Manual Switch', 'panneau', 'workflow'],
     context: 'workspace',
     onSelect({ openPanel }) {
       openPanel('agent-teams');
@@ -101,7 +95,7 @@ export default function contribute(client: PluginClientContext) {
   });
   const removeNativeTimeline = addNativeTimeline(client);
   const removeCreationAccess = addCreationAccess(client);
-  const removeThreadAccess = addThreadAccess(client, QuickStart);
+  const removeThreadAccess = addThreadAccess(client, TeamCard);
   return () => {
     removeNativeTimeline();
     removeCreationAccess();

@@ -6,6 +6,7 @@ import { join, sep, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { roles, type Config, type Role, type Workflow, type Permission } from '../shared/contracts';
 import { resolveRepositories } from './scopes';
+import { roleTitle } from '../shared/team-composition';
 import { captureRepositories, repositoryContext, scopeFingerprint } from './repository-context';
 import { runCommand } from './commands';
 import { providerProfiles, nativeMode, builderMode } from './providers';
@@ -118,7 +119,7 @@ export class PaseoRuntime implements Runtime {
       },
       env: { GIT_OPTIONAL_LOCKS: '0' },
       // Inside a Team Auto thread the parent already names the team; the subagent list shows the role.
-      title: w.ownerAgentId ? role[0].toUpperCase() + role.slice(1) : `Agent Teams · ${role}`,
+      title: w.ownerAgentId ? roleTitle[role] : `Agent Teams · ${role}`,
       labels: { 'agent-teams-workflow': w.id, 'agent-teams-role': role },
     };
     const agents = this.api.workspaces.ref(w.workspaceId).agents;

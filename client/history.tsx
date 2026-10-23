@@ -1,26 +1,13 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { useRpc, type PluginScreenProps, type PluginSidebarItemProps } from '@getpaseo/plugin/client';
-import { SidebarRow } from '@getpaseo/plugin/client/ui';
+import { useRpc, type PluginScreenProps } from '@getpaseo/plugin/client';
 import { workflowIndexRpc, workflowRecordRpc } from '../shared/contracts';
-import { HISTORY_SCREEN } from './routes';
 import { Markdown } from './markdown';
 import { TestLog } from './test-log';
 import { StageResult } from './stage-result';
 import { errorMessage } from './errors';
 
-export function HistorySidebar({ currentScreen, openScreen }: PluginSidebarItemProps) {
-  return (
-    <SidebarRow
-      icon="History"
-      active={currentScreen?.screenId === HISTORY_SCREEN}
-      onPress={() => openScreen({ screenId: HISTORY_SCREEN })}
-    />
-  );
-}
-
-/** Saved records are readable without resolving the workspace or starting any agents. */
 export function WorkflowHistory({
   theme,
   host,

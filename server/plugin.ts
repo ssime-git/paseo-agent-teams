@@ -15,11 +15,12 @@ import {
   workflowRecordRpc,
   permissionsRpc,
   nativeArtifactsRpc,
+  teamChoicesRpc,
 } from '../shared/contracts';
 import { TERMINAL_OR_WAITING } from '../shared/state-machine';
 import { Engine } from './engine';
 import { createTeamProvider } from './team-provider';
-import { automaticTeam, TEAM_PROVIDER_ID } from '../shared/team-composition';
+import { defaultTeam, teamSettings, TEAM_PROVIDER_ID } from '../shared/team-composition';
 import { configSchema } from '../shared/contracts';
 import { Store } from './store';
 import { DefinitionCatalog } from './definition-catalog';
@@ -163,15 +164,28 @@ export function contributeServer(server: PluginServerContext) {
       },
     };
   });
+  const defaults = server.registerSettings(teamSettings);
+  const savedTeam = async () => {
+    const state = await defaults.read();
+    return state.status === 'ready' ? state.values : undefined;
+  };
+  server.handle(teamChoicesRpc, async (_input, { paseo }) => discover(paseo, homedir()));
   server.registerProvider(
     createTeamProvider({
+      defaultMode: async () => (await savedTeam())?.validation ?? 'plan',
       async open(cwd, workspaceId) {
         await bind();
         const workspace = await recoveryClient!.workspaces.ref(workspaceId).refresh();
         if (!workspace || workspace.workspaceDirectory !== cwd)
           throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Team workspace context mismatch');
         const choices = await discover(recoveryClient!, cwd);
-        const config = configSchema.parse({ version: 1, roles: automaticTeam(choices), builderAutoAccept: false });
+        const saved = await savedTeam();
+        const config = configSchema.parse({
+          version: 1,
+          roles: defaultTeam(choices, saved),
+          builderAutoAccept: false,
+          ...(saved ? { validation: saved.validation, maxCorrections: saved.maxCorrections } : {}),
+        });
         return { workspaceId: workspace.id, choices, config };
       },
       async ownerWorkspace(agentId, cwd) {

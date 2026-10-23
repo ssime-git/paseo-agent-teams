@@ -227,7 +227,7 @@ test('native Team projects role turns as native sub-agents in one conversation w
   const build = items().filter((i) => i.type === 'tool_call' && i.callId === 'team-agent-op-build');
   assert.equal(build.length, 1);
   assert.ok(build[0].type === 'tool_call' && build[0].status === 'running' && build[0].detail.type === 'sub_agent');
-  assert.match(JSON.stringify(build[0]), /Builder · Codex · Detected/);
+  assert.match(JSON.stringify(build[0]), /Code · Codex · Detected/);
   assert.ok(items().some((i) => i.type === 'todo' && i.items.length === 2));
   assert.equal(
     items().some((i) => i.type === 'plugin'),
