@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { definitionRecordSchema, type DefinitionRecord } from './definition-catalog';
 import { TeamError } from './errors';
-import { planSchema, buildSchema, reviewSchema } from './contracts';
+import { planSchema, buildSchema, reviewSchema, testResultSchema } from './contracts';
 import { parseJson } from './artifacts';
 
 const artifactSchema = z.discriminatedUnion('contract', [
@@ -46,6 +46,21 @@ const activationSchema = z
     receipt: graphReceiptSchema.optional(),
     assessment: assessmentSchema.optional(),
     integrity: z.object({ fingerprint: fingerprintSchema, unchanged: z.boolean() }).strict().optional(),
+    testRun: z
+      .object({
+        attemptId: z.uuid(),
+        fingerprint: fingerprintSchema,
+        completion: z
+          .object({
+            results: z.array(testResultSchema).max(10),
+            fingerprint: fingerprintSchema,
+            error: z.string().min(1).max(4000).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
     // Bind the exact session and prompt before dispatch, never infer delivery.
     dispatch: z
       .object({
@@ -131,6 +146,31 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
       fail();
       return;
     }
+    if (activation.testRun) {
+      const run = activation.testRun;
+      const completion = run.completion;
+      if (
+        !step.tests ||
+        activation.receipt?.outcome !== 'completed' ||
+        activation.assessment?.status !== 'valid' ||
+        (step.access === 'read-only' &&
+          (!activation.integrity?.unchanged || run.fingerprint !== activation.integrity.fingerprint)) ||
+        (completion &&
+          (completion.results.length > step.tests.length ||
+            (!completion.error && completion.results.length !== step.tests.length) ||
+            completion.results.some(
+              (result, index) =>
+                result.command !== step.tests![index].command ||
+                result.timeoutMs !== step.tests![index].timeoutMs ||
+                result.durationMs < 0 ||
+                result.stdout.length > 128 * 1024 ||
+                result.stderr.length > 128 * 1024,
+            )))
+      ) {
+        fail();
+        return;
+      }
+    }
     if (!activation.result) {
       status = step.contract === 'human' ? 'waiting_human' : 'running';
       continue;
@@ -169,7 +209,16 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
   const assessments = state.activations.filter((activation) => activation.assessment !== undefined).length;
   if (
     state.revision !==
-    1 + state.activations.length + resolved + bound + attempted + receipts + assessments + integrity
+    1 +
+      state.activations.length +
+      resolved +
+      bound +
+      attempted +
+      receipts +
+      assessments +
+      integrity +
+      state.activations.filter((a) => a.testRun).length +
+      state.activations.filter((a) => a.testRun?.completion).length
   )
     fail();
   if (state.activations.length > graph.maxTransitions) fail();
@@ -386,6 +435,48 @@ export function recordGraphIntegrity(raw: GraphCheckpoint, operationId: string, 
     fingerprint: fingerprintSchema.parse(fingerprint),
     unchanged: fingerprint === activation.dispatch.baseline,
   };
+  state.revision++;
+  return graphCheckpointSchema.parse(state);
+}
+
+// A claim is saved before shell execution. A crash or lost reply remains uncertain;
+// another caller must observe it, never rerun commands with possible side effects.
+export function claimGraphTests(
+  raw: GraphCheckpoint,
+  operationId: string,
+  attemptId: string,
+  fingerprint: string,
+): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const activation = state.activations.find((a) => a.operationId === operationId);
+  if (!activation || activation.result || state.status !== 'running' || activation.assessment?.status !== 'valid')
+    throw new TeamError('GRAPH_TESTS_NOT_READY', 'Pending activation with valid native assessment required');
+  if (activation.testRun)
+    throw new TeamError('GRAPH_TESTS_CLAIMED', 'Tests already attempted; inspect without rerunning');
+  activation.testRun = { attemptId: z.uuid().parse(attemptId), fingerprint: fingerprintSchema.parse(fingerprint) };
+  state.revision++;
+  return graphCheckpointSchema.parse(state);
+}
+
+export function completeGraphTests(
+  raw: GraphCheckpoint,
+  operationId: string,
+  attemptId: string,
+  completion: NonNullable<NonNullable<GraphCheckpoint['activations'][number]['testRun']>['completion']>,
+): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const activation = state.activations.find((a) => a.operationId === operationId);
+  if (!activation?.testRun || activation.testRun.attemptId !== attemptId)
+    throw new TeamError('GRAPH_TESTS_MISMATCH', 'Test completion must match its saved attempt');
+  const value = activationSchema.shape.testRun.unwrap().shape.completion.unwrap().parse(completion);
+  if (activation.testRun.completion) {
+    if (JSON.stringify(activation.testRun.completion) !== JSON.stringify(value))
+      throw new TeamError('GRAPH_TESTS_CONFLICT', 'Tests already completed differently');
+    return state;
+  }
+  if (activation.result || state.status !== 'running')
+    throw new TeamError('GRAPH_NOT_RUNNING', 'Pending activation required');
+  activation.testRun.completion = value;
   state.revision++;
   return graphCheckpointSchema.parse(state);
 }

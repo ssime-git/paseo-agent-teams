@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import {
   createGraphCheckpoint,
+  claimGraphTests,
+  completeGraphTests,
   bindGraphDispatch,
   claimGraphDispatch,
   recordGraphReceipt,
@@ -150,6 +152,32 @@ export class GraphCheckpoints {
   ) {
     return this.update(id, workspaceId, expectedRevision, (state) =>
       recordGraphIntegrity(state, operationId, fingerprint),
+    );
+  }
+
+  async claimTests(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    attemptId: string,
+    fingerprint: string,
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) =>
+      claimGraphTests(state, operationId, attemptId, fingerprint),
+    );
+  }
+
+  async completeTests(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    attemptId: string,
+    completion: Parameters<typeof completeGraphTests>[3],
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) =>
+      completeGraphTests(state, operationId, attemptId, completion),
     );
   }
 

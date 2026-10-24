@@ -1,4 +1,19 @@
 import { z } from 'zod';
+import { commandSchema } from './contracts';
+
+// Explicit user-authored commands only, never commands inferred from a model plan.
+export const graphTestsSchema = z
+  .array(
+    commandSchema.extend({
+      timeoutMs: z.number().int().min(100).max(30_000),
+    }),
+  )
+  .min(1)
+  .max(10)
+  .refine(
+    (tests) => tests.reduce((total, test) => total + test.timeoutMs, 0) <= 120_000,
+    'Graph test budget exceeds 120 seconds',
+  );
 
 const identifier = z.string().trim().min(1).max(100);
 export const workflowDefinitionSchema = z
@@ -19,6 +34,7 @@ export const workflowDefinitionSchema = z
             selection: z.object({ provider: z.string().trim().min(1), modeId: z.string().trim().min(1) }).strict(),
             access: z.enum(['read-only', 'write']),
             contract: z.enum(['plan', 'build', 'review', 'human']),
+            tests: graphTestsSchema.optional(),
             transitions: z
               .array(
                 z
@@ -43,6 +59,7 @@ export const workflowDefinitionSchema = z
     if (ids.size !== graph.steps.length) fail('Duplicate step IDs');
     if (!ids.has(graph.entry)) fail('Unknown entry step');
     for (const step of graph.steps) {
+      if (step.contract === 'human' && step.tests) fail(`Human steps cannot execute tests: ${step.id}`);
       const outcomes = step.transitions.map((edge) => edge.outcome);
       if (new Set(outcomes).size !== outcomes.length) fail(`Ambiguous transitions: ${step.id}`);
       const expected = step.contract === 'human' ? ['approve', 'reject'] : ['success', 'failure'];
