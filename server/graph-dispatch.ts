@@ -1,3 +1,4 @@
+import { graphFingerprint } from './graph-integrity';
 import { randomUUID } from 'node:crypto';
 import type { PaseoApi } from '@getpaseo/client';
 import { TeamError } from '../shared/errors';
@@ -21,6 +22,10 @@ export async function sendGraphDispatch(
       state: current,
       observation: await observeGraphDispatch(api, current, input.operationId),
     };
+  if (current.revision !== input.expectedRevision)
+    throw new TeamError('GRAPH_CONFLICT', 'Graph checkpoint changed; reload before retrying');
+  const step = current.source.definition.steps.find((item) => item.id === activation.stepId)!;
+  const baseline = step.access === 'read-only' ? await graphFingerprint(api, current) : undefined;
   // Immutable publication arbitrates independent processes before any native I/O.
   const state = await checkpoints.claimDispatch(
     input.id,
@@ -28,6 +33,7 @@ export async function sendGraphDispatch(
     input.expectedRevision,
     input.operationId,
     randomUUID(),
+    baseline,
   );
   const dispatch = state.activations.find((item) => item.operationId === input.operationId)!.dispatch!;
   let expired = false;

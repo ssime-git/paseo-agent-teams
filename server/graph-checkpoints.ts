@@ -8,6 +8,7 @@ import {
   claimGraphDispatch,
   recordGraphReceipt,
   assessGraphReceipt,
+  recordGraphIntegrity,
   graphCheckpointSchema,
   reserveGraphActivation,
   resolveGraphActivation,
@@ -107,8 +108,11 @@ export class GraphCheckpoints {
     expectedRevision: number,
     operationId: string,
     attemptId: string,
+    baseline?: string,
   ) {
-    return this.update(id, workspaceId, expectedRevision, (state) => claimGraphDispatch(state, operationId, attemptId));
+    return this.update(id, workspaceId, expectedRevision, (state) =>
+      claimGraphDispatch(state, operationId, attemptId, baseline),
+    );
   }
 
   async receipt(
@@ -135,6 +139,18 @@ export class GraphCheckpoints {
 
   async assessReceipt(id: string, workspaceId: string, expectedRevision: number, operationId: string) {
     return this.update(id, workspaceId, expectedRevision, (state) => assessGraphReceipt(state, operationId));
+  }
+
+  async recordIntegrity(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    fingerprint: string,
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) =>
+      recordGraphIntegrity(state, operationId, fingerprint),
+    );
   }
 
   async resolveArtifact(id: string, workspaceId: string, expectedRevision: number, operationId: string, text: string) {

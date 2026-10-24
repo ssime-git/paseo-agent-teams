@@ -36,6 +36,8 @@ const assessmentSchema = z.discriminatedUnion('status', [
   z.object({ status: z.enum(['invalid', 'failed', 'canceled']), reason: z.string().min(1) }).strict(),
 ]);
 
+const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
 const activationSchema = z
   .object({
     operationId: z.uuid(),
@@ -43,11 +45,13 @@ const activationSchema = z
     result: resultSchema.optional(),
     receipt: graphReceiptSchema.optional(),
     assessment: assessmentSchema.optional(),
+    integrity: z.object({ fingerprint: fingerprintSchema, unchanged: z.boolean() }).strict().optional(),
     // Bind the exact session and prompt before dispatch, never infer delivery.
     dispatch: z
       .object({
         agentId: z.uuid(),
         attemptId: z.uuid().optional(),
+        baseline: fingerprintSchema.optional(),
         prompt: z
           .string()
           .min(1)
@@ -110,6 +114,16 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
       return;
     }
     if (
+      (activation.dispatch?.baseline && (!activation.dispatch.attemptId || step.access !== 'read-only')) ||
+      (activation.integrity &&
+        (!activation.receipt ||
+          !activation.dispatch?.baseline ||
+          activation.integrity.unchanged !== (activation.integrity.fingerprint === activation.dispatch.baseline)))
+    ) {
+      fail();
+      return;
+    }
+    if (
       activation.assessment &&
       (!activation.receipt ||
         JSON.stringify(activation.assessment) !== JSON.stringify(assessReceipt(step.contract, activation.receipt)))
@@ -151,8 +165,13 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
   const bound = state.activations.filter((activation) => activation.dispatch !== undefined).length;
   const attempted = state.activations.filter((activation) => activation.dispatch?.attemptId !== undefined).length;
   const receipts = state.activations.filter((activation) => activation.receipt !== undefined).length;
+  const integrity = state.activations.filter((activation) => activation.integrity !== undefined).length;
   const assessments = state.activations.filter((activation) => activation.assessment !== undefined).length;
-  if (state.revision !== 1 + state.activations.length + resolved + bound + attempted + receipts + assessments) fail();
+  if (
+    state.revision !==
+    1 + state.activations.length + resolved + bound + attempted + receipts + assessments + integrity
+  )
+    fail();
   if (state.activations.length > graph.maxTransitions) fail();
   if (status === 'ready' && state.activations.length === graph.maxTransitions) status = 'exhausted';
   if (state.status !== status || state.nextStepId !== next) fail();
@@ -287,7 +306,8 @@ export function bindGraphDispatch(
 ): GraphCheckpoint {
   const state = graphCheckpointSchema.parse(raw);
   const binding = activationSchema.shape.dispatch.unwrap().parse(dispatch);
-  if (binding.attemptId) throw new TeamError('GRAPH_INVALID_DISPATCH', 'Bind without an attempt first');
+  if (binding.attemptId || binding.baseline)
+    throw new TeamError('GRAPH_INVALID_DISPATCH', 'Bind without an attempt first');
   const activation = state.activations.find((item) => item.operationId === operationId);
   if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
   if (activation.dispatch) {
@@ -306,7 +326,12 @@ export function bindGraphDispatch(
 
 // Only the caller whose unique attempt wins publication may send. A saved attempt
 // is never an invitation to retry, including a crash before the native call.
-export function claimGraphDispatch(raw: GraphCheckpoint, operationId: string, attemptId: string): GraphCheckpoint {
+export function claimGraphDispatch(
+  raw: GraphCheckpoint,
+  operationId: string,
+  attemptId: string,
+  baseline?: string,
+): GraphCheckpoint {
   const state = graphCheckpointSchema.parse(raw);
   z.uuid().parse(attemptId);
   const activation = state.activations.find((item) => item.operationId === operationId);
@@ -315,6 +340,7 @@ export function claimGraphDispatch(raw: GraphCheckpoint, operationId: string, at
   if (activation.dispatch.attemptId)
     throw new TeamError('GRAPH_DISPATCH_CLAIMED', 'Native dispatch already attempted; inspect without resending');
   activation.dispatch.attemptId = attemptId;
+  if (baseline !== undefined) activation.dispatch.baseline = fingerprintSchema.parse(baseline);
   state.revision++;
   return graphCheckpointSchema.parse(state);
 }
@@ -343,6 +369,23 @@ export function recordGraphReceipt(
   if (state.status !== 'running' || activation.result)
     throw new TeamError('GRAPH_NOT_RUNNING', 'A pending native activation is required');
   activation.receipt = receipt;
+  state.revision++;
+  return graphCheckpointSchema.parse(state);
+}
+
+// Evidence only. A mismatch stays durable, even if files are restored later.
+export function recordGraphIntegrity(raw: GraphCheckpoint, operationId: string, fingerprint: string): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (!activation?.receipt || !activation.dispatch?.baseline)
+    throw new TeamError('GRAPH_BASELINE_REQUIRED', 'Receipt and pre-send baseline required');
+  if (activation.integrity) return state;
+  if (activation.result || state.status !== 'running')
+    throw new TeamError('GRAPH_NOT_RUNNING', 'A pending native activation is required');
+  activation.integrity = {
+    fingerprint: fingerprintSchema.parse(fingerprint),
+    unchanged: fingerprint === activation.dispatch.baseline,
+  };
   state.revision++;
   return graphCheckpointSchema.parse(state);
 }
