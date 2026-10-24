@@ -11,16 +11,23 @@ import { codeReviewPreset } from '../shared/workflow-definition';
 import { graphCheckpointSchema } from '../shared/graph-checkpoint';
 import { captureGraphReceipt } from '../server/graph-receipts';
 
-async function setup(t: { after: (fn: () => Promise<void>) => void }, claim = true) {
+async function setup(
+  t: { after: (fn: () => Promise<void>) => void },
+  claim = true,
+  contract: 'plan' | 'build' | 'review' = 'build',
+) {
   const directory = await mkdtemp(join(tmpdir(), 'teams-receipt-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
+  const definition = codeReviewPreset({
+    code: { provider: 'codex/model', modeId: 'auto' },
+    review: { provider: 'codex/model', modeId: 'read-only' },
+  });
+  definition.steps[0].contract = contract;
+  if (contract !== 'build') definition.steps[0].access = 'read-only';
   const source = await new DefinitionCatalog(join(directory, 'definitions')).save({
     workspaceId: 'owner',
     expectedRevision: 0,
-    definition: codeReviewPreset({
-      code: { provider: 'codex/model', modeId: 'auto' },
-      review: { provider: 'codex/model', modeId: 'read-only' },
-    }),
+    definition,
   });
   const store = new GraphCheckpoints(join(directory, 'graphs'));
   const state = await store.create({ id: randomUUID(), repo: directory, task: 'task', source });
@@ -131,4 +138,152 @@ test('assistant content preceding the saved prompt is never captured as its repl
   const h = await setup(t);
   await captureGraphReceipt(h.store, { ...h.event, timeline: [h.event.timeline[1], h.event.timeline[0]] });
   assert.equal((await h.read()).activations[0].receipt?.text, undefined);
+});
+
+test('saved completed output is assessed durably without transitioning or releasing its reservation', async (t) => {
+  const h = await setup(t);
+  const build = { summary: 'Inspected', changes: [], remaining: [] };
+  await captureGraphReceipt(h.store, {
+    ...h.event,
+    timeline: [h.event.timeline[0], { type: 'assistant_message', text: JSON.stringify(build) }],
+  });
+  const saved = await h.store.assessReceipt(h.state.id, 'owner', 5, h.operationId);
+  assert.equal(saved.revision, 6);
+  assert.deepEqual(saved.activations[0].assessment, {
+    status: 'valid',
+    result: { outcome: 'success', summary: build.summary, artifact: { contract: 'build', value: build } },
+  });
+  assert.equal(saved.status, 'running');
+  assert.equal(saved.nextStepId, h.state.nextStepId);
+  assert.equal(saved.activations[0].result, undefined);
+  const restarted = new GraphCheckpoints(h.store.directory);
+  assert.deepEqual(await restarted.assessReceipt(h.state.id, 'owner', 4, h.operationId), saved);
+  await assert.rejects(
+    restarted.resolve(h.state.id, 'owner', 6, h.operationId, { outcome: 'success', summary: 'Invented' }),
+    /Inconsistent/,
+  );
+  await assert.rejects(restarted.reserve(h.state.id, 'owner', 6, randomUUID()), /cannot activate/);
+  await assert.rejects(restarted.assessReceipt(h.state.id, 'foreign', 6, h.operationId), /access denied/);
+  const corrupt = structuredClone(saved);
+  const assessment = corrupt.activations[0].assessment!;
+  assert.equal(assessment.status, 'valid');
+  if (assessment.status === 'valid') assessment.result.summary = 'invented summary';
+  assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+  delete corrupt.activations[0].receipt;
+  assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+});
+
+test('missing or malformed output is retained without resend or manufactured graph failure', async (t) => {
+  const outputs = [
+    undefined,
+    '',
+    'not JSON',
+    '{"verdict":"pass","summary":"wrong contract","issues":[]}',
+    'Discussion\n```json\n{"summary":"Done","changes":[],"remaining":[]}\n```',
+    '{"summary":"Done","changes":[],"remaining":[]}\n{"summary":"Other","changes":[],"remaining":[]}',
+    '{"kind":"clarification","summary":"Question","questions":[]}',
+  ];
+  for (const text of outputs) {
+    const h = await setup(t);
+    const before = await h.read();
+    await assert.rejects(h.store.assessReceipt(h.state.id, 'owner', 4, h.operationId), /receipt required/);
+    assert.deepEqual(await h.read(), before);
+    await captureGraphReceipt(h.store, {
+      ...h.event,
+      timeline: [h.event.timeline[0], ...(text === undefined ? [] : [{ type: 'assistant_message' as const, text }])],
+    });
+    const saved = await h.store.assessReceipt(h.state.id, 'owner', 5, h.operationId);
+    assert.equal(saved.activations[0].assessment?.status, 'invalid');
+    assert.equal(saved.activations[0].receipt?.text, text);
+    assert.equal(saved.activations[0].result, undefined);
+    assert.equal(saved.status, 'running');
+    assert.equal(saved.activations[0].dispatch?.attemptId, before.activations[0].dispatch?.attemptId);
+    await assert.rejects(
+      h.store.resolve(h.state.id, 'owner', 6, h.operationId, { outcome: 'success', summary: 'Ignore invalid output' }),
+      /Inconsistent/,
+    );
+  }
+});
+
+test('failed or canceled receipts never validate even when they contain a valid artifact', async (t) => {
+  for (const outcome of [
+    { kind: 'failed', error: { message: 'provider disconnected' } },
+    { kind: 'canceled', reason: 'user canceled' },
+  ] as const) {
+    const h = await setup(t);
+    await captureGraphReceipt(h.store, {
+      ...h.event,
+      outcome,
+      timeline: [
+        h.event.timeline[0],
+        { type: 'assistant_message', text: '{"summary":"Done","changes":[],"remaining":[]}' },
+      ],
+    });
+    const saved = await h.store.assessReceipt(h.state.id, 'owner', 5, h.operationId);
+    assert.deepEqual(saved.activations[0].assessment, {
+      status: outcome.kind,
+      reason: outcome.kind === 'failed' ? outcome.error.message : outcome.reason,
+    });
+    assert.equal(saved.status, 'running');
+    assert.equal(saved.activations[0].result, undefined);
+  }
+});
+
+test('valid but incomplete work stays a failure candidate and normalization keeps the native receipt intact', async (t) => {
+  const h = await setup(t);
+  const text = '---\n```json\n{"summary":"Blocked","changes":[],"remaining":["Needs credentials"]}\n```';
+  await captureGraphReceipt(h.store, {
+    ...h.event,
+    timeline: [h.event.timeline[0], { type: 'assistant_message', text }],
+  });
+  const saved = await h.store.assessReceipt(h.state.id, 'owner', 5, h.operationId);
+  const assessment = saved.activations[0].assessment!;
+  assert.equal(assessment.status, 'valid');
+  if (assessment.status === 'valid') assert.equal(assessment.result.outcome, 'failure');
+  assert.equal(saved.activations[0].receipt?.text, text);
+  assert.equal(saved.status, 'running');
+});
+
+test('assessment publication arbitrates concurrent writers and refuses stale first writes', async (t) => {
+  const h = await setup(t);
+  await captureGraphReceipt(h.store, h.event);
+  await assert.rejects(h.store.assessReceipt(h.state.id, 'owner', 4, h.operationId), /changed/);
+  const results = await Promise.allSettled([
+    h.store.assessReceipt(h.state.id, 'owner', 5, h.operationId),
+    new GraphCheckpoints(h.store.directory).assessReceipt(h.state.id, 'owner', 5, h.operationId),
+  ]);
+  assert.ok(results.some((result) => result.status === 'fulfilled'));
+  for (const result of results) if (result.status === 'rejected') assert.match(String(result.reason), /changed/);
+  assert.equal((await h.read()).revision, 6);
+  await assert.rejects(h.store.assessReceipt(h.state.id, 'owner', 6, randomUUID()), /Unknown/);
+});
+
+test('plan and review assessments use their own contracts and never count reported tests as verification', async (t) => {
+  const cases = [
+    {
+      contract: 'plan',
+      value: { summary: 'Plan', tasks: ['Inspect'], acceptance: ['Reviewed'], tests: [] },
+      outcome: 'success',
+    },
+    { contract: 'review', value: { summary: 'Pass', verdict: 'pass', issues: [] }, outcome: 'success' },
+    { contract: 'review', value: { summary: 'Fail', verdict: 'fail', issues: ['Fix issue'] }, outcome: 'failure' },
+  ] as const;
+  for (const item of cases) {
+    const h = await setup(t, true, item.contract);
+    await captureGraphReceipt(h.store, {
+      ...h.event,
+      timeline: [h.event.timeline[0], { type: 'assistant_message', text: JSON.stringify(item.value) }],
+    });
+    const state = await h.store.assessReceipt(h.state.id, 'owner', 5, h.operationId);
+    assert.deepEqual(state.activations[0].assessment, {
+      status: 'valid',
+      result: {
+        summary: item.value.summary,
+        outcome: item.outcome,
+        artifact: { contract: item.contract, value: item.value },
+      },
+    });
+    assert.equal(state.status, 'running');
+    assert.equal(state.activations[0].result, undefined);
+  }
 });

@@ -31,12 +31,18 @@ export const graphReceiptSchema = z
   })
   .strict();
 
+const assessmentSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('valid'), result: resultSchema }).strict(),
+  z.object({ status: z.enum(['invalid', 'failed', 'canceled']), reason: z.string().min(1) }).strict(),
+]);
+
 const activationSchema = z
   .object({
     operationId: z.uuid(),
     stepId: z.string(),
     result: resultSchema.optional(),
     receipt: graphReceiptSchema.optional(),
+    assessment: assessmentSchema.optional(),
     // Bind the exact session and prompt before dispatch, never infer delivery.
     dispatch: z
       .object({
@@ -103,9 +109,25 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
       fail();
       return;
     }
+    if (
+      activation.assessment &&
+      (!activation.receipt ||
+        JSON.stringify(activation.assessment) !== JSON.stringify(assessReceipt(step.contract, activation.receipt)))
+    ) {
+      fail();
+      return;
+    }
     if (!activation.result) {
       status = step.contract === 'human' ? 'waiting_human' : 'running';
       continue;
+    }
+    if (
+      activation.assessment &&
+      (activation.assessment.status !== 'valid' ||
+        JSON.stringify(activation.result) !== JSON.stringify(activation.assessment.result))
+    ) {
+      fail();
+      return;
     }
     const artifact = activation.result.artifact;
     if (
@@ -129,7 +151,8 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
   const bound = state.activations.filter((activation) => activation.dispatch !== undefined).length;
   const attempted = state.activations.filter((activation) => activation.dispatch?.attemptId !== undefined).length;
   const receipts = state.activations.filter((activation) => activation.receipt !== undefined).length;
-  if (state.revision !== 1 + state.activations.length + resolved + bound + attempted + receipts) fail();
+  const assessments = state.activations.filter((activation) => activation.assessment !== undefined).length;
+  if (state.revision !== 1 + state.activations.length + resolved + bound + attempted + receipts + assessments) fail();
   if (state.activations.length > graph.maxTransitions) fail();
   if (status === 'ready' && state.activations.length === graph.maxTransitions) status = 'exhausted';
   if (state.status !== status || state.nextStepId !== next) fail();
@@ -201,6 +224,41 @@ function artifactOutcome(artifact: z.infer<typeof artifactSchema>): GraphOutcome
   if (artifact.contract === 'review') return artifact.value.verdict === 'pass' ? 'success' : 'failure';
   if (artifact.contract === 'build' && artifact.value.remaining.length) return 'failure';
   return 'success';
+}
+
+// Validate only the saved terminal output. Never recover a convenient JSON block
+// from prose, infer an answer, run tests, or turn a technical failure into success.
+function assessReceipt(
+  contract: string,
+  receipt: z.infer<typeof graphReceiptSchema>,
+): z.infer<typeof assessmentSchema> {
+  if (receipt.outcome !== 'completed')
+    return { status: receipt.outcome, reason: receipt.error || `Native turn ${receipt.outcome}` };
+  try {
+    const artifact = artifactSchema.parse({ contract, value: parseJson(receipt.text ?? '') });
+    return {
+      status: 'valid',
+      result: { outcome: artifactOutcome(artifact), summary: artifact.value.summary, artifact },
+    };
+  } catch {
+    return { status: 'invalid', reason: 'Native output does not match the step result contract' };
+  }
+}
+
+// Staging only: even a valid artifact is not independent test or read-only
+// evidence. Keep the reservation until a future executor verifies those gates.
+export function assessGraphReceipt(raw: GraphCheckpoint, operationId: string): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
+  if (activation.assessment) return state;
+  if (!activation.receipt) throw new TeamError('GRAPH_RECEIPT_REQUIRED', 'Native completion receipt required');
+  if (activation.result || state.status !== 'running')
+    throw new TeamError('GRAPH_NOT_RUNNING', 'A pending native activation is required');
+  const step = state.source.definition.steps.find((item) => item.id === activation.stepId)!;
+  activation.assessment = assessReceipt(step.contract, activation.receipt);
+  state.revision++;
+  return graphCheckpointSchema.parse(state);
 }
 
 export function resolveGraphArtifact(raw: GraphCheckpoint, operationId: string, text: string): GraphCheckpoint {
