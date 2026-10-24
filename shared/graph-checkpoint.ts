@@ -17,11 +17,26 @@ const resultSchema = z
   })
   .strict();
 
+export const graphReceiptSchema = z
+  .object({
+    agentId: z.uuid(),
+    attemptId: z.uuid(),
+    turnId: z.string().min(1),
+    outcome: z.enum(['completed', 'failed', 'canceled']),
+    text: z
+      .string()
+      .max(256 * 1024)
+      .optional(),
+    error: z.string().optional(),
+  })
+  .strict();
+
 const activationSchema = z
   .object({
     operationId: z.uuid(),
     stepId: z.string(),
     result: resultSchema.optional(),
+    receipt: graphReceiptSchema.optional(),
     // Bind the exact session and prompt before dispatch, never infer delivery.
     dispatch: z
       .object({
@@ -79,6 +94,15 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
       fail();
       return;
     }
+    if (
+      activation.receipt &&
+      (!activation.dispatch?.attemptId ||
+        activation.receipt.agentId !== activation.dispatch.agentId ||
+        activation.receipt.attemptId !== activation.dispatch.attemptId)
+    ) {
+      fail();
+      return;
+    }
     if (!activation.result) {
       status = step.contract === 'human' ? 'waiting_human' : 'running';
       continue;
@@ -104,7 +128,8 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
   const resolved = state.activations.filter((activation) => activation.result !== undefined).length;
   const bound = state.activations.filter((activation) => activation.dispatch !== undefined).length;
   const attempted = state.activations.filter((activation) => activation.dispatch?.attemptId !== undefined).length;
-  if (state.revision !== 1 + state.activations.length + resolved + bound + attempted) fail();
+  const receipts = state.activations.filter((activation) => activation.receipt !== undefined).length;
+  if (state.revision !== 1 + state.activations.length + resolved + bound + attempted + receipts) fail();
   if (state.activations.length > graph.maxTransitions) fail();
   if (status === 'ready' && state.activations.length === graph.maxTransitions) status = 'exhausted';
   if (state.status !== status || state.nextStepId !== next) fail();
@@ -232,6 +257,34 @@ export function claimGraphDispatch(raw: GraphCheckpoint, operationId: string, at
   if (activation.dispatch.attemptId)
     throw new TeamError('GRAPH_DISPATCH_CLAIMED', 'Native dispatch already attempted; inspect without resending');
   activation.dispatch.attemptId = attemptId;
+  state.revision++;
+  return graphCheckpointSchema.parse(state);
+}
+
+// A lifecycle receipt records a native terminal event; it does not validate the
+// model artifact, prove read-only behavior, or authorize a graph transition.
+export function recordGraphReceipt(
+  raw: GraphCheckpoint,
+  operationId: string,
+  input: z.infer<typeof graphReceiptSchema>,
+): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const receipt = graphReceiptSchema.parse(input);
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (
+    !activation?.dispatch?.attemptId ||
+    activation.dispatch.agentId !== receipt.agentId ||
+    activation.dispatch.attemptId !== receipt.attemptId
+  )
+    throw new TeamError('GRAPH_RECEIPT_MISMATCH', 'Receipt must match the saved native dispatch attempt');
+  if (activation.receipt) {
+    if (JSON.stringify(activation.receipt) !== JSON.stringify(receipt))
+      throw new TeamError('GRAPH_RECEIPT_CONFLICT', 'Native completion already recorded differently');
+    return state;
+  }
+  if (state.status !== 'running' || activation.result)
+    throw new TeamError('GRAPH_NOT_RUNNING', 'A pending native activation is required');
+  activation.receipt = receipt;
   state.revision++;
   return graphCheckpointSchema.parse(state);
 }

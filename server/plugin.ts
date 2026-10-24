@@ -23,6 +23,7 @@ import { createTeamProvider } from './team-provider';
 import { defaultTeam, teamSettings, TEAM_PROVIDER_ID } from '../shared/team-composition';
 import { configSchema } from '../shared/contracts';
 import { Store } from './store';
+import { captureGraphReceipt } from './graph-receipts';
 import { DefinitionCatalog } from './definition-catalog';
 import { saveDefinitionRpc, listDefinitionsRpc, definitionHistoryRpc } from '../shared/definition-catalog';
 import { PaseoRuntime } from './runtime';
@@ -277,6 +278,7 @@ export function contributeServer(server: PluginServerContext) {
   });
   server.on('agent.turn_ended', async (event, context) => {
     nativeApi = context.paseo;
+    await captureGraphReceipt(store.graphs, event);
     return forAgent(event.agent.id, (engine) =>
       engine.receipt(
         event.agent.id,

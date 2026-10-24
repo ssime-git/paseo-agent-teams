@@ -50,3 +50,5 @@ npm run coverage   # line coverage of loaded modules (65 % minimum)
 ```
 
 UI tests render components with a mocked React Native and Paseo host. They are not device tests. Real-model checks are recorded in [isolated-validation.md](isolated-validation.md).
+
+Graph dispatch completion is captured from the official `agent.turn_ended` hook only. The checkpoint stores the native agent, saved send attempt, turn ID, terminal outcome and unmodified final assistant text. Capture requires one exact saved user prompt in that turn and matching workspace/session; ambiguous or oversized output leaves the operation pending. Duplicate receipts are idempotent, conflicting receipts are rejected. A receipt survives restart but does not resolve the activation, validate an artifact, verify read-only behavior or release the repository reservation. Missing hooks remain uncertain and never authorize resending. Graph launching is still internal.

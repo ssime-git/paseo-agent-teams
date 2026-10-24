@@ -6,6 +6,7 @@ import {
   createGraphCheckpoint,
   bindGraphDispatch,
   claimGraphDispatch,
+  recordGraphReceipt,
   graphCheckpointSchema,
   reserveGraphActivation,
   resolveGraphActivation,
@@ -107,6 +108,16 @@ export class GraphCheckpoints {
     attemptId: string,
   ) {
     return this.update(id, workspaceId, expectedRevision, (state) => claimGraphDispatch(state, operationId, attemptId));
+  }
+
+  async receipt(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    receipt: Parameters<typeof recordGraphReceipt>[2],
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) => recordGraphReceipt(state, operationId, receipt));
   }
 
   async resolve(
