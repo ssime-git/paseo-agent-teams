@@ -46,6 +46,7 @@ const activationSchema = z
     receipt: graphReceiptSchema.optional(),
     assessment: assessmentSchema.optional(),
     integrity: z.object({ fingerprint: fingerprintSchema, unchanged: z.boolean() }).strict().optional(),
+    consumption: z.object({ fingerprint: fingerprintSchema }).strict().optional(),
     testRun: z
       .object({
         attemptId: z.uuid(),
@@ -172,6 +173,10 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
       }
     }
     if (!activation.result) {
+      if (activation.consumption) {
+        fail();
+        return;
+      }
       status = step.contract === 'human' ? 'waiting_human' : 'running';
       continue;
     }
@@ -182,6 +187,14 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
     ) {
       fail();
       return;
+    }
+    if (activation.consumption) {
+      try {
+        assertGraphConsumption(state, activation.operationId, activation.consumption.fingerprint);
+      } catch {
+        fail();
+        return;
+      }
     }
     const artifact = activation.result.artifact;
     if (
@@ -269,6 +282,13 @@ export function resolveGraphActivation(
       throw new TeamError('GRAPH_RESULT_CONFLICT', 'Operation already resolved with a different result');
     return state;
   }
+  if (activation.dispatch?.attemptId)
+    throw new TeamError('GRAPH_CONSUMPTION_REQUIRED', 'Native attempts must consume verified evidence');
+  return applyGraphResult(state, operationId, result);
+}
+
+function applyGraphResult(state: GraphCheckpoint, operationId: string, result: z.infer<typeof resultSchema>) {
+  const activation = state.activations.find((item) => item.operationId === operationId)!;
   const step = state.source.definition.steps.find((item) => item.id === activation.stepId)!;
   const edge = step.transitions.find((item) => item.outcome === result.outcome);
   if (!edge) throw new TeamError('GRAPH_INVALID_OUTCOME', 'Outcome does not match the step contract');
@@ -479,4 +499,43 @@ export function completeGraphTests(
   activation.testRun.completion = value;
   state.revision++;
   return graphCheckpointSchema.parse(state);
+}
+
+// Verify saved evidence before consuming a model result. No implicit no-test
+// approval: steps without explicitly configured tests stay reserved for now.
+function assertGraphConsumption(state: GraphCheckpoint, operationId: string, fingerprint: string) {
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (!activation || activation.receipt?.outcome !== 'completed' || activation.assessment?.status !== 'valid')
+    throw new TeamError('GRAPH_ASSESSMENT_REQUIRED', 'Completed native receipt and valid assessment required');
+  const step = state.source.definition.steps.find((item) => item.id === activation.stepId)!;
+  if (
+    step.access === 'read-only' &&
+    (!activation.integrity?.unchanged || activation.integrity.fingerprint !== fingerprint)
+  )
+    throw new TeamError('GRAPH_INTEGRITY_REQUIRED', 'Current unchanged read-only evidence required');
+  const run = activation.testRun;
+  if (!step.tests || !run?.completion)
+    throw new TeamError('GRAPH_TESTS_REQUIRED', 'Explicit completed independent tests required');
+  const completion = run.completion;
+  if (
+    completion.error ||
+    completion.results.length !== step.tests.length ||
+    completion.results.some((r) => r.exitCode !== 0 || r.timedOut || r.truncated)
+  )
+    throw new TeamError('GRAPH_TESTS_FAILED', 'Independent tests did not pass completely');
+  if (run.fingerprint !== fingerprint || completion.fingerprint !== fingerprint)
+    throw new TeamError('GRAPH_EVIDENCE_STALE', 'Repository changed since independent tests');
+  return activation.assessment.result;
+}
+
+export function consumeGraphEvidence(raw: GraphCheckpoint, operationId: string, fingerprint: string): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
+  if (activation.consumption) return state;
+  if (activation.result || state.status !== 'running')
+    throw new TeamError('GRAPH_NOT_RUNNING', 'Pending native activation required');
+  const result = assertGraphConsumption(state, operationId, fingerprintSchema.parse(fingerprint));
+  activation.consumption = { fingerprint };
+  return applyGraphResult(state, operationId, result);
 }

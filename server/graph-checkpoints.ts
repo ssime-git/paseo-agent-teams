@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import {
   createGraphCheckpoint,
+  consumeGraphEvidence,
   claimGraphTests,
   completeGraphTests,
   bindGraphDispatch,
@@ -178,6 +179,18 @@ export class GraphCheckpoints {
   ) {
     return this.update(id, workspaceId, expectedRevision, (state) =>
       completeGraphTests(state, operationId, attemptId, completion),
+    );
+  }
+
+  async consumeEvidence(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    fingerprint: string,
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) =>
+      consumeGraphEvidence(state, operationId, fingerprint),
     );
   }
 

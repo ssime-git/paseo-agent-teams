@@ -160,7 +160,7 @@ test('saved completed output is assessed durably without transitioning or releas
   assert.deepEqual(await restarted.assessReceipt(h.state.id, 'owner', 4, h.operationId), saved);
   await assert.rejects(
     restarted.resolve(h.state.id, 'owner', 6, h.operationId, { outcome: 'success', summary: 'Invented' }),
-    /Inconsistent/,
+    /consume verified evidence/,
   );
   await assert.rejects(restarted.reserve(h.state.id, 'owner', 6, randomUUID()), /cannot activate/);
   await assert.rejects(restarted.assessReceipt(h.state.id, 'foreign', 6, h.operationId), /access denied/);
@@ -200,7 +200,7 @@ test('missing or malformed output is retained without resend or manufactured gra
     assert.equal(saved.activations[0].dispatch?.attemptId, before.activations[0].dispatch?.attemptId);
     await assert.rejects(
       h.store.resolve(h.state.id, 'owner', 6, h.operationId, { outcome: 'success', summary: 'Ignore invalid output' }),
-      /Inconsistent/,
+      /consume verified evidence/,
     );
   }
 });
