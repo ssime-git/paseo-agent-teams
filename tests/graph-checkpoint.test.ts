@@ -324,3 +324,113 @@ test('human decisions and already resolved legacy operations cannot acquire nati
   corrupt.revision++;
   assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
 });
+
+test('explicit human decisions persist atomically, replay identically and cannot replace legacy results', async (t) => {
+  const { store, state } = await setup(t, true);
+  const build = randomUUID(),
+    human = randomUUID();
+  await store.reserve(state.id, 'owner', 1, build);
+  await store.resolve(state.id, 'owner', 2, build, { outcome: 'success', summary: 'Built' });
+  const pending = await store.reserve(state.id, 'owner', 3, human);
+  const restarted = new GraphCheckpoints(store.directory);
+  assert.deepEqual(await restarted.get(state.id, 'owner'), pending);
+  const decision = { id: randomUUID(), outcome: 'approve' as const, summary: 'Reviewed explicitly' };
+  await assert.rejects(restarted.decideHuman(state.id, 'other', 4, human, decision), /access denied/);
+  await assert.rejects(restarted.decideHuman(state.id, 'owner', 4, build, decision), /Only a human/);
+  await assert.rejects(restarted.decideHuman(state.id, 'owner', 3, human, decision), /changed/);
+  for (const summary of ['', '   ', 'a'.repeat(4001)])
+    await assert.rejects(restarted.decideHuman(state.id, 'owner', 4, human, { ...decision, summary }));
+  assert.deepEqual(await restarted.get(state.id, 'owner'), pending);
+  const decided = await restarted.decideHuman(state.id, 'owner', 4, human, decision);
+  assert.equal(decided.revision, 5);
+  assert.equal(decided.status, 'succeeded');
+  assert.deepEqual(decided.activations[1].humanDecision, decision);
+  const recovered = new GraphCheckpoints(store.directory);
+  assert.deepEqual(await recovered.decideHuman(state.id, 'owner', 1, human, decision), decided);
+  for (const change of [{ outcome: 'reject' as const }, { summary: 'Different' }, { id: randomUUID() }])
+    await assert.rejects(recovered.decideHuman(state.id, 'owner', 5, human, { ...decision, ...change }), /differently/);
+  for (const mutate of [
+    (s: typeof decided) => {
+      s.activations[1].humanDecision!.outcome = 'reject';
+    },
+    (s: typeof decided) => {
+      s.activations[1].humanDecision!.summary = 'Forged';
+    },
+    (s: typeof decided) => {
+      delete s.activations[1].result;
+    },
+    (s: typeof decided) => {
+      s.activations[0].humanDecision = decision;
+    },
+  ]) {
+    const corrupt = structuredClone(decided);
+    mutate(corrupt);
+    assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+  }
+  // Already persisted legacy approvals stay readable, without invented provenance.
+  const legacy = structuredClone(decided);
+  delete legacy.activations[1].humanDecision;
+  assert.equal(graphCheckpointSchema.safeParse(legacy).success, true);
+});
+
+test('competing explicit human decisions retain one winner and leave the next activation unreserved', async (t) => {
+  const { store, state } = await setup(t, true);
+  // Allow a correction after rejection so its pending state can be inspected.
+  const source = structuredClone(state.source);
+  source.definition.maxTransitions = 4;
+  const start = await store.create({ id: randomUUID(), repo: state.repo, task: state.task, source });
+  const build = randomUUID(),
+    human = randomUUID();
+  await store.reserve(start.id, 'owner', 1, build);
+  await store.resolve(start.id, 'owner', 2, build, { outcome: 'success', summary: 'Built' });
+  await store.reserve(start.id, 'owner', 3, human);
+  const rival = new GraphCheckpoints(store.directory);
+  const decisions = [
+    { id: randomUUID(), outcome: 'reject' as const, summary: 'Fix validation' },
+    { id: randomUUID(), outcome: 'approve' as const, summary: 'Accepted' },
+  ];
+  const outcomes = await Promise.allSettled(
+    decisions.map((d, i) => (i ? rival : store).decideHuman(start.id, 'owner', 4, human, d)),
+  );
+  assert.equal(outcomes.filter((o) => o.status === 'fulfilled').length, 1);
+  assert.equal(outcomes.filter((o) => o.status === 'rejected').length, 1);
+  const saved = await rival.get(start.id, 'owner');
+  assert.equal(saved.activations.length, 2);
+  assert.equal(saved.revision, 5);
+  assert.ok(saved.activations[1].humanDecision);
+  assert.equal(saved.status, saved.activations[1].result!.outcome === 'reject' ? 'ready' : 'succeeded');
+  assert.equal(saved.activations[1].dispatch, undefined);
+  assert.equal(JSON.parse(await readFile(join(store.directory, start.id, '4.json'), 'utf8')).status, 'waiting_human');
+});
+
+test('rejection preserves its reason across correction and decision IDs cannot be reused', async (t) => {
+  const { store, state } = await setup(t, true);
+  const source = structuredClone(state.source);
+  source.definition.maxTransitions = 4;
+  const graph = await store.create({ id: randomUUID(), repo: state.repo, task: state.task, source });
+  const build = randomUUID(),
+    human = randomUUID(),
+    correction = randomUUID(),
+    final = randomUUID();
+  await store.reserve(graph.id, 'owner', 1, build);
+  await store.resolve(graph.id, 'owner', 2, build, { outcome: 'success', summary: 'Built' });
+  await store.reserve(graph.id, 'owner', 3, human);
+  const decision = { id: randomUUID(), outcome: 'reject' as const, summary: 'Missing input validation' };
+  const rejected = await store.decideHuman(graph.id, 'owner', 4, human, decision);
+  assert.equal(rejected.status, 'ready');
+  assert.equal(rejected.nextStepId, 'code');
+  await store.reserve(graph.id, 'owner', 5, correction);
+  await store.resolve(graph.id, 'owner', 6, correction, { outcome: 'success', summary: 'Fixed' });
+  const waiting = await store.reserve(graph.id, 'owner', 7, final);
+  const restarted = new GraphCheckpoints(store.directory);
+  assert.deepEqual(await restarted.decideHuman(graph.id, 'owner', 4, human, decision), waiting);
+  await assert.rejects(restarted.decideHuman(graph.id, 'owner', 8, final, decision), /already used/);
+  assert.deepEqual(await restarted.get(graph.id, 'owner'), waiting);
+  // Compatibility path: a legacy explicit resolution cannot be relabelled later.
+  const approved = await restarted.resolve(graph.id, 'owner', 8, final, { outcome: 'approve', summary: 'Legacy' });
+  await assert.rejects(
+    restarted.decideHuman(graph.id, 'owner', 9, final, { ...decision, id: randomUUID() }),
+    /pending human/,
+  );
+  assert.equal(approved.activations[3].humanDecision, undefined);
+});

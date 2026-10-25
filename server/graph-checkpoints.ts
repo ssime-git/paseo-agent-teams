@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import {
   createGraphCheckpoint,
+  decideGraphHuman,
   consumeGraphEvidence,
   claimGraphTests,
   completeGraphTests,
@@ -138,6 +139,16 @@ export class GraphCheckpoints {
     return this.update(id, workspaceId, expectedRevision, (state) =>
       resolveGraphActivation(state, operationId, result),
     );
+  }
+
+  async decideHuman(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    decision: Parameters<typeof decideGraphHuman>[2],
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) => decideGraphHuman(state, operationId, decision));
   }
 
   async assessReceipt(id: string, workspaceId: string, expectedRevision: number, operationId: string) {

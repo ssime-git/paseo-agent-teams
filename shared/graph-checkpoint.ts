@@ -38,11 +38,20 @@ const assessmentSchema = z.discriminatedUnion('status', [
 
 const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
+export const graphHumanDecisionSchema = z
+  .object({
+    id: z.uuid(),
+    outcome: z.enum(['approve', 'reject']),
+    summary: z.string().trim().min(1).max(4000),
+  })
+  .strict();
+
 const activationSchema = z
   .object({
     operationId: z.uuid(),
     stepId: z.string(),
     result: resultSchema.optional(),
+    humanDecision: graphHumanDecisionSchema.optional(),
     receipt: graphReceiptSchema.optional(),
     assessment: assessmentSchema.optional(),
     integrity: z.object({ fingerprint: fingerprintSchema, unchanged: z.boolean() }).strict().optional(),
@@ -112,6 +121,20 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
     }
     operations.add(activation.operationId);
     const step = graph.steps.find((item) => item.id === next)!;
+    if (
+      activation.humanDecision &&
+      (step.contract !== 'human' ||
+        !activation.result ||
+        activation.result.artifact ||
+        activation.result.outcome !== activation.humanDecision.outcome ||
+        activation.result.summary !== activation.humanDecision.summary ||
+        state.activations.some(
+          (other) => other !== activation && other.humanDecision?.id === activation.humanDecision!.id,
+        ))
+    ) {
+      fail();
+      return;
+    }
     if (
       activation.dispatch &&
       (step.contract === 'human' ||
@@ -285,6 +308,33 @@ export function resolveGraphActivation(
   if (activation.dispatch?.attemptId)
     throw new TeamError('GRAPH_CONSUMPTION_REQUIRED', 'Native attempts must consume verified evidence');
   return applyGraphResult(state, operationId, result);
+}
+
+// Internal explicit-input boundary, never called by model parsing or a timeout.
+// The future authenticated UI adapter owns the assertion that a human submitted it.
+export function decideGraphHuman(
+  raw: GraphCheckpoint,
+  operationId: string,
+  input: z.infer<typeof graphHumanDecisionSchema>,
+): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const decision = graphHumanDecisionSchema.parse(input);
+  const activation = state.activations.find((item) => item.operationId === operationId);
+  if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
+  const step = state.source.definition.steps.find((item) => item.id === activation.stepId)!;
+  if (step.contract !== 'human')
+    throw new TeamError('GRAPH_HUMAN_STEP_REQUIRED', 'Only a human step accepts an explicit decision');
+  if (activation.humanDecision) {
+    if (JSON.stringify(activation.humanDecision) !== JSON.stringify(decision))
+      throw new TeamError('GRAPH_DECISION_CONFLICT', 'Human decision already recorded differently');
+    return state;
+  }
+  if (state.activations.some((item) => item.humanDecision?.id === decision.id))
+    throw new TeamError('GRAPH_DECISION_CONFLICT', 'Human decision ID already used by another operation');
+  if (activation.result || state.status !== 'waiting_human')
+    throw new TeamError('GRAPH_NOT_WAITING_HUMAN', 'A pending human checkpoint is required');
+  activation.humanDecision = decision;
+  return applyGraphResult(state, operationId, { outcome: decision.outcome, summary: decision.summary });
 }
 
 function applyGraphResult(state: GraphCheckpoint, operationId: string, result: z.infer<typeof resultSchema>) {
