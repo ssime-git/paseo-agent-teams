@@ -14,13 +14,13 @@ import { graphFingerprint, verifyGraphIntegrity } from '../server/graph-integrit
 import { runGraphTests } from '../server/graph-tests';
 import { graphDispatchPrompt } from '../server/graph-preparation';
 import { reserveGraphActivation } from '../shared/graph-checkpoint';
-import { consumeGraphResult } from '../server/graph-consumption';
+import { acceptGraphWithoutTests, consumeGraphResult } from '../server/graph-consumption';
 import { consumeGraphEvidence, rejectGraphTests } from '../shared/graph-checkpoint';
 
 async function setup(
   t: { after: (fn: () => Promise<void>) => void },
   commands = [{ command: 'printf tested', timeoutMs: 1000 }],
-  options: { access?: 'read-only' | 'write'; remaining?: string[]; maxTransitions?: number } = {},
+  options: { access?: 'read-only' | 'write'; remaining?: string[]; maxTransitions?: number; noTests?: boolean } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'teams-graph-tests-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -35,7 +35,7 @@ async function setup(
     review: { provider: 'codex/model', modeId: 'read-only' },
   });
   definition.steps[0].access = options.access ?? 'read-only';
-  definition.steps[0].tests = commands;
+  definition.steps[0].tests = options.noTests ? undefined : commands;
   if (options.maxTransitions !== undefined) definition.maxTransitions = options.maxTransitions;
   const source = await new DefinitionCatalog(join(directory, 'definitions')).save({
     workspaceId: 'owner',
@@ -413,4 +413,118 @@ test('rejected tests follow configured correction edges and activation budgets',
   assert.equal(exhausted.status, 'exhausted');
   assert.equal(exhausted.nextStepId, 'code');
   assert.deepEqual(exhausted.activations[0].assessment, h.state.activations[0].assessment);
+});
+
+test('explicit no-tests acceptance is atomic, scoped, concurrent and persistent without inventing test evidence', async (t) => {
+  const h = await setup(t, undefined, { noTests: true });
+  const decision = { id: randomUUID(), summary: 'Accept this inspection without shell tests' };
+  await assert.rejects(consumeGraphResult(h.api, h.store, h.input), /tests required/);
+  await assert.rejects(acceptGraphWithoutTests(h.api, h.store, { ...h.input, workspaceId: 'foreign' }, decision));
+  await assert.rejects(acceptGraphWithoutTests(h.api, h.store, { ...h.input, expectedRevision: 1 }, decision));
+  await assert.rejects(acceptGraphWithoutTests(h.api, h.store, h.input, { ...decision, summary: ' ' }));
+  const outcomes = await Promise.allSettled([
+    acceptGraphWithoutTests(h.api, h.store, h.input, decision),
+    acceptGraphWithoutTests(h.api, h.store, h.input, decision),
+  ]);
+  assert.ok(outcomes.some((r) => r.status === 'fulfilled'));
+  const done = await h.store.get(h.state.id, 'owner');
+  assert.equal(done.revision, h.state.revision + 1);
+  assert.equal(done.status, 'ready');
+  assert.equal(done.nextStepId, 'review');
+  assert.equal(done.activations.length, 1);
+  assert.equal(done.activations[0].testRun, undefined);
+  const assessment = h.state.activations[0].assessment;
+  assert.equal(assessment?.status, 'valid');
+  assert.deepEqual(done.activations[0].result, assessment?.status === 'valid' ? assessment.result : undefined);
+  await writeFile(join(h.repo, 'file'), 'changed after decision');
+  assert.deepEqual(
+    await acceptGraphWithoutTests(
+      h.api,
+      new GraphCheckpoints(h.store.directory),
+      { ...h.input, expectedRevision: 1 },
+      decision,
+    ),
+    done,
+  );
+  await assert.rejects(
+    acceptGraphWithoutTests(h.api, h.store, h.input, { ...decision, summary: 'Different' }),
+    /differently/,
+  );
+  for (const change of [
+    (state: typeof done) => {
+      delete state.activations[0].consumption;
+    },
+    (state: typeof done) => {
+      state.activations[0].noTestsDecision!.fingerprint = 'f'.repeat(64);
+    },
+    (state: typeof done) => {
+      state.source.definition.steps[0].tests = [{ command: 'false', timeoutMs: 1000 }];
+    },
+    (state: typeof done) => {
+      state.activations[0].result!.summary = 'Invented result';
+    },
+  ]) {
+    const corrupt = structuredClone(done);
+    change(corrupt);
+    assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+  }
+  const nextOp = randomUUID();
+  const next = reserveGraphActivation(done, nextOp);
+  assert.match(graphDispatchPrompt(next, nextOp), /Accept this inspection without shell tests/);
+});
+
+test('no-tests exception refuses stale read-only evidence and all configured test states', async (t) => {
+  const h = await setup(t, undefined, { noTests: true });
+  await writeFile(join(h.repo, 'file'), 'changed before acceptance');
+  await assert.rejects(
+    acceptGraphWithoutTests(h.api, h.store, h.input, { id: randomUUID(), summary: 'Accept' }),
+    /unchanged/,
+  );
+  assert.deepEqual(await h.store.get(h.state.id, 'owner'), h.state);
+  for (const kind of ['not_run', 'uncertain', 'failed', 'passed'] as const) {
+    const h = await setup(t, [{ command: kind === 'failed' ? 'exit 7' : 'true', timeoutMs: 1000 }]);
+    let state = h.state;
+    if (kind === 'uncertain')
+      state = await h.store.claimTests(
+        state.id,
+        'owner',
+        state.revision,
+        h.input.operationId,
+        randomUUID(),
+        await graphFingerprint(h.api, state),
+      );
+    if (kind === 'failed' || kind === 'passed') state = await runGraphTests(h.api, h.store, h.input);
+    await assert.rejects(
+      acceptGraphWithoutTests(
+        h.api,
+        h.store,
+        { ...h.input, expectedRevision: state.revision },
+        { id: randomUUID(), summary: 'No waiver' },
+      ),
+      /without configured tests/,
+    );
+    assert.deepEqual(await h.store.get(state.id, 'owner'), state);
+  }
+});
+
+test('no-tests acceptance preserves negative artifacts and finite budgets for write steps', async (t) => {
+  const h = await setup(t, undefined, { noTests: true, access: 'write', remaining: ['Unresolved defect'] });
+  assert.deepEqual(await new GraphCheckpoints(h.store.directory).get(h.state.id, 'owner'), h.state);
+  assert.equal(h.state.activations[0].noTestsDecision, undefined);
+  const done = await acceptGraphWithoutTests(h.api, h.store, h.input, {
+    id: randomUUID(),
+    summary: 'Accept absence of tests only',
+  });
+  assert.equal(done.activations[0].result?.outcome, 'failure');
+  assert.equal(done.status, 'failed');
+  assert.equal(done.activations[0].integrity, undefined);
+  assert.equal(done.activations[0].noTestsDecision?.fingerprint, done.activations[0].consumption?.fingerprint);
+  const b = await setup(t, undefined, { noTests: true, maxTransitions: 1 });
+  const exhausted = await acceptGraphWithoutTests(b.api, b.store, b.input, {
+    id: randomUUID(),
+    summary: 'Explicit decision',
+  });
+  assert.equal(exhausted.status, 'exhausted');
+  assert.equal(exhausted.nextStepId, 'review');
+  await assert.rejects(b.store.reserve(exhausted.id, 'owner', exhausted.revision, randomUUID()), /cannot activate/);
 });

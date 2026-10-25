@@ -24,3 +24,26 @@ export async function consumeGraphResult(
     await graphFingerprint(api, state),
   );
 }
+
+// Internal boundary: the future Team adapter must authenticate the human input.
+export async function acceptGraphWithoutTests(
+  api: PaseoApi,
+  checkpoints: GraphCheckpoints,
+  input: { id: string; workspaceId: string; expectedRevision: number; operationId: string },
+  decision: { id: string; summary: string },
+) {
+  const state = await checkpoints.get(input.id, input.workspaceId);
+  const activation = state.activations.find((a) => a.operationId === input.operationId);
+  if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
+  if (activation.noTestsDecision)
+    return checkpoints.acceptNoTests(state.id, input.workspaceId, input.expectedRevision, input.operationId, {
+      ...decision,
+      fingerprint: activation.noTestsDecision.fingerprint,
+    });
+  if (state.revision !== input.expectedRevision)
+    throw new TeamError('GRAPH_CONFLICT', 'Graph checkpoint changed; reload before retrying');
+  return checkpoints.acceptNoTests(state.id, input.workspaceId, state.revision, input.operationId, {
+    ...decision,
+    fingerprint: await graphFingerprint(api, state),
+  });
+}

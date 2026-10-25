@@ -60,6 +60,10 @@ const activationSchema = z
     stepId: z.string(),
     result: resultSchema.optional(),
     humanDecision: graphHumanDecisionSchema.optional(),
+    noTestsDecision: z
+      .object({ id: z.uuid(), summary: z.string().trim().min(1).max(4000), fingerprint: fingerprintSchema })
+      .strict()
+      .optional(),
     testRejection: z
       .object({
         id: z.uuid(),
@@ -199,7 +203,8 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
         activation.consumption ||
         activation.testRun ||
         activation.humanDecision ||
-        activation.testRejection
+        activation.testRejection ||
+        activation.noTestsDecision
       ) {
         fail();
         return;
@@ -241,6 +246,21 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
                 result.stdout.length > 128 * 1024 ||
                 result.stderr.length > 128 * 1024,
             )))
+      ) {
+        fail();
+        return;
+      }
+    }
+    if (activation.noTestsDecision) {
+      const decision = activation.noTestsDecision;
+      if (
+        step.tests ||
+        activation.testRun ||
+        activation.testRejection ||
+        !activation.result ||
+        !activation.consumption ||
+        decision.fingerprint !== activation.consumption.fingerprint ||
+        state.activations.some((other) => other !== activation && other.noTestsDecision?.id === decision.id)
       ) {
         fail();
         return;
@@ -716,7 +736,7 @@ export function rejectGraphTests(
 }
 
 // Verify saved evidence before consuming a model result. No implicit no-test
-// approval: steps without explicitly configured tests stay reserved for now.
+// approval: absent commands require a separately persisted human decision.
 function assertGraphConsumption(state: GraphCheckpoint, operationId: string, fingerprint: string) {
   const activation = state.activations.find((item) => item.operationId === operationId);
   if (!activation || activation.receipt?.outcome !== 'completed' || activation.assessment?.status !== 'valid')
@@ -728,6 +748,8 @@ function assertGraphConsumption(state: GraphCheckpoint, operationId: string, fin
   )
     throw new TeamError('GRAPH_INTEGRITY_REQUIRED', 'Current unchanged read-only evidence required');
   const run = activation.testRun;
+  if (!step.tests && activation.noTestsDecision?.fingerprint === fingerprint && !run)
+    return activation.assessment.result;
   if (!step.tests || !run?.completion)
     throw new TeamError('GRAPH_TESTS_REQUIRED', 'Explicit completed independent tests required');
   const completion = run.completion;
@@ -751,5 +773,32 @@ export function consumeGraphEvidence(raw: GraphCheckpoint, operationId: string, 
     throw new TeamError('GRAPH_NOT_RUNNING', 'Pending native activation required');
   const result = assertGraphConsumption(state, operationId, fingerprintSchema.parse(fingerprint));
   activation.consumption = { fingerprint };
+  return applyGraphResult(state, operationId, result);
+}
+
+// An explicit human exception for absent commands, never a waiver of failed,
+// uncertain or stale test evidence. Publish decision and consumption atomically.
+export function acceptGraphNoTests(
+  raw: GraphCheckpoint,
+  operationId: string,
+  input: { id: string; summary: string; fingerprint: string },
+): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const decision = activationSchema.shape.noTestsDecision.unwrap().parse(input);
+  const activation = state.activations.find((a) => a.operationId === operationId);
+  if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
+  if (activation.noTestsDecision) {
+    if (JSON.stringify(activation.noTestsDecision) !== JSON.stringify(decision))
+      throw new TeamError('GRAPH_DECISION_CONFLICT', 'No-tests decision already recorded differently');
+    return state;
+  }
+  if (state.activations.some((a) => a.noTestsDecision?.id === decision.id))
+    throw new TeamError('GRAPH_DECISION_CONFLICT', 'No-tests decision ID already used');
+  const step = state.source.definition.steps.find((s) => s.id === activation.stepId)!;
+  if (state.status !== 'running' || activation.result || step.tests || activation.testRun)
+    throw new TeamError('GRAPH_TESTS_NOT_READY', 'Pending activation without configured tests required');
+  activation.noTestsDecision = decision;
+  const result = assertGraphConsumption(state, operationId, decision.fingerprint);
+  activation.consumption = { fingerprint: decision.fingerprint };
   return applyGraphResult(state, operationId, result);
 }
