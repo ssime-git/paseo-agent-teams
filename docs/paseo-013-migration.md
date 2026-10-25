@@ -23,7 +23,7 @@ paseo plugin ls --json
 
 Before any rollout, ensure other repository editors and the plugin's workflow operations are inactive, and back up the daemon home and plugin data outside the repository. The plugin data defaults to `~/.local/state/paseo-agent-teams`, or the configured `PASEO_AGENT_TEAMS_DATA_DIR`. Keep existing state and locks intact.
 
-A 0.11 daemon with an installed 0.13 plugin-child runtime cannot be repaired by reloading only this plugin: its protocol rejects `requiresConfiguration`. The daemon and runtime must be aligned. **The user's existing instruction prohibits restarting the primary daemon.** This change prepares and validates the plugin; a primary restart needs explicit authorization or an action by the user. No global downgrade is required or performed.
+A 0.11 daemon with an installed 0.13 plugin-child runtime cannot be repaired by reloading only this plugin: its protocol rejects `requiresConfiguration`. The daemon and runtime must be aligned. **Primary cutover completed on 25 October 2026 after the user explicitly authorized this restart.** The primary daemon is now 0.13.0, the plugin is running and Team Auto is available. The four workflow file hashes and scheduled task identities/statuses were preserved. This authorization applies to this migration; it does not authorize unrelated future primary restarts. No global downgrade was performed.
 
 After an authorized alignment to 0.13, verify that the plugin is `running`, Team Auto is listed, persisted workflow state is retained, and its real sessions still match their workspaces. Reload only the plugin if it needs loading after the daemon alignment and its agents are inactive. Do not launch test missions against the user's main repositories.
 
