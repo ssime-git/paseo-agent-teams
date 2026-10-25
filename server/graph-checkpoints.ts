@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   createGraphCheckpoint,
   decideGraphHuman,
+  answerGraphClarification,
   consumeGraphEvidence,
   claimGraphTests,
   completeGraphTests,
@@ -149,6 +150,18 @@ export class GraphCheckpoints {
     decision: Parameters<typeof decideGraphHuman>[2],
   ) {
     return this.update(id, workspaceId, expectedRevision, (state) => decideGraphHuman(state, operationId, decision));
+  }
+
+  async answerClarification(
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    operationId: string,
+    answer: Parameters<typeof answerGraphClarification>[2],
+  ) {
+    return this.update(id, workspaceId, expectedRevision, (state) =>
+      answerGraphClarification(state, operationId, answer),
+    );
   }
 
   async assessReceipt(id: string, workspaceId: string, expectedRevision: number, operationId: string) {

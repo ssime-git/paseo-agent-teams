@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import { definitionRecordSchema, type DefinitionRecord } from './definition-catalog';
 import { TeamError } from './errors';
-import { planSchema, buildSchema, reviewSchema, testResultSchema } from './contracts';
+import {
+  planSchema,
+  buildSchema,
+  reviewSchema,
+  testResultSchema,
+  clarificationSchema,
+  clarificationAnswerSchema,
+} from './contracts';
 import { parseJson } from './artifacts';
 
 const artifactSchema = z.discriminatedUnion('contract', [
@@ -33,6 +40,7 @@ export const graphReceiptSchema = z
 
 const assessmentSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('valid'), result: resultSchema }).strict(),
+  z.object({ status: z.literal('clarification'), request: clarificationSchema }).strict(),
   z.object({ status: z.enum(['invalid', 'failed', 'canceled']), reason: z.string().min(1) }).strict(),
 ]);
 
@@ -52,6 +60,7 @@ const activationSchema = z
     stepId: z.string(),
     result: resultSchema.optional(),
     humanDecision: graphHumanDecisionSchema.optional(),
+    clarificationAnswers: z.array(clarificationAnswerSchema).min(1).max(10).optional(),
     receipt: graphReceiptSchema.optional(),
     assessment: assessmentSchema.optional(),
     integrity: z.object({ fingerprint: fingerprintSchema, unchanged: z.boolean() }).strict().optional(),
@@ -165,8 +174,41 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
     if (
       activation.assessment &&
       (!activation.receipt ||
-        JSON.stringify(activation.assessment) !== JSON.stringify(assessReceipt(step.contract, activation.receipt)))
+        JSON.stringify(activation.assessment) !==
+          JSON.stringify(
+            assessReceipt(step.contract, activation.receipt, activation.assessment.status === 'clarification'),
+          ))
     ) {
+      fail();
+      return;
+    }
+    if (activation.assessment?.status === 'clarification') {
+      if (
+        step.contract !== 'plan' ||
+        step.access !== 'read-only' ||
+        !activation.integrity?.unchanged ||
+        activation.result ||
+        activation.consumption ||
+        activation.testRun ||
+        activation.humanDecision
+      ) {
+        fail();
+        return;
+      }
+      const questions = activation.assessment.request.questions;
+      const answers = activation.clarificationAnswers ?? [];
+      if (
+        new Set(answers.map((a) => a.questionId)).size !== answers.length ||
+        answers.some((answer) => !validClarificationAnswer(questions, answer))
+      ) {
+        fail();
+        return;
+      }
+      status = answers.length === questions.length ? 'ready' : 'waiting_human';
+      // All answers return to this same step; they never produce a final plan.
+      continue;
+    }
+    if (activation.clarificationAnswers) {
       fail();
       return;
     }
@@ -254,7 +296,8 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
       assessments +
       integrity +
       state.activations.filter((a) => a.testRun).length +
-      state.activations.filter((a) => a.testRun?.completion).length
+      state.activations.filter((a) => a.testRun?.completion).length +
+      state.activations.reduce((count, a) => count + (a.clarificationAnswers?.length ?? 0), 0)
   )
     fail();
   if (state.activations.length > graph.maxTransitions) fail();
@@ -305,6 +348,8 @@ export function resolveGraphActivation(
       throw new TeamError('GRAPH_RESULT_CONFLICT', 'Operation already resolved with a different result');
     return state;
   }
+  if (activation.assessment?.status === 'clarification')
+    throw new TeamError('GRAPH_CLARIFICATION_PENDING', 'Clarification cannot produce a final result');
   if (activation.dispatch?.attemptId)
     throw new TeamError('GRAPH_CONSUMPTION_REQUIRED', 'Native attempts must consume verified evidence');
   return applyGraphResult(state, operationId, result);
@@ -335,6 +380,42 @@ export function decideGraphHuman(
     throw new TeamError('GRAPH_NOT_WAITING_HUMAN', 'A pending human checkpoint is required');
   activation.humanDecision = decision;
   return applyGraphResult(state, operationId, { outcome: decision.outcome, summary: decision.summary });
+}
+
+function validClarificationAnswer(
+  questions: z.infer<typeof clarificationSchema>['questions'],
+  answer: z.infer<typeof clarificationAnswerSchema>,
+) {
+  const question = questions.find((q) => q.id === answer.questionId);
+  return !!question && (!answer.optionId || question.options.some((o) => o.id === answer.optionId));
+}
+
+// One explicit answer per revision. Retries are immutable; no inferred defaults.
+export function answerGraphClarification(
+  raw: GraphCheckpoint,
+  operationId: string,
+  input: z.infer<typeof clarificationAnswerSchema>,
+): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const answer = clarificationAnswerSchema.parse(input);
+  const activation = state.activations.find((a) => a.operationId === operationId);
+  if (activation?.assessment?.status !== 'clarification')
+    throw new TeamError('GRAPH_CLARIFICATION_REQUIRED', 'A saved clarification is required');
+  if (!validClarificationAnswer(activation.assessment.request.questions, answer))
+    throw new TeamError('GRAPH_INVALID_ANSWER', 'Unknown clarification question or option');
+  const existing = activation.clarificationAnswers?.find((a) => a.questionId === answer.questionId);
+  if (existing) {
+    if (JSON.stringify(existing) !== JSON.stringify(answer))
+      throw new TeamError('GRAPH_ANSWER_CONFLICT', 'Question already answered differently');
+    return state;
+  }
+  if (state.status !== 'waiting_human')
+    throw new TeamError('GRAPH_NOT_WAITING_HUMAN', 'A pending clarification is required');
+  (activation.clarificationAnswers ??= []).push(answer);
+  if (activation.clarificationAnswers.length === activation.assessment.request.questions.length)
+    state.status = state.activations.length === state.source.definition.maxTransitions ? 'exhausted' : 'ready';
+  state.revision++;
+  return graphCheckpointSchema.parse(state);
 }
 
 function applyGraphResult(state: GraphCheckpoint, operationId: string, result: z.infer<typeof resultSchema>) {
@@ -369,11 +450,15 @@ function artifactOutcome(artifact: z.infer<typeof artifactSchema>): GraphOutcome
 function assessReceipt(
   contract: string,
   receipt: z.infer<typeof graphReceiptSchema>,
+  allowClarification = false,
 ): z.infer<typeof assessmentSchema> {
   if (receipt.outcome !== 'completed')
     return { status: receipt.outcome, reason: receipt.error || `Native turn ${receipt.outcome}` };
   try {
-    const artifact = artifactSchema.parse({ contract, value: parseJson(receipt.text ?? '') });
+    const value = parseJson(receipt.text ?? '');
+    if (allowClarification && contract === 'plan' && clarificationSchema.safeParse(value).success)
+      return { status: 'clarification', request: clarificationSchema.parse(value) };
+    const artifact = artifactSchema.parse({ contract, value });
     return {
       status: 'valid',
       result: { outcome: artifactOutcome(artifact), summary: artifact.value.summary, artifact },
@@ -394,7 +479,13 @@ export function assessGraphReceipt(raw: GraphCheckpoint, operationId: string): G
   if (activation.result || state.status !== 'running')
     throw new TeamError('GRAPH_NOT_RUNNING', 'A pending native activation is required');
   const step = state.source.definition.steps.find((item) => item.id === activation.stepId)!;
-  activation.assessment = assessReceipt(step.contract, activation.receipt);
+  const assessment = assessReceipt(step.contract, activation.receipt, true);
+  if (assessment.status === 'clarification') {
+    if (step.access !== 'read-only' || !activation.integrity?.unchanged)
+      throw new TeamError('GRAPH_INTEGRITY_REQUIRED', 'Clarification requires unchanged read-only evidence');
+    state.status = 'waiting_human';
+  }
+  activation.assessment = assessment;
   state.revision++;
   return graphCheckpointSchema.parse(state);
 }
