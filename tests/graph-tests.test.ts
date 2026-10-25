@@ -12,8 +12,10 @@ import { codeReviewPreset, workflowDefinitionSchema } from '../shared/workflow-d
 import { graphCheckpointSchema } from '../shared/graph-checkpoint';
 import { graphFingerprint, verifyGraphIntegrity } from '../server/graph-integrity';
 import { runGraphTests } from '../server/graph-tests';
+import { graphDispatchPrompt } from '../server/graph-preparation';
+import { reserveGraphActivation } from '../shared/graph-checkpoint';
 import { consumeGraphResult } from '../server/graph-consumption';
-import { consumeGraphEvidence } from '../shared/graph-checkpoint';
+import { consumeGraphEvidence, rejectGraphTests } from '../shared/graph-checkpoint';
 
 async function setup(
   t: { after: (fn: () => Promise<void>) => void },
@@ -306,4 +308,109 @@ test('consumption respects the transition budget and preserves historical resolv
     () => consumeGraphEvidence(errored, h.input.operationId, errored.activations[0].testRun!.fingerprint),
     /did not pass/,
   );
+});
+
+test('explicit test rejection preserves evidence, transitions once and replays across stores', async (t) => {
+  for (const kind of ['not_run', 'uncertain', 'failed', 'absent'] as const) {
+    const h = await setup(t, [{ command: 'printf failure >&2; exit 7', timeoutMs: 1000 }]);
+    let state = h.state;
+    if (kind === 'uncertain')
+      state = await h.store.claimTests(
+        state.id,
+        'owner',
+        state.revision,
+        h.input.operationId,
+        randomUUID(),
+        await graphFingerprint(h.api, state),
+      );
+    if (kind === 'failed') state = await runGraphTests(h.api, h.store, h.input);
+    // Legacy definitions may have no tests; do not invent approval for them.
+    if (kind === 'absent') {
+      delete state.source.definition.steps[0].tests;
+      const decision = { id: randomUUID(), summary: 'No tests explicitly rejected' };
+      const done = rejectGraphTests(state, h.input.operationId, decision);
+      assert.equal(done.status, 'failed');
+      assert.equal(done.activations[0].testRejection?.reason, kind);
+      continue;
+    }
+    const decision = { id: randomUUID(), summary: 'Explicitly reject blocked tests' };
+    const outcomes = await Promise.allSettled([
+      h.store.rejectTests(state.id, 'owner', state.revision, h.input.operationId, decision),
+      h.store.rejectTests(state.id, 'owner', state.revision, h.input.operationId, decision),
+    ]);
+    assert.ok(outcomes.some((r) => r.status === 'fulfilled'));
+    const done = await h.store.get(state.id, 'owner');
+    assert.equal(done.revision, state.revision + 1);
+    assert.equal(done.status, 'failed');
+    assert.equal(done.activations[0].testRejection?.reason, kind);
+    assert.deepEqual(done.activations[0].testRun, state.activations[0].testRun);
+    assert.deepEqual(done.activations[0].assessment, state.activations[0].assessment);
+    assert.equal(done.activations[0].result?.artifact, undefined);
+    assert.equal(done.activations[0].consumption, undefined);
+    assert.deepEqual(
+      await new GraphCheckpoints(h.store.directory).rejectTests(state.id, 'owner', 1, h.input.operationId, decision),
+      done,
+    );
+    await assert.rejects(
+      h.store.rejectTests(state.id, 'owner', done.revision, h.input.operationId, {
+        ...decision,
+        summary: 'Contradictory decision',
+      }),
+      /differently/,
+    );
+    const corrupt = structuredClone(done);
+    corrupt.activations[0].testRejection!.reason = 'absent';
+    assert.equal(graphCheckpointSchema.safeParse(corrupt).success, false);
+    const approved = structuredClone(done);
+    approved.activations[0].result!.outcome = 'success';
+    assert.equal(graphCheckpointSchema.safeParse(approved).success, false);
+    if (kind === 'uncertain')
+      await assert.rejects(
+        h.store.completeTests(
+          done.id,
+          'owner',
+          done.revision,
+          h.input.operationId,
+          done.activations[0].testRun!.attemptId,
+          { results: [], fingerprint: 'f'.repeat(64), error: 'Late completion' },
+        ),
+        /Pending activation/,
+      );
+  }
+});
+
+test('test rejection enforces scope, revisions, explicit input and refuses passing evidence', async (t) => {
+  const h = await setup(t);
+  const decision = { id: randomUUID(), summary: 'Reject without rerun' };
+  await assert.rejects(h.store.rejectTests(h.state.id, 'foreign', h.state.revision, h.input.operationId, decision));
+  await assert.rejects(h.store.rejectTests(h.state.id, 'owner', 1, h.input.operationId, decision), /changed/);
+  await assert.rejects(
+    h.store.rejectTests(h.state.id, 'owner', h.state.revision, h.input.operationId, { ...decision, summary: ' ' }),
+  );
+  const passed = await runGraphTests(h.api, h.store, h.input);
+  await assert.rejects(
+    h.store.rejectTests(passed.id, 'owner', passed.revision, h.input.operationId, decision),
+    /Passing tests/,
+  );
+  assert.deepEqual(await h.store.get(passed.id, 'owner'), passed);
+});
+
+test('rejected tests follow configured correction edges and activation budgets', async (t) => {
+  const h = await setup(t);
+  const state = structuredClone(h.state);
+  state.source.definition.steps[0].transitions.find((e) => e.outcome === 'failure')!.target = 'code';
+  const decision = { id: randomUUID(), summary: 'Correction required after missing tests' };
+  const corrected = rejectGraphTests(state, h.input.operationId, decision);
+  assert.equal(corrected.status, 'ready');
+  assert.equal(corrected.nextStepId, 'code');
+  assert.equal(corrected.activations.length, 1); // No automatic reservation or dispatch.
+  const nextOp = randomUUID();
+  const next = reserveGraphActivation(corrected, nextOp);
+  assert.match(graphDispatchPrompt(next, nextOp), /Correction required after missing tests/);
+  assert.match(graphDispatchPrompt(next, nextOp), /not_run/);
+  state.source.definition.maxTransitions = 1;
+  const exhausted = rejectGraphTests(state, h.input.operationId, decision);
+  assert.equal(exhausted.status, 'exhausted');
+  assert.equal(exhausted.nextStepId, 'code');
+  assert.deepEqual(exhausted.activations[0].assessment, h.state.activations[0].assessment);
 });

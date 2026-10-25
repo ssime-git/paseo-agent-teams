@@ -108,6 +108,7 @@ export function graphDispatchPrompt(state: GraphCheckpoint, operationId: string)
           stepId: item.stepId,
           operationId: item.operationId,
           result: item.result,
+          ...(item.testRejection ? { testRejection: item.testRejection, testRun: item.testRun } : {}),
           ...(item.assessment?.status === 'clarification'
             ? {
                 clarification: item.assessment.request,

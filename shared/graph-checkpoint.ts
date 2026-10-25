@@ -60,6 +60,14 @@ const activationSchema = z
     stepId: z.string(),
     result: resultSchema.optional(),
     humanDecision: graphHumanDecisionSchema.optional(),
+    testRejection: z
+      .object({
+        id: z.uuid(),
+        summary: z.string().trim().min(1).max(4000),
+        reason: z.enum(['absent', 'not_run', 'uncertain', 'failed']),
+      })
+      .strict()
+      .optional(),
     clarificationAnswers: z.array(clarificationAnswerSchema).min(1).max(10).optional(),
     receipt: graphReceiptSchema.optional(),
     assessment: assessmentSchema.optional(),
@@ -190,7 +198,8 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
         activation.result ||
         activation.consumption ||
         activation.testRun ||
-        activation.humanDecision
+        activation.humanDecision ||
+        activation.testRejection
       ) {
         fail();
         return;
@@ -237,6 +246,22 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
         return;
       }
     }
+    if (activation.testRejection) {
+      const rejection = activation.testRejection;
+      if (
+        activation.assessment?.status !== 'valid' ||
+        rejection.reason !== graphTestBlocker(step, activation) ||
+        !activation.result ||
+        activation.result.artifact ||
+        activation.consumption ||
+        activation.result.outcome !== 'failure' ||
+        activation.result.summary !== rejection.summary ||
+        state.activations.some((other) => other !== activation && other.testRejection?.id === rejection.id)
+      ) {
+        fail();
+        return;
+      }
+    }
     if (!activation.result) {
       if (activation.consumption) {
         fail();
@@ -247,6 +272,7 @@ export const graphCheckpointSchema = checkpointShape.superRefine((state, ctx) =>
     }
     if (
       activation.assessment &&
+      !activation.testRejection &&
       (activation.assessment.status !== 'valid' ||
         JSON.stringify(activation.result) !== JSON.stringify(activation.assessment.result))
     ) {
@@ -640,6 +666,53 @@ export function completeGraphTests(
   activation.testRun.completion = value;
   state.revision++;
   return graphCheckpointSchema.parse(state);
+}
+
+// A rejection can release a blocked activation through its configured failure edge.
+// It cannot accept missing/uncertain tests or turn a model artifact into approval.
+function graphTestBlocker(
+  step: DefinitionRecord['definition']['steps'][number],
+  activation: GraphCheckpoint['activations'][number],
+): 'absent' | 'not_run' | 'uncertain' | 'failed' | undefined {
+  if (!step.tests) return 'absent';
+  if (!activation.testRun) return 'not_run';
+  const completion = activation.testRun.completion;
+  if (!completion) return 'uncertain';
+  if (
+    completion.error ||
+    completion.results.length !== step.tests.length ||
+    completion.results.some((r) => r.exitCode !== 0 || r.timedOut || r.truncated)
+  )
+    return 'failed';
+  return undefined;
+}
+
+export function rejectGraphTests(
+  raw: GraphCheckpoint,
+  operationId: string,
+  input: { id: string; summary: string },
+): GraphCheckpoint {
+  const state = graphCheckpointSchema.parse(raw);
+  const decision = z
+    .object({ id: z.uuid(), summary: z.string().trim().min(1).max(4000) })
+    .strict()
+    .parse(input);
+  const activation = state.activations.find((a) => a.operationId === operationId);
+  if (!activation) throw new TeamError('GRAPH_OPERATION_NOT_FOUND', 'Unknown graph operation');
+  if (activation.testRejection) {
+    if (activation.testRejection.id !== decision.id || activation.testRejection.summary !== decision.summary)
+      throw new TeamError('GRAPH_DECISION_CONFLICT', 'Test rejection already recorded differently');
+    return state;
+  }
+  if (state.activations.some((a) => a.testRejection?.id === decision.id))
+    throw new TeamError('GRAPH_DECISION_CONFLICT', 'Test rejection ID already used');
+  if (state.status !== 'running' || activation.result || activation.assessment?.status !== 'valid')
+    throw new TeamError('GRAPH_TESTS_NOT_READY', 'Pending valid native assessment required');
+  const step = state.source.definition.steps.find((s) => s.id === activation.stepId)!;
+  const reason = graphTestBlocker(step, activation);
+  if (!reason) throw new TeamError('GRAPH_TESTS_PASSED', 'Passing tests cannot be rejected as blocked');
+  activation.testRejection = { ...decision, reason };
+  return applyGraphResult(state, operationId, { outcome: 'failure', summary: decision.summary });
 }
 
 // Verify saved evidence before consuming a model result. No implicit no-test
