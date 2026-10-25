@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@getpaseo/plugin": "0.11.2",
+    "@getpaseo/plugin": "0.13.0",
     "@tanstack/react-query": "^5.90.11",
     "@types/node": "^26.6.5",
     "@types/react": "~19.2.0",
@@ -45,7 +45,7 @@
     "zod": "^4.4.3"
   },
   "dependencies": {
-    "@getpaseo/client": "0.11.2"
+    "@getpaseo/client": "0.13.0"
   },
   "type": "module",
   "engines": {

@@ -24,6 +24,7 @@ import { defaultTeam, teamSettings, TEAM_PROVIDER_ID } from '../shared/team-comp
 import { configSchema } from '../shared/contracts';
 import { Store } from './store';
 import { captureGraphReceipt } from './graph-receipts';
+import { completedTurnTimeline } from './turn-timeline';
 import { DefinitionCatalog } from './definition-catalog';
 import { saveDefinitionRpc, listDefinitionsRpc, definitionHistoryRpc } from '../shared/definition-catalog';
 import { PaseoRuntime } from './runtime';
@@ -278,7 +279,15 @@ export function contributeServer(server: PluginServerContext) {
   });
   server.on('agent.turn_ended', async (event, context) => {
     nativeApi = context.paseo;
-    await captureGraphReceipt(store.graphs, event);
+    const linked =
+      (await store.forAgent(event.agent.id)).length ||
+      (await store.graphs.all()).some((state) =>
+        state.activations.some((a) => a.dispatch?.agentId === event.agent.id && !a.result),
+      );
+    if (!linked) return;
+    const timeline = await completedTurnTimeline(context.paseo, event);
+    if (!timeline) return;
+    await captureGraphReceipt(store.graphs, { ...event, timeline });
     return forAgent(event.agent.id, (engine) =>
       engine.receipt(
         event.agent.id,
@@ -288,7 +297,7 @@ export function contributeServer(server: PluginServerContext) {
               status: 'error',
               error: event.outcome.kind === 'failed' ? event.outcome.error.message : event.outcome.reason,
             },
-        event.timeline,
+        timeline,
       ),
     );
   });

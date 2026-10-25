@@ -14,7 +14,7 @@ export async function captureGraphReceipt(
       (item) => item.dispatch?.agentId === event.agent.id && item.dispatch.attemptId,
     );
     if (!activation?.dispatch || activation.result) continue;
-    // The hook carries this turn's native timeline. Require the exact bound
+    // The hook adapter supplies this turn's native history. Require the exact bound
     // prompt, once, with no additional human message that could change its task.
     const users = event.timeline.filter((item) => item.type === 'user_message');
     if (users.length !== 1 || users[0].text !== activation.dispatch.prompt) continue;
