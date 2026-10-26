@@ -216,6 +216,10 @@ export function contributeServer(server: PluginServerContext) {
           throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Native Team owner unavailable');
         return agent.agent.workspaceId;
       },
+      graphs: async (workspaceId, ownerAgentId) => {
+        await bind();
+        return listSavedGraphs(recoveryClient!, store.graphs, { workspaceId, ownerAgentId });
+      },
       list: (workspaceId) => store.all().then((all) => all.filter((w) => w.workspaceId === workspaceId)),
       get: (id, workspaceId) => store.authorize(id, workspaceId),
       create: async (workspaceId, task, config, requestId, ownerAgentId) =>

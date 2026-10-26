@@ -93,7 +93,7 @@ async function setup(t: { after(fn: () => Promise<void>): void }, language: 'fr'
       sessionId: 'session',
       prompt: { clientMessageId: id, delivery: 'auto', input },
     });
-  return { connection, events, calls, open, prompt, workflow: () => w, provider };
+  return { connection, events, calls, open, prompt, workflow: () => w, provider, backend };
 }
 
 test('native Team catalog, detected role settings, explicit approval and idempotent prompt delivery', async (t) => {
@@ -380,4 +380,74 @@ test('/team-status answers in the thread with who has control and the team', asy
     said.at(-1)!,
     /^\*\*Code is working\.\*\*\n\nPlan · Codex · Detected — Code · Codex · Detected — Review · Codex · Detected\n\nCorrection 0\/2\.$/,
   );
+});
+
+test('native graph discovery works before a V1 mission, persists and replays without execution', async (t) => {
+  const s = await setup(t, 'en');
+  const scopes: unknown[] = [];
+  s.backend.graphs = async (workspaceId, ownerAgentId) => {
+    scopes.push({ workspaceId, ownerAgentId });
+    return [];
+  };
+  await s.open();
+  await s.prompt('graphs', { type: 'message', content: [{ type: 'text', text: '/team-graphs' }] });
+  assert.deepEqual(scopes, [
+    { workspaceId: s.workflow().workspaceId, ownerAgentId: '00000000-0000-4000-8000-000000000001' },
+  ]);
+  assert.equal(s.calls.length, 0);
+  assert.match(JSON.stringify(s.events), /No admitted graphs/);
+  assert.ok(s.events.some((e) => e.type === 'session.turn' && e.state === 'completed'));
+  const persisted = s.events.filter((e) => e.type === 'session.persistence').at(-1);
+  assert.ok(persisted?.type === 'session.persistence');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  s.events.length = 0;
+  await s.open(persisted.persistence);
+  assert.match(JSON.stringify(s.events), /No admitted graphs/);
+  await s.prompt('graphs', { type: 'command', name: 'team-graphs', arguments: '' });
+  assert.equal(scopes.length, 1); // Lost prompt acknowledgement replays the saved report.
+  assert.equal(s.calls.length, 0);
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Implement now' }] });
+  assert.equal(s.calls.length, 1); // Discovery never binds or replaces the V1 receipt.
+});
+
+test('native graph discovery errors and arguments never create a mission or invent a report', async (t) => {
+  const s = await setup(t);
+  s.backend.graphs = async () => {
+    throw new Error('Native Team owner unavailable');
+  };
+  await s.open();
+  await s.prompt('extra', { type: 'command', name: 'team-graphs', arguments: 'approve' });
+  await s.prompt('denied', { type: 'command', name: 'team-graphs', arguments: '' });
+  assert.equal(s.calls.length, 0);
+  const results = s.events.filter((e) => e.type === 'session.prompt_result');
+  assert.equal(results.length, 2);
+  assert.ok(results.every((e) => e.type === 'session.prompt_result' && e.result.type === 'failed'));
+  assert.ok(!JSON.stringify(s.events).includes('Aucun graphe admis'));
+});
+
+test('native graph report coexists with a V1 mission without approving or resuming it', async (t) => {
+  const s = await setup(t);
+  s.backend.graphs = async () => [];
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Wait for approval' }] });
+  await s.prompt('graphs', { type: 'command', name: 'team-graphs', arguments: '' });
+  assert.equal(s.calls.length, 1);
+  assert.equal(s.workflow().status, 'awaiting_plan');
+  assert.match(JSON.stringify(s.events), /Aucun graphe admis/);
+});
+
+test('graph report projection failure finishes the accepted native turn with an error', async (t) => {
+  const s = await setup(t);
+  s.backend.graphs = async () => [];
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Wait for approval' }] });
+  const get = s.backend.get;
+  let reads = 0;
+  s.backend.get = async (...args) => {
+    if (++reads > 1) throw new Error('Workflow read failed');
+    return get(...args);
+  };
+  await s.prompt('graphs', { type: 'command', name: 'team-graphs', arguments: '' });
+  assert.ok(s.events.some((e) => e.type === 'session.turn' && e.turnId === 'team:turn:graphs' && e.state === 'failed'));
+  assert.equal(s.calls.length, 1);
 });

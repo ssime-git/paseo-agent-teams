@@ -43,6 +43,7 @@ The thread shows each step as it happens:
 
 - **go** (or `ok`, `yes`, `oui`, `lgtm`) approves a waiting plan or result. Any other message asks for changes, or a follow-up once the mission is complete.
 - When Plan asks questions, answer in the thread. With several questions, write one answer per line: `1. …`, `2. …`.
+- `/team-graphs` lists graphs explicitly admitted for this conversation (up to 10), with saved version, current revision, step, activation budget and waiting state. Reports persist across reconnects. This read-only command works before a V1 mission and does not launch, continue or approve a graph. Admission and graph decisions currently require the client RPCs; a visual launcher is still pending.
 - `/team-status` shows who has control and what is awaited. Other commands: `/team-pause`, `/team-resume`, `/team-approve`, `/team-approve-no-tests`.
 - The stop button pauses the team. A role turn already in progress is allowed to finish.
 

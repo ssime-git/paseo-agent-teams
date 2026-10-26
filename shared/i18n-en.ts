@@ -1,5 +1,19 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Afficher les graphes de cette conversation': 'Show graphs owned by this conversation',
+  'Aucun graphe admis pour cette conversation.': 'No admitted graphs for this conversation.',
+  'Prêt à continuer': 'Ready to continue',
+  'Étape en cours': 'Step in progress',
+  'En attente de décision humaine': 'Waiting for a human decision',
+  'Terminé avec succès': 'Completed successfully',
+  Échec: 'Failed',
+  'Limite atteinte': 'Limit reached',
+  'Graphes de cette conversation : {count}': 'Graphs owned by this conversation: {count}',
+  'Version sauvegardée {version} · révision {revision}': 'Saved version {version} · revision {revision}',
+  'Étape : {step} · activations : {used}/{max}': 'Step: {step} · activations: {used}/{max}',
+  'Affichage limité à 10 graphes.': 'Showing at most 10 graphs.',
+  'Lecture seule : aucune continuation ni approbation.': 'Read only: no continuation or approval.',
+
   'Des questions attendent votre réponse.': 'Questions are waiting for your answer.',
   'Le plan attend votre accord.': 'The plan is waiting for your approval.',
   'Le résultat attend votre accord.': 'The result is waiting for your approval.',

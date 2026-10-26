@@ -140,4 +140,14 @@ foreign workspaces and other Team conversations are excluded. A moved repository
 or corrupt durable graph state fails closed; no partial success hides such evidence.
 Like the other RPCs, this trusts the daemon client rather than claiming individual
 human authentication. Listing is read only: no admission, continuation, model turn,
-permission answer or checkpoint migration. Team UI discovery still needs wiring.
+permission answer or checkpoint migration.
+
+Team Auto now exposes this discovery through `/team-graphs`. The provider resolves
+actual native placement and delegates to the same ownership/Git checks. It writes a
+localized, bounded report (10 graphs) to its existing V1 session transcript, preserving
+its language and checkpoint revision when replayed. A fresh invocation reads current
+snapshots; retransmission of an acknowledged message ID replays the saved report.
+This also works before a V1 mission exists and neither binds a V1 receipt to a graph
+nor creates a mission. Existing V1 workflows and role dispatch remain unchanged.
+Admission, explicit continuation and human decisions still need native UI wiring;
+there is no automatic graph polling or scheduler in this command.

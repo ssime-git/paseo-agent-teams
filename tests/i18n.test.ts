@@ -9,6 +9,7 @@ const files = [
   ...readdirSync('client').map((f) => `client/${f}`),
   'index.client.tsx',
   'server/team-provider.ts',
+  'server/graph-status.ts',
   'server/team-timeline.ts',
 ].filter((f) => /\.tsx?$/.test(f));
 const literal = String.raw`'((?:[^'\\\n]|\\.)*)'`;
