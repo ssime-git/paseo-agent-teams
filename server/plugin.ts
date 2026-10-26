@@ -24,6 +24,8 @@ import { defaultTeam, teamSettings, TEAM_PROVIDER_ID } from '../shared/team-comp
 import { configSchema } from '../shared/contracts';
 import { Store } from './store';
 import { captureGraphReceipt } from './graph-receipts';
+import { graphRecordRpc, graphActionRpc } from '../shared/graph-actions';
+import { submitGraphAction } from './graph-actions';
 import { completedTurnTimeline } from './turn-timeline';
 import { DefinitionCatalog } from './definition-catalog';
 import { saveDefinitionRpc, listDefinitionsRpc, definitionHistoryRpc } from '../shared/definition-catalog';
@@ -37,6 +39,8 @@ export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
   const store = new Store(directory);
   const definitions = new DefinitionCatalog(join(directory, 'definitions'));
+  server.handle(graphRecordRpc, async ({ id, workspaceId }) => store.graphs.get(id, workspaceId));
+  server.handle(graphActionRpc, async (input, { paseo }) => submitGraphAction(paseo, store.graphs, input));
   server.handle(saveDefinitionRpc, async (input, { paseo }) => {
     if (!(await paseo.workspaces.ref(input.workspaceId).refresh()))
       throw new TeamError('WORKSPACE_NOT_FOUND', 'Workspace not found');
