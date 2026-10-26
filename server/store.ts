@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { TeamError } from '../shared/errors';
 import { mkdir, readFile, readdir, rename, writeFile, rm } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
@@ -52,6 +53,19 @@ export class Store {
   // Git common-directory identity and validate native permissions before dispatch.
   async createGraph(input: Parameters<typeof createGraphCheckpoint>[0]) {
     return this.withRepositoryAdmission(async () => {
+      if (input.admission) {
+        const existing = (await this.graphs.all()).find((graph) => graph.id === input.id);
+        if (existing) {
+          if (
+            existing.repo !== input.repo ||
+            existing.task !== input.task ||
+            !isDeepStrictEqual(existing.source, input.source) ||
+            !isDeepStrictEqual(existing.admission, input.admission)
+          )
+            throw new TeamError('GRAPH_CONFLICT', 'Graph admission was already used differently');
+          return existing;
+        }
+      }
       await this.assertCanCreate(input.repo);
       const blocker = (await this.all()).find((w) => w.status !== 'completed' && scopesOverlap(w, input));
       if (blocker) throw new TeamError('REPOSITORY_LOCKED', `Another workflow holds this repository: ${blocker.id}`);

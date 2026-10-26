@@ -119,6 +119,10 @@ const checkpointShape = z
     repo: z.string().min(1),
     task: z.string().trim().min(1),
     source: definitionRecordSchema,
+    admission: z
+      .object({ ownerAgentId: z.string().min(1), approvedDefinition: z.literal(true) })
+      .strict()
+      .optional(),
     status: z.enum(['ready', 'running', 'waiting_human', 'succeeded', 'failed', 'exhausted']),
     nextStepId: z.string().nullable(),
     activations: z.array(activationSchema),
@@ -356,6 +360,7 @@ export function createGraphCheckpoint(input: {
   repo: string;
   task: string;
   source: DefinitionRecord;
+  admission?: GraphCheckpoint['admission'];
 }): GraphCheckpoint {
   return graphCheckpointSchema.parse({
     kind: 'graph',

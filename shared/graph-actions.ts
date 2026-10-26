@@ -30,3 +30,21 @@ export const graphActionRpc = defineRpc({
     .strict(),
   output: graphCheckpointSchema,
 });
+
+// Admission freezes this exact saved revision, including commands, modes and limits.
+// A true confirmation is mandatory; it is never inferred from a model or timeout.
+export const graphAdmitRpc = defineRpc({
+  name: 'teams.graph_admit',
+  input: z
+    .object({
+      id: z.uuid(),
+      workspaceId: z.string().min(1),
+      ownerAgentId: z.string().min(1),
+      definitionId: z.uuid(),
+      definitionRevision: z.number().int().positive(),
+      task: z.string().trim().min(1).max(16000),
+      approveDefinition: z.literal(true),
+    })
+    .strict(),
+  output: graphCheckpointSchema,
+});
