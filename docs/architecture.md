@@ -131,3 +131,13 @@ that is the next boundary. It never submits human decisions, answers permissions
 polls or automatically continues. Human/clarification waiting remains persistent.
 No new configuration, state migration, V1 behavior or UI is introduced. Team UI must
 still show the approved snapshot and reasons and deliberately request each continuation.
+
+`teams.graph_list` recovers admitted checkpoints for an explicit workspace/native
+Team owner after a client reconnects without retaining run IDs. It revalidates the
+workspace, native owner/provider/directory and Git identity before returning exact
+snapshots (including terminal history), sorted by graph ID. Internal legacy graphs,
+foreign workspaces and other Team conversations are excluded. A moved repository
+or corrupt durable graph state fails closed; no partial success hides such evidence.
+Like the other RPCs, this trusts the daemon client rather than claiming individual
+human authentication. Listing is read only: no admission, continuation, model turn,
+permission answer or checkpoint migration. Team UI discovery still needs wiring.

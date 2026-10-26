@@ -182,3 +182,18 @@ Preuves `proof.json`, `restart-proof.json`, `discovery.json` dans cette racine ;
 `/tmp/teams-continuation-{start,restart,stop-final}.log`. Daemon isolé arrêté après essai.
 La préparation/envoi/tests réels de l’exécuteur restent couverts par le passage
 antérieur sur le port 6904 ; cet essai ne les revendique pas via le nouveau RPC.
+
+### 26 octobre 2026 — récupération des graphes admis après reconnexion
+
+Daemon officiel 0.13.0 séparé sur `127.0.0.1:6908`, home/état/dépôt dans
+`/tmp/teams-recovery-live-agmm0bcu`, voix/dictée/relais désactivés. Script SDK/RPC
+`/tmp/teams-recovery-live.mts` : deux conversations natives Team Auto sans message,
+modèles Codex détectés, zéro tour de modèle. `teams.graph_list` renvoie la liste vide
+avant admission, le snapshot exact après admission puis après réservation humaine ;
+une autre conversation ne voit pas le graphe, un propriétaire inconnu et les champs
+supplémentaires sont refusés. Après arrêt/démarrage du seul daemon isolé, la liste
+retrouve le checkpoint profondément identique, toujours en attente sans décision ni
+activation supplémentaire. README inchangé, deux sessions propriétaires seulement.
+Preuves `proof.json`, `restart-proof.json`, `discovery.json` dans la racine ci-dessus ;
+daemon isolé arrêté, `/tmp/teams-recovery-status-stopped.json`. Aucun essai UI,
+mobile, Claude ou modèle exécuté revendiqué pour cet incrément de lecture.

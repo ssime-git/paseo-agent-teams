@@ -19,6 +19,12 @@ export const graphRecordRpc = defineRpc({
   input: scope,
   output: graphCheckpointSchema,
 });
+// Recover admitted runs after a client reconnects without retaining their IDs.
+export const graphListRpc = defineRpc({
+  name: 'teams.graph_list',
+  input: z.object({ workspaceId: z.string().min(1), ownerAgentId: z.string().min(1) }).strict(),
+  output: z.array(graphCheckpointSchema),
+});
 export const graphActionRpc = defineRpc({
   name: 'teams.graph_action',
   input: scope
