@@ -197,3 +197,41 @@ activation supplémentaire. README inchangé, deux sessions propriétaires seule
 Preuves `proof.json`, `restart-proof.json`, `discovery.json` dans la racine ci-dessus ;
 daemon isolé arrêté, `/tmp/teams-recovery-status-stopped.json`. Aucun essai UI,
 mobile, Claude ou modèle exécuté revendiqué pour cet incrément de lecture.
+
+## 27 octobre 2026 — statut des graphes dans le thread Team Auto
+
+Commit produit `6a6b670`. Daemon officiel **0.13.0** isolé sur `127.0.0.1:6909`,
+home/états/dépôt `/tmp/teams-native-graphs-live-nivhl9bz`. SDK et timeline natifs
+réels ; modèles Codex découverts, **aucun tour de modèle** lancé.
+
+`/team-graphs` avant une mission V1 renvoie une liste vide, puis affiche un graphe
+humain explicitement admis par RPC et réservé en `waiting_human`. Une autre
+conversation Team reste vide. Après arrêt/démarrage isolé, nouvel appel natif :
+compte rendu présent et checkpoint profondément identique. Seulement deux agents
+Team natifs, README inchangé. Script `/tmp/teams-native-graphs-live.mts`, preuves
+`proof.json`, `restart-proof.json` et `discovery.json` sous la racine isolée.
+
+Chromium réel, application officielle embarquée : **1440 × 1050** et **390 × 844**,
+compte rendu français visible (version, révision, attente humaine et budget 1/1),
+aucun débordement horizontal de page ni erreur JavaScript. Captures inspectées :
+[desktop](screenshots/graph-status-desktop.png), [mobile](screenshots/graph-status-mobile.png).
+Script `/tmp/teams-native-graphs-browser.mjs`, `ui-proof.json` et textes/captures
+sous la racine isolée. Ces captures valident ce compte rendu français ; elles ne
+valident pas le futur lanceur, l’éditeur ou les actions humaines. L’anglais et les
+réponses partielles sont couverts par les tests automatisés, pas par ce navigateur.
+
+Le premier essai natif a été refusé car l’URL de récupération du plugin isolé
+n’avait pas été définie ; correction de l’environnement isolé avant réussite.
+Les premiers essais navigateur recevaient HTTP 404 (interface web désactivée).
+Activation de `features.webUi.enabled` dans le seul fichier de configuration
+jetable, puis réussite. Aucun changement de configuration principal ou de Paseo.
+Daemon isolé arrêté à la fin (`/tmp/teams-native-graphs-status-stopped.json`).
+
+`npm run check` vert : **291 tests**, typecheck/lint/format ; six nouveaux tests
+couvrent présentation, langues, limites, clarification partielle, accès et entrées,
+rejeu persistant sans mission V1, coexistence V1 et erreur de projection qui termine
+le tour. Sessions/API simulées dans les tests unitaires. Log
+`/tmp/teams-native-graphs-check-verified.log`. Plugin principal rechargé seul après
+contrôle d’inactivité : running, PID superviseur **1923177**, worker **134766** et
+quatre états persistés SHA-256 inchangés. Preuves
+`/tmp/teams-native-graphs-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
