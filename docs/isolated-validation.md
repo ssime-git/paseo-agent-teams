@@ -137,3 +137,30 @@ Daemon officiel **0.13.0** isolé `127.0.0.1:6905`, home/données/dépôts `/tmp
 Après arrêt/démarrage isolé : checkpoint profondément identique et replay de la même décision toujours inerte, zéro agent. Preuves `proof.json`, `restart-proof.json`, `discovery.json` dans cette racine ; logs `/tmp/teams-human-{daemon,restart}.log`, statut arrêté `/tmp/teams-human-status-stopped.json`. Les premières tentatives du harnais ont exposé deux erreurs du script (résultat SDK paginé traité comme tableau ; champs supplémentaires transmis au RPC de lecture strict), corrigées avant la réussite finale. Elles n'ont lancé aucun agent et ne constituent pas un défaut produit. Le premier checkpoint fixture reste dans son dépôt isolé ; aucun verrou supprimé pour relancer l'essai.
 
 `tests/graph-actions.test.ts` couvre séparément les quatre actions, les réponses partielles puis libres, reprise disque, concurrence, contradictions, révisions, workspace absent/étranger et changement de dépôt. Ses reçus natifs sont simulés, les dépôts et checkpoints sont réels. `npm run check` : **274 tests verts**, typecheck/lint/format réussis (`/tmp/teams-human-check.log`). Aucun écran, parcours humain Team Auto, conversation native, Claude ou contrôle mobile revendiqué par cet incrément. L'authentification reste celle du transport RPC du daemon ; aucune nouvelle authentification individuelle n'est ajoutée.
+
+### 26 October 2026 — saved graph admission and native Team ownership
+
+Official daemon **0.13.0** at `127.0.0.1:6906`, disposable home/data/Git repository
+`/tmp/teams-admission-live-gayt7i8x`. Script `/tmp/teams-admission-live.mts` uses the
+real SDK and RPC transport to save a definition, discover Codex models and create
+one actual native `agent-teams/auto` conversation without sending a prompt. The
+admission RPC rejects false confirmation, an unknown owner and a missing revision.
+Two concurrent identical requests return one ready checkpoint, with the exact saved
+source and owner, zero activations. A later saved definition revision does not alter
+the snapshot; contradictory replay and a second repository admission are rejected.
+No model turn, independent shell test or native child session was launched.
+
+After stopping and starting only this isolated daemon: admission replay and record
+are deeply identical, the sole native session is still the Team owner, with no graph
+activation. Evidence: `proof.json`, `restart-proof.json`, `discovery.json` in that root;
+logs `/tmp/teams-admission-{daemon,restart}.log`. The isolated daemon was stopped
+(`/tmp/teams-admission-status-stopped.json`). This is an actual RPC/session integration,
+not a Team UI launch, model execution, Claude or mobile validation.
+
+`npm run check`: **277 tests pass**, typecheck/lint/format succeed, log
+`/tmp/teams-admission-check.log`. Three new automated tests use actual temporary Git
+repositories/catalog/checkpoint files and simulated workspace/agent APIs. They cover
+exact revision/commands, confirmation, owner/workspace scope, replay after reload and
+progress, conflicts, concurrency and moved-workspace rejection. Primary plugin-only
+reload succeeded, with the same daemon PIDs/identity/version and four byte-identical
+workflow files (`/tmp/teams-admission-primary-{before,after,status-before,status-after,plugins,reload}.json`).

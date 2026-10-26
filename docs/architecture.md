@@ -96,3 +96,24 @@ Cette fonction reste une frontière **interne**, sans appel depuis les hooks, RP
 Graph decisions now have explicit plugin RPC boundaries: `teams.graph_record` reads a workspace-scoped checkpoint; `teams.graph_action` accepts only `decide`, `answer`, `reject_tests` or `accept_no_tests`, an operation ID and an expected revision. Strict contracts reject missing decisions, empty answers, unknown fields and unsupported actions. The server verifies checkpoint ownership, resolves the live official workspace and compares its canonical Git common-directory identity before any mutation, including retries. A deleted or moved workspace cannot submit decisions; its scoped record remains readable. The daemon's normal plugin RPC access is the trust boundary; these handlers are not registered as model tools or invoked by hooks, timers or parsed model output. This is not an additional per-user authentication system.
 
 Decisions use the existing immutable checkpoints: matching retries remain inert, contradictory or stale submissions fail, and concurrent writers cannot publish the same next revision. Accepting absent tests still snapshots current repository evidence; it cannot waive configured tests or manufacture shell results. Answering the final clarification or approving a human step may mark a graph ready, but never reserves or sends its next activation. No graph launch/advance RPC or UI is exposed yet. Team Auto ownership, launch admission from a saved definition, the editor and bounded continuation still need integration before this becomes a product workflow.
+
+`teams.graph_admit` now reserves a graph from an exact saved definition revision.
+The strict client RPC requires `approveDefinition: true`, an explicit graph UUID,
+workspace, native Team owner, definition ID/revision and task. The official workspace
+and agent APIs verify the owner uses `agent-teams` in that workspace/directory;
+the server resolves the canonical Git identity and reads the immutable catalog
+revision, rather than accepting a client-supplied execution definition. Optional
+checkpoint `admission` metadata preserves ownership and explicit snapshot approval
+without migrating historical graphs or V1 operations. Approval covers the selected
+revision's steps, models/modes, shell commands and limits; later catalog edits do
+not change that snapshot. This is daemon-client trust, not individual human identity.
+
+Admission uses the existing Store critical section and V1/graph repository gates.
+Identical UUID/scope/task/source/owner replays return the current persisted checkpoint,
+even after progress/restart; contradictory replays fail. Workspace and owner are
+revalidated before replay. It does not create native sessions, send prompts, execute
+tests, answer permissions or advance the graph. Provider availability and native
+permission validation remain the responsibility of preparation before any dispatch.
+There is no Team UI launch control or provider continuation wiring yet; do not treat
+this RPC as an end-to-end custom workflow launcher. Existing workspace-scoped decision
+RPCs retain their daemon-client authorization model.
