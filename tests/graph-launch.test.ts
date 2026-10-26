@@ -8,9 +8,10 @@ import type { PaseoApi } from '@getpaseo/client';
 import { admitSavedGraph } from '../server/graph-admission';
 import { Store } from '../server/store';
 import { DefinitionCatalog } from '../server/definition-catalog';
-import { git } from '../server/git';
+import { git, repository } from '../server/git';
 import { codeReviewPreset } from '../shared/workflow-definition';
-import { graphAdmitRpc } from '../shared/graph-actions';
+import { continueSavedGraph } from '../server/graph-continuation';
+import { graphAdvanceRpc, graphAdmitRpc } from '../shared/graph-actions';
 
 async function setup(t: { after(fn: () => Promise<void>): void }) {
   const directory = await mkdtemp(join(tmpdir(), 'teams-graph-launch-'));
@@ -48,6 +49,7 @@ async function setup(t: { after(fn: () => Promise<void>): void }) {
   const admit = (overrides = {}, target = store) => admitSavedGraph(api, target, catalog, { ...input, ...overrides });
   return {
     data,
+    api,
     store,
     catalog,
     definition,
@@ -121,4 +123,102 @@ test('concurrent identical admissions publish once; moved workspace cannot repla
   setOwner({ workspaceId: input.workspaceId, provider: 'agent-teams', cwd: other });
   await assert.rejects(admit({}, new Store(data)), /used differently/);
   assert.deepEqual(await store.graphs.get(a.id, input.workspaceId), a);
+});
+
+test('explicit Team continuation reserves one boundary, stale retries and restart never reserve twice', async (t) => {
+  const { api, store, input, admit, data } = await setup(t);
+  const graph = await admit();
+  const request = {
+    id: graph.id,
+    workspaceId: input.workspaceId,
+    ownerAgentId: input.ownerAgentId,
+    expectedRevision: graph.revision,
+  };
+  const next = await continueSavedGraph(api, store.graphs, request);
+  assert.equal(graphAdvanceRpc.output.safeParse(next).success, true);
+  assert.equal(next.reason, 'reserved');
+  assert.equal(next.state.activations.length, 1);
+  assert.equal(next.state.activations[0].dispatch, undefined);
+  const stale = await continueSavedGraph(api, new Store(data).graphs, request);
+  assert.equal(stale.status, 'stale');
+  assert.deepEqual(stale.state, next.state);
+  // The next call would require real preparation APIs absent from this fixture.
+  // No hidden loop has attempted to create a native child or send a prompt.
+});
+
+test('continuation validates strict request, admission, owner and live repository even on stale replay', async (t) => {
+  const { api, store, input, admit, setOwner, setWorkspace, cwd } = await setup(t);
+  const graph = await admit();
+  const request = {
+    id: graph.id,
+    workspaceId: input.workspaceId,
+    ownerAgentId: input.ownerAgentId,
+    expectedRevision: 1,
+  };
+  for (const override of [
+    { ownerAgentId: undefined },
+    { expectedRevision: 0 },
+    { approveDefinition: true },
+    { submission: {} },
+  ])
+    assert.equal(graphAdvanceRpc.input.safeParse({ ...request, ...override }).success, false);
+  await assert.rejects(continueSavedGraph(api, store.graphs, { ...request, workspaceId: 'foreign' }));
+  await assert.rejects(
+    continueSavedGraph(api, store.graphs, { ...request, ownerAgentId: 'other' }),
+    /admission required/,
+  );
+  for (const owner of [
+    null,
+    { workspaceId: 'foreign', provider: 'agent-teams', cwd },
+    { workspaceId: input.workspaceId, provider: 'codex', cwd },
+    { workspaceId: input.workspaceId, provider: 'agent-teams', cwd: '/elsewhere' },
+  ]) {
+    setOwner(owner);
+    await assert.rejects(continueSavedGraph(api, store.graphs, request), /owner unavailable/);
+  }
+  setOwner({ workspaceId: input.workspaceId, provider: 'agent-teams', cwd });
+  setWorkspace(null);
+  await assert.rejects(continueSavedGraph(api, store.graphs, request), /directory is missing/);
+  setWorkspace({ workspaceDirectory: '/tmp' });
+  setOwner({ workspaceId: input.workspaceId, provider: 'agent-teams', cwd: '/tmp' });
+  await assert.rejects(
+    continueSavedGraph(api, store.graphs, request),
+    /not an accessible Git repository|no longer matches/,
+  );
+  assert.deepEqual(await store.graphs.get(graph.id, input.workspaceId), graph);
+});
+
+test('legacy internal graph cannot be continued through client RPC without explicit admission', async (t) => {
+  const { api, store, source, input, cwd } = await setup(t);
+  const graph = await store.createGraph({ id: input.id, repo: (await repository(cwd)).lock, task: input.task, source });
+  await assert.rejects(
+    continueSavedGraph(api, store.graphs, {
+      id: graph.id,
+      workspaceId: input.workspaceId,
+      ownerAgentId: input.ownerAgentId,
+      expectedRevision: 1,
+    }),
+    /admission required/,
+  );
+  assert.deepEqual(await store.graphs.get(graph.id, input.workspaceId), graph);
+});
+
+test('concurrent continuations cannot spend a second activation or progress another boundary', async (t) => {
+  const { api, store, input, admit, data } = await setup(t);
+  const graph = await admit();
+  const request = {
+    id: graph.id,
+    workspaceId: input.workspaceId,
+    ownerAgentId: input.ownerAgentId,
+    expectedRevision: graph.revision,
+  };
+  const results = await Promise.allSettled([
+    continueSavedGraph(api, store.graphs, request),
+    continueSavedGraph(api, new Store(data).graphs, request),
+  ]);
+  assert.ok(results.some((result) => result.status === 'fulfilled' && result.value.reason === 'reserved'));
+  const saved = await new Store(data).graphs.get(graph.id, input.workspaceId);
+  assert.equal(saved.activations.length, 1);
+  assert.equal(saved.revision, 2);
+  assert.equal(saved.activations[0].dispatch, undefined);
 });

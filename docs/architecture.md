@@ -90,12 +90,12 @@ Cette frontière interne ne permet aucune approbation ni dérogation aux tests. 
 
 Sans reçu officiel, l'exécuteur observe seulement l'opération native : même idle/accepted reste en attente de reçu. Permissions et envois incertains ne sont jamais répondus ou rejoués. Les checkpoints humains et clarifications attendent leurs réponses explicites. Une réponse complète autorise une nouvelle réservation sur la même étape, avec le contexte conservé. Les sorties invalides/failed/canceled, violations de lecture seule, tentatives de tests incertaines et preuves périmées restent bloquées ; les tests absents demandent la décision humaine séparée. Les résultats négatifs valides avec tests indépendants réussis suivent leur arête d'échec configurée. Aucun rejet, correction ni exception n'est inventé.
 
-Cette fonction reste une frontière **interne**, sans appel depuis les hooks, RPC, écran ou scheduler de production. L'adaptateur Team doit encore authentifier le lancement et les commandes sauvegardées, présenter les motifs d'attente et déclencher les appels suivants avec leur révision. Les seuls identifiants de raisons ajoutés sont internes ; aucune interface utilisateur n'est modifiée. Les limites préexistantes restent applicables : découverte des providers 20 s, envoi initial 20 s, commandes sauvegardées au plus 120 s par étape, aucune nouvelle boucle de modèle.
+Cette fonction interne est désormais appelée uniquement par le RPC client explicite `teams.graph_advance`, après contrôle de l’admission, du propriétaire Team et du dépôt (voir ci-dessous). Aucun hook, écran ni scheduler ne la déclenche automatiquement. L'adaptateur Team doit encore authentifier le lancement et les commandes sauvegardées, présenter les motifs d'attente et déclencher les appels suivants avec leur révision. Les seuls identifiants de raisons ajoutés sont internes ; aucune interface utilisateur n'est modifiée. Les limites préexistantes restent applicables : découverte des providers 20 s, envoi initial 20 s, commandes sauvegardées au plus 120 s par étape, aucune nouvelle boucle de modèle.
 
 
 Graph decisions now have explicit plugin RPC boundaries: `teams.graph_record` reads a workspace-scoped checkpoint; `teams.graph_action` accepts only `decide`, `answer`, `reject_tests` or `accept_no_tests`, an operation ID and an expected revision. Strict contracts reject missing decisions, empty answers, unknown fields and unsupported actions. The server verifies checkpoint ownership, resolves the live official workspace and compares its canonical Git common-directory identity before any mutation, including retries. A deleted or moved workspace cannot submit decisions; its scoped record remains readable. The daemon's normal plugin RPC access is the trust boundary; these handlers are not registered as model tools or invoked by hooks, timers or parsed model output. This is not an additional per-user authentication system.
 
-Decisions use the existing immutable checkpoints: matching retries remain inert, contradictory or stale submissions fail, and concurrent writers cannot publish the same next revision. Accepting absent tests still snapshots current repository evidence; it cannot waive configured tests or manufacture shell results. Answering the final clarification or approving a human step may mark a graph ready, but never reserves or sends its next activation. No graph launch/advance RPC or UI is exposed yet. Team Auto ownership, launch admission from a saved definition, the editor and bounded continuation still need integration before this becomes a product workflow.
+Decisions use the existing immutable checkpoints: matching retries remain inert, contradictory or stale submissions fail, and concurrent writers cannot publish the same next revision. Accepting absent tests still snapshots current repository evidence; it cannot waive configured tests or manufacture shell results. Answering the final clarification or approving a human step may mark a graph ready, but never reserves or sends its next activation. Saved admission and bounded continuation now have separate client RPCs (see below). The editor and Team UI still need integration before this becomes a product workflow.
 
 `teams.graph_admit` now reserves a graph from an exact saved definition revision.
 The strict client RPC requires `approveDefinition: true`, an explicit graph UUID,
@@ -117,3 +117,17 @@ permission validation remain the responsibility of preparation before any dispat
 There is no Team UI launch control or provider continuation wiring yet; do not treat
 this RPC as an end-to-end custom workflow launcher. Existing workspace-scoped decision
 RPCs retain their daemon-client authorization model.
+
+
+`teams.graph_advance` exposes one bounded execution boundary to authenticated daemon
+clients. Its strict request includes graph/workspace, expected revision and the
+persisted native Team owner. The server refuses internal legacy checkpoints without
+explicit admission, then revalidates the official workspace, Team provider/directory
+and canonical Git identity, even on stale retries. The executor returns its status,
+reason and current checkpoint; stale revisions cannot execute the next boundary.
+Concurrent publication uses existing immutable checkpoint arbitration, without retries.
+This RPC can prepare/send a model turn or execute previously approved tests when
+that is the next boundary. It never submits human decisions, answers permissions,
+polls or automatically continues. Human/clarification waiting remains persistent.
+No new configuration, state migration, V1 behavior or UI is introduced. Team UI must
+still show the approved snapshot and reasons and deliberately request each continuation.

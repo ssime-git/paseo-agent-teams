@@ -24,8 +24,9 @@ import { defaultTeam, teamSettings, TEAM_PROVIDER_ID } from '../shared/team-comp
 import { configSchema } from '../shared/contracts';
 import { Store } from './store';
 import { captureGraphReceipt } from './graph-receipts';
-import { graphRecordRpc, graphActionRpc, graphAdmitRpc } from '../shared/graph-actions';
+import { graphRecordRpc, graphActionRpc, graphAdmitRpc, graphAdvanceRpc } from '../shared/graph-actions';
 import { admitSavedGraph } from './graph-admission';
+import { continueSavedGraph } from './graph-continuation';
 import { submitGraphAction } from './graph-actions';
 import { completedTurnTimeline } from './turn-timeline';
 import { DefinitionCatalog } from './definition-catalog';
@@ -40,6 +41,7 @@ export function contributeServer(server: PluginServerContext) {
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
   const store = new Store(directory);
   const definitions = new DefinitionCatalog(join(directory, 'definitions'));
+  server.handle(graphAdvanceRpc, async (input, { paseo }) => continueSavedGraph(paseo, store.graphs, input));
   server.handle(graphAdmitRpc, async (input, { paseo }) => admitSavedGraph(paseo, store, definitions, input));
   server.handle(graphRecordRpc, async ({ id, workspaceId }) => store.graphs.get(id, workspaceId));
   server.handle(graphActionRpc, async (input, { paseo }) => submitGraphAction(paseo, store.graphs, input));

@@ -48,3 +48,16 @@ export const graphAdmitRpc = defineRpc({
     .strict(),
   output: graphCheckpointSchema,
 });
+
+// Explicit continuation, separate from human decisions. One durable boundary only.
+export const graphAdvanceRpc = defineRpc({
+  name: 'teams.graph_advance',
+  input: scope.extend({ ownerAgentId: z.string().min(1), expectedRevision: z.number().int().positive() }).strict(),
+  output: z
+    .object({
+      status: z.enum(['progressed', 'waiting', 'blocked', 'terminal', 'stale']),
+      reason: z.string(),
+      state: graphCheckpointSchema,
+    })
+    .strict(),
+});

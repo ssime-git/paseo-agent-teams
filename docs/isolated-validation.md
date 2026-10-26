@@ -164,3 +164,21 @@ exact revision/commands, confirmation, owner/workspace scope, replay after reloa
 progress, conflicts, concurrency and moved-workspace rejection. Primary plugin-only
 reload succeeded, with the same daemon PIDs/identity/version and four byte-identical
 workflow files (`/tmp/teams-admission-primary-{before,after,status-before,status-after,plugins,reload}.json`).
+
+
+## 26 octobre 2026 — continuation explicite bornée par RPC
+
+Daemon officiel **0.13.0** isolé `127.0.0.1:6907`, home/données/dépôt
+`/tmp/teams-continuation-live-5bqchq9h`, voix/dictée/relais désactivés.
+Script `/tmp/teams-continuation-live.mts` : SDK officiel, découverte Codex réelle,
+conversation Team Auto native sans message et définition sauvegardée à une étape
+humaine (budget 1). Admission explicitement confirmée puis vrai RPC
+`teams.graph_advance` : propriétaire inconnu et champs supplémentaires refusés,
+une seule réservation, attente humaine persistée, rejeu périmé inerte et appel
+courant toujours en attente. Après arrêt/démarrage du seul daemon isolé : checkpoint
+profondément identique, attente conservée et une seule session native. README intact,
+**zéro tour de modèle** ; aucun test shell ni interface interactive revendiqué.
+Preuves `proof.json`, `restart-proof.json`, `discovery.json` dans cette racine ; logs
+`/tmp/teams-continuation-{start,restart,stop-final}.log`. Daemon isolé arrêté après essai.
+La préparation/envoi/tests réels de l’exécuteur restent couverts par le passage
+antérieur sur le port 6904 ; cet essai ne les revendique pas via le nouveau RPC.
