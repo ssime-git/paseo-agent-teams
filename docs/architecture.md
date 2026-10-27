@@ -181,5 +181,31 @@ using the discovery checks before delegating to existing strict graph actions. T
 RPC trusts authenticated daemon clients; it does not claim individual human identity.
 Existing graph RPCs and V1 operations retain their contracts. The modal currently
 covers admitted graph human steps and clarifications; admission, test exceptions,
-and a graphical response form for historical V1 Planner questions remain separate
-work for the roadmap.
+remain separate work for the roadmap.
+
+
+Automatic response cards are projected by the native provider without a chat command.
+GraphCheckpoints notifies observers only after a checkpoint is durably published;
+observer failures cannot undo or mutate the committed state. The Team backend marks
+only that owner's open sessions dirty. The existing serialized projection cycle reads
+graph metadata once at session opening/recovery and after notifications, coalescing
+changes without polling models or advancing graph boundaries. A wait card is keyed by
+graph + activation, persisted in the native transcript, and carries its graph ID
+internally so the existing modal targets the right run automatically. Reopening a
+session also discovers already pending waits; it never assumes approval or resends.
+
+For V1 Planner clarifications, the same projection records an `agent-teams-question`
+card as soon as a pending request is observed. Optional metadata enriches older pending
+transcript entries without replacing their text or V1 operations. Text replay remains
+available without `timeline.plugin`. Projection now includes freshly recorded entries
+in the current pass rather than deferring their display until the following cycle.
+
+The native Planner modal reads current answers with `teams.planner_question` and
+submits one explicit option/free response using `teams.planner_answer`. Both bind
+workspace, native Team owner, durable create receipt and canonical Git repository.
+The answer RPC accepts only clarification answers and delegates to the existing V1
+engine with an exact revision and stable request key. It cannot approve plans or
+respond to native permissions. Partial answers remain waiting; complete answers follow
+the existing configured resume policy. Modal closure and timeouts never submit answers.
+Historical request cards open the current pending state rather than blindly applying
+an old choice. Graph waits keep their separate explicit continuation semantics.

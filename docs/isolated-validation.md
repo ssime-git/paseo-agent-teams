@@ -325,3 +325,69 @@ Seul le plugin principal a été rechargé après inactivité et contrôles vert
 PID superviseur **1923177**, worker **134766**, identité/version inchangées et quatre
 SHA-256 V1 conservés. Preuves
 `/tmp/teams-response-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
+
+## 27 octobre 2026 — carte automatique de réponse dans le chat
+
+Incrément `a0a8f4f`. Sans commande utilisateur, les attentes des graphes admis et
+les clarifications du Planner V1 affichent une carte **En attente de réponse →
+Répondre** dans la conversation Team. Le bouton ouvre le modal avec la demande
+persistée courante ; la carte d'un graphe cible ce graphe automatiquement. Les
+anciens transcripts en attente sont enrichis de métadonnées sans effacer leur texte.
+Les clients sans `timeline.plugin` conservent la restitution texte.
+
+Daemon officiel **0.13.0**, `127.0.0.1:6912`, home/états/dépôt isolés sous
+`/tmp/teams-auto-card-live-9c0dpp59`, voix/dictée/relais désactivés. Script
+`/tmp/teams-auto-card-live.mts` : découverte officielle Codex, session Team chargée
+par l'API de lecture des commandes natives (aucun prompt), admission/réservation
+explicite d'un graphe humain. La carte est retrouvée dans la timeline sans message
+`/team-graphs` ni `/team-advance` et sans tour de modèle (`graph-proof.json`). Ce
+checkpoint a ensuite été approuvé explicitement par le harnais pour libérer le dépôt.
+
+Deuxième phase : réglages du seul hôte isolé sauvegardés avec le RPC officiel des
+settings, rôles sur le modèle Codex réellement découvert **GPT-6.1-Sol**. Un message
+naturel à Team demande deux précisions avant tout plan. **Un seul tour Planner
+réel**, deux questions structurées, carte native automatique et aucun envoi Builder.
+Cinq agents natifs existent (deux conversations Team et trois sessions de rôles
+préallouées) ; la session Builder existe mais sa timeline ne contient aucun message
+utilisateur, sans tour actif. Ne pas confondre création d'une session et exécution.
+
+Chromium **1440 × 1050** et **390 × 844** : carte visible sans saisie d'identifiant ou
+commande, ouverture du modal, recommandation affichée sans présélection, réponse libre
+mobile à la première question et seconde question toujours en attente. Zéro erreur JS
+et débordement horizontal. Scripts `/tmp/teams-auto-card-browser{,-final}.mjs`, preuves
+`planner-proof.json`, `ui-proof.json`, `ui-final-proof.json`, `partial-proof.json` et
+`restart-proof.json` dans la racine. Le harnais de vérification
+`/tmp/teams-auto-card-verify.mts` contrôle la réponse persistée, la seconde question,
+l'absence de prompt Builder, le README intact et une seule carte après restauration.
+L'arrêt natif met le workflow en pause selon le comportement V1 existant ; ses
+réponses/questions restent conservées. Le second redémarrage depuis cette pause
+conserve le workflow profondément identique, sans nouveau tour Planner ou Builder.
+
+Captures finales inspectées après correction du rendu Markdown et attente de
+l'animation native : [carte desktop](screenshots/automatic-question-desktop.png),
+[carte mobile](screenshots/automatic-question-mobile.png),
+[modal desktop](screenshots/automatic-question-modal-desktop.png),
+[modal mobile](screenshots/automatic-question-modal-mobile.png). Le modal final montre
+la seconde question après réponse partielle et redémarrage. Pas de navigateur anglais,
+Claude, appareil iOS/Android physique ou résolution complète des deux questions
+revendiqués pour cet incrément. Daemon isolé arrêté à la fin
+(`/tmp/teams-auto-card-status-stopped.json`).
+
+`npm run check` final : **300 tests**, zéro échec, typecheck/lint/format verts
+(`/tmp/teams-auto-card-check-final-verified.log`). Quatre tests ajoutés : notification
+durable sans mutation/annulation par un observateur, carte de graphe automatique sans
+prompt/relecture seulement sur changement/reprise sans doublon, carte Planner
+spontanée avec restauration d'un ancien transcript, contrôle propriétaire natif/dépôt
+pour les réponses V1. Le test UI existant vérifie aussi le ciblage automatique du
+modal graphe. Les tests unitaires simulent les APIs natives ; le parcours Codex et
+navigateur décrit ci-dessus est réel. Fixtures et harnais corrigés lorsqu'ils
+supposaient à tort qu'une session Builder préallouée devait être absente/idle après
+arrêt, qu'une fermeture V1 ne produisait pas son action pause, ou omettaient le marqueur
+d'opération requis dans une fixture. Le sélecteur navigateur a été précisé pour
+distinguer le titre de question dans la carte et dans le modal. Aucun contrat produit
+assoupli pour faire passer ces essais.
+
+Seul le plugin principal a été rechargé après contrôles verts et inactivité : running,
+superviseur **1923177**, worker **134766**, identité/version inchangées, quatre SHA-256
+V1 conservés. Preuves
+`/tmp/teams-auto-card-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
