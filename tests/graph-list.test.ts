@@ -158,3 +158,40 @@ test('Team graph discovery fails closed on corrupt durable state without deletin
   await assert.rejects(listSavedGraphs(f.api, f.checkpoints, f.input), /Graph state may hold a repository lock/);
   assert.equal(await readFile(file, 'utf8'), '{broken');
 });
+
+test('native modal responses require the actual admitted owner and persist one explicit human decision', async (t) => {
+  const { respondToOwnedGraph } = await import('../server/graph-actions');
+  const f = await setup(t);
+  const source = structuredClone(f.source);
+  source.definition.steps = source.definition.steps.slice(0, 1);
+  source.definition.steps[0].access = 'read-only';
+  source.definition.steps[0].contract = 'human';
+  source.definition.steps[0].transitions = [
+    { outcome: 'approve', target: null },
+    { outcome: 'reject', target: null },
+  ];
+  const ready = await f.create({ source });
+  const operationId = randomUUID();
+  const waiting = await f.checkpoints.reserve(ready.id, f.input.workspaceId, ready.revision, operationId);
+  const input = {
+    ...f.input,
+    id: waiting.id,
+    operationId,
+    expectedRevision: waiting.revision,
+    submission: {
+      action: 'decide' as const,
+      decision: { id: operationId, outcome: 'approve' as const, summary: 'Explicit human response' },
+    },
+  };
+  await assert.rejects(
+    respondToOwnedGraph(f.api, f.checkpoints, { ...input, ownerAgentId: 'other' }),
+    /owner unavailable/,
+  );
+  const foreign = await f.create({ source, admission: { ownerAgentId: 'other', approvedDefinition: true } });
+  await assert.rejects(respondToOwnedGraph(f.api, f.checkpoints, { ...input, id: foreign.id }), /does not belong/);
+  assert.deepEqual(await f.checkpoints.get(waiting.id, f.input.workspaceId), waiting);
+  const next = await respondToOwnedGraph(f.api, f.checkpoints, input);
+  assert.equal(next.activations[0].humanDecision?.summary, 'Explicit human response');
+  assert.equal(next.status, 'succeeded');
+  assert.deepEqual(await respondToOwnedGraph(f.api, new GraphCheckpoints(f.checkpoints.directory), input), next);
+});

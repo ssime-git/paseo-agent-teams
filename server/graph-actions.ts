@@ -1,9 +1,10 @@
 import type { PaseoApi } from '@getpaseo/client';
 import type { z } from 'zod';
-import { graphActionRpc } from '../shared/graph-actions';
+import { graphActionRpc, graphResponseRpc } from '../shared/graph-actions';
 import { TeamError } from '../shared/errors';
 import { repository } from './git';
 import type { GraphCheckpoints } from './graph-checkpoints';
+import { listSavedGraphs } from './graph-list';
 import { acceptGraphWithoutTests } from './graph-consumption';
 
 // Called only from the authenticated plugin RPC handler, never a lifecycle hook,
@@ -30,4 +31,16 @@ export async function submitGraphAction(
     case 'accept_no_tests':
       return acceptGraphWithoutTests(api, checkpoints, input, submission.decision);
   }
+}
+
+export async function respondToOwnedGraph(
+  api: PaseoApi,
+  checkpoints: GraphCheckpoints,
+  raw: z.infer<typeof graphResponseRpc.input>,
+) {
+  const { ownerAgentId, ...input } = graphResponseRpc.input.parse(raw);
+  const owned = await listSavedGraphs(api, checkpoints, { workspaceId: input.workspaceId, ownerAgentId });
+  if (!owned.some((state) => state.id === input.id))
+    throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Graph does not belong to this Team conversation');
+  return submitGraphAction(api, checkpoints, input);
 }

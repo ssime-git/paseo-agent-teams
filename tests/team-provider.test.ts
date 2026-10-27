@@ -20,7 +20,11 @@ const choices = [
   },
   { id: 'agent-teams', family: 'agent-teams', models: [{ id: 'auto', isDefault: true }], modes: [{ id: 'plan' }] },
 ];
-async function setup(t: { after(fn: () => Promise<void>): void }, language: 'fr' | 'en' | (() => 'fr' | 'en') = 'fr') {
+async function setup(
+  t: { after(fn: () => Promise<void>): void },
+  language: 'fr' | 'en' | (() => 'fr' | 'en') = 'fr',
+  pluginTimeline = true,
+) {
   let w = workflowFixture();
   w.config.roles = automaticTeam(choices);
   w.config.builderAutoAccept = false;
@@ -58,7 +62,13 @@ async function setup(t: { after(fn: () => Promise<void>): void }, language: 'fr'
   const provider = createTeamProvider(backend);
   const connection = await provider.connect({
     versions: [1],
-    capabilities: ['prompt.message', 'prompt.command', 'session.persistence', 'session.configure', 'timeline.plugin'],
+    capabilities: [
+      'prompt.message',
+      'prompt.command',
+      'session.persistence',
+      'session.configure',
+      ...(pluginTimeline ? ['timeline.plugin' as const] : []),
+    ],
   });
   t.after(() => connection.close());
   const events: ProviderEvent[] = [];
@@ -530,4 +540,26 @@ test('native continuation rejects missing revisions, malformed arguments and own
       .filter((e) => e.type === 'session.prompt_result')
       .every((e) => e.type === 'session.prompt_result' && e.result.type === 'failed'),
   );
+});
+
+test('graph action cards survive native persistence and replay as text on hosts without plugin timelines', async (t) => {
+  const s = await setup(t);
+  s.backend.graphs = async () => [];
+  await s.open();
+  await s.prompt('graphs', { type: 'command', name: 'team-graphs', arguments: '' });
+  const card = s.events.find((e) => e.type === 'timeline.item' && e.item.type === 'plugin');
+  assert.ok(card?.type === 'timeline.item' && card.item.type === 'plugin');
+  assert.equal(card.item.kind, 'agent-teams-graphs');
+  const persisted = s.events.filter((e) => e.type === 'session.persistence').at(-1);
+  assert.ok(persisted?.type === 'session.persistence');
+  const fallback = await setup(t, 'fr', false);
+  await fallback.open(persisted.persistence);
+  assert.ok(!fallback.events.some((e) => e.type === 'timeline.item' && e.item.type === 'plugin'));
+  assert.ok(
+    fallback.events.some(
+      (e) =>
+        e.type === 'timeline.item' && e.item.type === 'assistant_message' && /Aucun graphe admis/.test(e.item.text),
+    ),
+  );
+  assert.equal(fallback.calls.length, 0);
 });

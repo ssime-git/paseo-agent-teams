@@ -1,5 +1,23 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  Recommandé: 'Recommended',
+  'Ouvrir les actions du workflow': 'Open workflow actions',
+  'Répondre au workflow': 'Respond to the workflow',
+  'Choisissez le workflow par son nom. Aucun identifiant à recopier.': 'Choose the workflow by name. No ID to copy.',
+  'Actualiser les attentes': 'Refresh pending requests',
+  'Révision {revision}': 'Revision {revision}',
+  'Étape : {step}': 'Step: {step}',
+  'Approuver cette étape': 'Approve this step',
+  'Refuser cette étape': 'Reject this step',
+  'Votre réponse libre': 'Your free response',
+  'Envoyer la réponse': 'Send response',
+  'Fermer garde la question en attente. Aucun choix n’est appliqué sans envoi.':
+    'Closing keeps the question pending. No choice is applied until you send it.',
+  'Aucune réponse humaine attendue à cette étape.': 'No human response is pending for this step.',
+  'Continuer cette étape': 'Continue this step',
+  'Réponse enregistrée. La continuation reste une action distincte.':
+    'Response saved. Continuing remains a separate action.',
+
   'Continuer un graphe : UUID révision attendue': 'Continue a graph: UUID expected revision',
   'Usage : /team-advance UUID révision-attendue': 'Usage: /team-advance UUID expected-revision',
   'Frontière suivante enregistrée': 'Next boundary recorded',

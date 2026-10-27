@@ -24,11 +24,18 @@ import { defaultTeam, teamSettings, TEAM_PROVIDER_ID } from '../shared/team-comp
 import { configSchema } from '../shared/contracts';
 import { Store } from './store';
 import { captureGraphReceipt } from './graph-receipts';
-import { graphRecordRpc, graphListRpc, graphActionRpc, graphAdmitRpc, graphAdvanceRpc } from '../shared/graph-actions';
+import {
+  graphRecordRpc,
+  graphResponseRpc,
+  graphListRpc,
+  graphActionRpc,
+  graphAdmitRpc,
+  graphAdvanceRpc,
+} from '../shared/graph-actions';
 import { listSavedGraphs } from './graph-list';
 import { admitSavedGraph } from './graph-admission';
 import { continueSavedGraph } from './graph-continuation';
-import { submitGraphAction } from './graph-actions';
+import { submitGraphAction, respondToOwnedGraph } from './graph-actions';
 import { completedTurnTimeline } from './turn-timeline';
 import { DefinitionCatalog } from './definition-catalog';
 import { saveDefinitionRpc, listDefinitionsRpc, definitionHistoryRpc } from '../shared/definition-catalog';
@@ -46,6 +53,7 @@ export function contributeServer(server: PluginServerContext) {
   server.handle(graphAdvanceRpc, async (input, { paseo }) => continueSavedGraph(paseo, store.graphs, input));
   server.handle(graphAdmitRpc, async (input, { paseo }) => admitSavedGraph(paseo, store, definitions, input));
   server.handle(graphRecordRpc, async ({ id, workspaceId }) => store.graphs.get(id, workspaceId));
+  server.handle(graphResponseRpc, async (input, { paseo }) => respondToOwnedGraph(paseo, store.graphs, input));
   server.handle(graphActionRpc, async (input, { paseo }) => submitGraphAction(paseo, store.graphs, input));
   server.handle(saveDefinitionRpc, async (input, { paseo }) => {
     if (!(await paseo.workspaces.ref(input.workspaceId).refresh()))

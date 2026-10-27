@@ -67,3 +67,10 @@ export const graphAdvanceRpc = defineRpc({
     })
     .strict(),
 });
+
+// Native-thread response: bind the displayed graph to its actual Team conversation.
+export const graphResponseRpc = defineRpc({
+  name: 'teams.graph_response',
+  input: graphActionRpc.input.extend({ ownerAgentId: z.string().min(1) }).strict(),
+  output: graphCheckpointSchema,
+});

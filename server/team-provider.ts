@@ -54,6 +54,7 @@ const savedSchema = z
           .object({
             id: z.string(),
             role: z.enum(['user', 'assistant']),
+            graphWorkspaceId: z.string().min(1).optional(),
             text: z.string(),
             at: z.number().int().min(0),
           })
@@ -197,8 +198,11 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
       const project = async (sessionId: string) => {
         const session = sessions.get(sessionId);
         if (!session) return;
+        const transcript = (session.saved.transcript ?? []).map((entry) =>
+          capabilities.includes('timeline.plugin') ? entry : { ...entry, graphWorkspaceId: undefined },
+        );
         if (!session.saved.workflowId) {
-          for (const entry of session.saved.transcript ?? []) {
+          for (const entry of transcript) {
             const item = transcriptItem(entry);
             if (session.emitted.has(item.id)) continue;
             session.emitted.set(item.id, JSON.stringify(item));
@@ -216,7 +220,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           record(session.saved, ...fresh.map((n) => ({ ...n, role: 'assistant' as const, at: w.events.length })));
           persist(sessionId, session.saved);
         }
-        for (const item of teamThread(w, ctx, session.saved.transcript ?? [])) {
+        for (const item of teamThread(w, ctx, transcript)) {
           const json = JSON.stringify(item);
           const previous = session.emitted.get(item.id);
           // Narrations and finished tool calls are immutable: Paseo only merges a tool call within the native
@@ -495,7 +499,13 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
                 text: advancing ? `/team-advance ${prompt.input.arguments.trim()}` : '/team-graphs',
                 at,
               },
-              { id: reportId, role: 'assistant', text: report, at },
+              {
+                id: reportId,
+                role: 'assistant',
+                text: report,
+                at,
+                ...(capabilities.includes('timeline.plugin') ? { graphWorkspaceId: workspaceId } : {}),
+              },
             );
             persist(sessionId, session.saved);
           }

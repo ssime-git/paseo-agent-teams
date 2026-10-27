@@ -1,4 +1,5 @@
 import type { PluginClientContext, PluginTimelineItemProps } from '@getpaseo/plugin/client';
+import { GraphInbox, graphInboxSchema } from './graph-inbox';
 import { useT } from './i18n';
 import { Text, View } from 'react-native';
 import type { z } from 'zod';
@@ -78,6 +79,12 @@ export function addNativeTimeline(client: PluginClientContext) {
     signature = '';
   let removeReport: (() => void | Promise<void>) | undefined;
   const cleanups = [
+    client.addTimelineRenderer({
+      kind: 'agent-teams-graphs',
+      version: 1,
+      schema: graphInboxSchema,
+      Component: GraphInbox,
+    }),
     client.addTimelineRenderer({
       kind: 'agent-teams-report',
       version: 1,
