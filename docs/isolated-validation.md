@@ -235,3 +235,44 @@ le tour. Sessions/API simulées dans les tests unitaires. Log
 contrôle d’inactivité : running, PID superviseur **1923177**, worker **134766** et
 quatre états persistés SHA-256 inchangés. Preuves
 `/tmp/teams-native-graphs-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
+
+## 27 octobre 2026 — continuation explicite dans le thread Team Auto
+
+Incrément `7e4a245` : `/team-advance UUID REVISION` appelle la continuation bornée
+existante avec le propriétaire et le workspace natifs. La commande n'accepte ni
+approbation ni réponse humaine ; une révision périmée ne progresse pas.
+
+Daemon officiel **0.13.0** sur `127.0.0.1:6910`, racine
+`/tmp/teams-native-advance-live-adv4tt3s`, home/états/dépôt isolés. Script
+`/tmp/teams-native-advance-live.mts` : définition humaine sauvegardée et admise via
+RPC, puis commande native créant exactement une activation. Une seconde commande
+avec l'ancienne révision affiche « Révision périmée », une commande courante garde
+l'attente humaine. Une tentative depuis l'autre conversation ne change pas le
+checkpoint ; sa découverte reste vide. Après arrêt/démarrage du seul daemon isolé,
+la commande conserve le checkpoint profondément identique et l'attente humaine.
+Deux conversations Team, modèles Codex découverts, **zéro tour de modèle** et README
+inchangé. Preuves `proof.json`, `restart-proof.json`, `discovery.json` dans la racine.
+Le daemon isolé est arrêté (`/tmp/teams-native-advance-status-stopped.json`).
+
+Application officielle embarquée, Chromium à **1440 × 1050** et **390 × 844** :
+commande et compte rendu français visibles, aucun débordement horizontal ni erreur
+JS. Captures inspectées : [desktop](screenshots/graph-advance-desktop.png),
+[mobile](screenshots/graph-advance-mobile.png). Script
+`/tmp/teams-native-advance-browser.mjs`, preuve `ui-proof.json` et captures dans la
+racine isolée. Les captures finales ont été refaites daemon disponible après un
+premier passage montrant une reconnexion pendant l'arrêt isolé. Aucun essai navigateur
+en anglais ni envoi d'étape à un modèle revendiqué pour cet incrément.
+
+`npm run check` final : **293 tests**, typecheck/lint/format verts, zéro échec
+(`/tmp/teams-native-advance-check-verified.log`). Tests du provider avec backend
+simulé : portée/propriétaire, révision exacte, rapport persistant et retransmission
+après reconnexion sans nouvel appel, coexistence V1 sans approbation, arguments
+invalides et refus du backend. La continuation réelle reste couverte par l'essai
+natif humain ci-dessus ; la retransmission du même identifiant est un test unitaire.
+Premiers contrôles corrigés : cast de fixture de présentation incomplet, puis entrée
+anglaise manquante pour la description de commande, détectée par le test i18n.
+
+Seul le plugin principal a été rechargé après vérification d'inactivité et contrôles
+verts. Plugin running, PID superviseur **1923177**, worker **134766**, identité et
+version inchangés ; les quatre états V1 gardent leurs SHA-256. Preuves
+`/tmp/teams-native-advance-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
