@@ -113,4 +113,12 @@ paseo plugin install "$PWD"
 paseo plugin reload paseo-agent-teams
 ```
 
+To install and reload the plugin automatically after local merges into `main`, enable the tracked Git hook once per clone:
+
+```sh
+npm run hooks:install
+```
+
+The hook also runs after fast-forward pulls on `main`. Merges on GitHub take effect after pulling locally. Other branches and uncommitted squash merges do not install the plugin. Paseo must be available in `PATH` with its daemon running; installation failures are reported without undoing the merge.
+
 [docs/architecture.md](docs/architecture.md) explains how it works. [docs/isolated-validation.md](docs/isolated-validation.md) lists what was tested with real models.

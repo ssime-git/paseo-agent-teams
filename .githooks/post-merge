@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# A squash merge has not committed the result yet.
+[ "${1:-0}" = 1 ] && exit 0
+[ "$(git symbolic-ref --quiet --short HEAD)" = main ] || exit 0
+
+root=$(git rev-parse --show-toplevel) || exit 0
+cd "$root" || exit 0
+
+echo 'Agent Teams: installing merged main in Paseo...'
+if paseo plugin install "$root" && paseo plugin reload paseo-agent-teams; then
+  echo 'Agent Teams: installed and reloaded.'
+else
+  echo 'Agent Teams: installation or reload failed; the merge is preserved. Retry: paseo plugin install "$PWD" && paseo plugin reload paseo-agent-teams' >&2
+fi
