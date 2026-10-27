@@ -391,3 +391,76 @@ Seul le plugin principal a été rechargé après contrôles verts et inactivit�
 superviseur **1923177**, worker **134766**, identité/version inchangées, quatre SHA-256
 V1 conservés. Preuves
 `/tmp/teams-auto-card-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
+
+## 27 octobre 2026 — formulaires directement dans le fil, sans modal
+
+Incrément `0c7d593`. Les cartes Planner V1 et graphes rendent automatiquement les
+choix, le champ libre et **Envoyer la réponse** dans la timeline. Aucun composant
+Modal ni bouton d'ouverture. Chargement initial en lecture seulement, rechargement
+sur changement de contexte et actualisation explicite ; pas de polling ajouté.
+Options à choix unique avec rôle `radio`, état `checked` et indicateur visuel,
+aucune présélection. Les RPC et opérations persistées conservent leurs contrats.
+Les cartes de graphe sont liées à leur activation pour ne pas présenter une
+nouvelle question dans une ancienne carte.
+
+Daemon officiel **0.13.0** isolé, `127.0.0.1:6912`, home/états/dépôts sous
+`/tmp/teams-auto-card-live-9c0dpp59`. Cette fois, **aucun nouveau tour de modèle** :
+réutilisation de la vraie clarification Codex persistée au passage précédent,
+encore en pause avec sa seconde question en attente. Le script
+`/tmp/teams-inline-setup.mts` lit cet état et crée un graphe humain sur un second
+dépôt isolé `inline-graph-repo` (admission/réservation officielles, aucune exécution
+modèle). La première requête avait bien été produite par Codex antérieurement ;
+ne pas présenter ce passage comme une nouvelle génération réelle.
+
+Le script `/tmp/teams-inline-browser.mjs` ouvre les deux conversations à
+**1440 × 1050** et **390 × 844**, sans commande ni clic d'ouverture du formulaire.
+Assertions DOM pour chaque champ : descendant de `agent-chat-scroll`, hors de
+`overlay-root`, **zéro dialogue**, deux radios initialement non cochées, bouton
+d'envoi initialement désactivé, zéro erreur JS et débordement horizontal. Sur
+mobile, sélection de la recommandation + texte libre Planner puis envoi réellement
+enregistré ; sélection d'approbation du graphe + motif puis envoi réellement
+enregistré. Les captures ont été inspectées :
+[Planner desktop](screenshots/inline-planner-desktop.png),
+[Planner mobile](screenshots/inline-planner-mobile.png),
+[graphe desktop](screenshots/inline-graph-desktop.png),
+[graphe mobile](screenshots/inline-graph-mobile.png).
+Preuves `inline-{planner,graph}-before.json`, `inline-ui-proof.json` et captures
+`inline-*.png` dans la racine isolée.
+
+`/tmp/teams-inline-verify.mts` relit les RPC : réponse Planner avec option/texte
+exacts, deux réponses conservées, clarification résolue, workflow toujours en pause
+selon V1 ; graphe succeeded, une activation et motif explicite exact. Après
+arrêt/démarrage du seul daemon isolé, comparaison profonde du workflow et du
+graphe : identiques (`inline-response-proof.json`, `inline-restart-proof.json`).
+README des deux dépôts inchangés, timeline Builder vide et toujours un seul prompt
+Planner historique. Aucun appel nouveau à Codex ou Claude, navigateur anglais,
+appareil mobile physique ni reprise automatique après la pause revendiqués.
+Daemon isolé arrêté (`/tmp/teams-inline-isolated-stopped.json`).
+
+**Limite NATIVE-IDLE-001, à garder ouverte :** après redémarrage, le SDK peut ne pas
+restaurer les cartes émises à l'état idle dans une conversation graphe créée par API
+sans premier prompt utilisateur. Les réponses et le checkpoint sont conservés ;
+l'historique natif peut être vide. Les lectures de commandes natives mises en cache
+ne rouvrent pas nécessairement ce provider. Des appels explicites `/team-graphs`
+ont servi au diagnostic dans la fixture seulement ; aucun prompt caché n'est ajouté
+au produit ni au daemon principal. Une reconstruction locale de cartes depuis le
+checkpoint a été essayée puis retirée : elle ne résout pas le cycle natif dormant.
+Ne pas revendiquer de réparation de cette limite dans ce passage. La prochaine
+intégration du lanceur doit traiter ce cycle avec les API officielles, sans modifier
+Paseo. Traces `inline-graph-native-history.json` et `/tmp/teams-inline-verify-restart*.log`.
+
+`npm run check` final : **301 tests**, zéro échec, typecheck/lint/format verts
+(`/tmp/teams-inline-check-final-verified.log`), `git diff --check` vert. Nouveau test
+UI Planner avec hôte/RPC simulés : formulaire visible au montage sans overlay,
+radios non sélectionnées, réponse explicite, erreur conservant le brouillon,
+double clic borné à un seul appel en vol, réponse partielle et changement de
+clarification sans mélange de brouillons. Test graphe existant adapté au formulaire
+inline et à la désactivation d'une ancienne carte d'activation. Harnais partagé ne
+permettant pas de rendre un Modal. Contrôle i18n nettoyé des anciens libellés
+d'ouverture/fermeture devenus inutilisés. Les tests temporaires du prototype de
+reconstruction retiré ne sont pas comptés dans ces 301 tests.
+
+Plugin principal rechargé seul après contrôles verts et inactivité. Running,
+superviseur **1923177**, worker **134766**, identité/version inchangées, quatre
+SHA-256 V1 conservés. Preuves
+`/tmp/teams-inline-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.

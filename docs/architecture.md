@@ -163,12 +163,12 @@ graph polling, model retries or a scheduler.
 Graph reports now persist an optional `graphWorkspaceId` in the existing session
 transcript. With negotiated `timeline.plugin`, they project to the registered
 `agent-teams-graphs` card; other clients replay plain text. Older transcripts remain
-unchanged. The card opens the host SDK Modal, using its actual native `agentId` and
-the persisted workspace to discover current admitted graphs. Users select a run by
+unchanged. The card renders its form directly in the native thread, using its actual native
+`agentId` and the persisted workspace to discover current admitted graphs. Users select a run by
 name, without supplying UUIDs, revisions or operation IDs. The report itself remains
-a historical snapshot; opening/refreshing the modal reads the current checkpoints.
+a historical snapshot; mounting/refreshing the inline form reads the current checkpoints.
 
-The modal sends one explicit human decision (reason required) or one clarification
+The inline form sends one explicit human decision (reason required) or one clarification
 answer at a time. Recommended options are labelled but never selected automatically;
 free responses and partial answers are supported. Closing does not submit. Drafts
 stay separate by graph/operation/question and remain available after an RPC error.
@@ -179,7 +179,7 @@ and leave continuation separate. No graph polling or model loop is added.
 `teams.graph_response` validates native Team ownership and canonical Git placement
 using the discovery checks before delegating to existing strict graph actions. This
 RPC trusts authenticated daemon clients; it does not claim individual human identity.
-Existing graph RPCs and V1 operations retain their contracts. The modal currently
+Existing graph RPCs and V1 operations retain their contracts. The form currently
 covers admitted graph human steps and clarifications; admission, test exceptions,
 remain separate work for the roadmap.
 
@@ -191,7 +191,7 @@ only that owner's open sessions dirty. The existing serialized projection cycle 
 graph metadata once at session opening/recovery and after notifications, coalescing
 changes without polling models or advancing graph boundaries. A wait card is keyed by
 graph + activation, persisted in the native transcript, and carries its graph ID
-internally so the existing modal targets the right run automatically. Reopening a
+internally so the inline form targets the right run automatically. Reopening a
 session also discovers already pending waits; it never assumes approval or resends.
 
 For V1 Planner clarifications, the same projection records an `agent-teams-question`
@@ -200,12 +200,33 @@ transcript entries without replacing their text or V1 operations. Text replay re
 available without `timeline.plugin`. Projection now includes freshly recorded entries
 in the current pass rather than deferring their display until the following cycle.
 
-The native Planner modal reads current answers with `teams.planner_question` and
+The native Planner form reads current answers with `teams.planner_question` and
 submits one explicit option/free response using `teams.planner_answer`. Both bind
 workspace, native Team owner, durable create receipt and canonical Git repository.
 The answer RPC accepts only clarification answers and delegates to the existing V1
 engine with an exact revision and stable request key. It cannot approve plans or
 respond to native permissions. Partial answers remain waiting; complete answers follow
-the existing configured resume policy. Modal closure and timeouts never submit answers.
+the existing configured resume policy. Only the explicit Send response action submits an answer.
 Historical request cards open the current pending state rather than blindly applying
 an old choice. Graph waits keep their separate explicit continuation semantics.
+
+
+Response UX is inline: both renderers mount their current response form directly in
+the chat timeline. There is no Modal, overlay or opening button. Native SDK TextInput
+is used in the timeline, with radio semantics (`checked`) and a visible selection
+indicator for single-choice contracts. The form loads current persisted state on
+mount or context change, without a polling timer; refresh remains explicit. Cancelled
+reads do not update a recycled row. Planner drafts are scoped by clarification and
+question, graph drafts by graph, activation and question. RPC errors preserve input;
+success clears only the submitted question's draft. An in-flight guard prevents
+multiple submissions. The graph card also carries its activation ID, derived from
+the persisted wait-card identity, so an old card cannot expose a later activation's
+response controls. Existing cards and V1 operations retain their contracts.
+
+Known host boundary: a graph conversation created only through the API, without its
+first native user prompt, can lose idle provider timeline cards across daemon restart.
+Graph decisions and checkpoints remain durable and readable. Cached native-command
+queries do not necessarily reopen that dormant provider session. This increment does
+not inject a prompt or patch Paseo to work around it; admission/launcher integration
+must validate this case using supported native lifecycle APIs. It is separate from
+the inline form and its persisted answers.
