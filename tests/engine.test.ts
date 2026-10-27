@@ -458,7 +458,7 @@ test('shutdown preserves an accepted in-flight checkpoint when the SDK connectio
   assert.equal(w.status, 'awaiting_plan');
   assert.equal(h.fake.calls.length, 1);
 });
-test('instruction-only read-only roles stop on repository changes and keep their checkpoint across recovery', async (t) => {
+test('completed read-only violations stop safely without retaining an already finished operation', async (t) => {
   const h = await setup(t, { recovery: 'automatic' });
   h.config.roles.planner = { provider: 'pi/connected/model', modeId: INSTRUCTION_READ_ONLY };
   h.fake.lost = true;
@@ -478,7 +478,7 @@ test('instruction-only read-only roles stop on repository changes and keep their
   w = await h.store.get(w.id);
   assert.equal(w.status, 'attention');
   assert.match(w.error!, /changed during a read-only turn/);
-  assert.equal(w.operation?.readOnlyFingerprint, 'original-tree');
+  assert.equal(w.operation, undefined);
   assert.equal(w.plan, undefined);
   assert.equal(h.fake.calls.length, 1);
 });
@@ -1188,7 +1188,9 @@ test('Reviewer revision detects repository edits even in native read-only modes'
   w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Revise' });
   assert.equal(w.status, 'attention');
   assert.match(w.error!, /Repository changed during a read-only turn/);
-  assert.ok(w.operation);
+  assert.equal(w.operation, undefined);
+  assert.equal(w.phase, 'building');
+  assert.equal(w.followup, undefined);
   assert.equal(w.planProposal, undefined);
   assert.deepEqual(w.plan, plan);
 });
@@ -1960,4 +1962,118 @@ test('legacy final approval requests delivery without treating go as delivery co
   assert.equal(w.delivery?.approvedAt, undefined);
   assert.equal(w.clarifications!.at(-1)!.purpose, 'delivery');
   assert.equal(h.fake.calls.length, count);
+});
+
+test('resume recovers a legacy completed read-only follow-up without a missing receipt or another send', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  const at = new Date().toISOString();
+  w.phase = 'followup';
+  w.status = 'attention';
+  w.followup = { purpose: 'message', returnPhase: 'reviewing', returnStatus: 'attention' };
+  w.operation = {
+    id: 'old-completed',
+    role: 'planner',
+    phase: 'followup',
+    state: 'prepared',
+    startedAt: at,
+    readOnlyFingerprint: 'old-tree',
+  };
+  w.events.push(
+    {
+      id: 'completed-response',
+      at,
+      kind: 'assistant',
+      role: 'planner',
+      operationId: 'old-completed',
+      text: 'Existing work is ready for a new plan.',
+    },
+    {
+      id: 'integrity-error',
+      at,
+      kind: 'error',
+      role: 'planner',
+      text: 'Repository changed during a read-only turn. Inspect the files before continuing; no changes were reverted.',
+    },
+  );
+  w.error = 'No durable completion receipt. The operation is retained and will not be replayed.';
+  await h.store.put(w);
+  const count = h.fake.calls.length;
+  const recovery = h.fake.recoveryCount;
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'attention');
+  assert.equal(w.phase, 'reviewing');
+  assert.equal(w.operation, undefined);
+  assert.equal(w.followup, undefined);
+  assert.equal(w.followupResult, 'Existing work is ready for a new plan.');
+  assert.equal(w.events.filter((e) => e.kind === 'operation_recovered').length, 1);
+  assert.equal(h.fake.calls.length, count);
+  assert.equal(h.fake.recoveryCount, recovery);
+  assert.equal((await new Store(h.store.directory).get(w.id)).operation, undefined);
+  w = await h.action(w, 'continue', {
+    role: 'planner',
+    message: 'Validate the existing implementation; do not reimplement it.',
+  });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, count + 1);
+  assert.equal(h.fake.calls.at(-1)!.role, 'planner');
+});
+
+test('legacy completion recovery requires a matching saved response, integrity failure and idle native sessions', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  const at = new Date().toISOString();
+  w.phase = 'followup';
+  w.status = 'attention';
+  w.followup = { purpose: 'message', returnPhase: 'reviewing', returnStatus: 'attention' };
+  w.operation = {
+    id: 'uncertain',
+    role: 'planner',
+    phase: 'followup',
+    state: 'prepared',
+    startedAt: at,
+    readOnlyFingerprint: 'before',
+  };
+  w.events.push({
+    id: 'wrong-response',
+    at,
+    kind: 'assistant',
+    role: 'planner',
+    operationId: 'another-operation',
+    text: 'Unrelated answer',
+  });
+  w.events.push({
+    id: 'integrity-error',
+    at,
+    kind: 'error',
+    role: 'planner',
+    text: 'Repository changed during a read-only turn.',
+  });
+  await h.store.put(w);
+  w = await h.action(w, 'resume');
+  assert.equal(w.operation?.id, 'uncertain');
+  assert.equal(
+    w.events.some((e) => e.kind === 'operation_recovered'),
+    false,
+  );
+  w.events.splice(w.events.length - 1, 0, {
+    id: 'right-response',
+    at,
+    kind: 'assistant',
+    role: 'planner',
+    operationId: 'uncertain',
+    text: 'Finished',
+  });
+  // Put a matching integrity rejection after the matching response.
+  w.events.push({
+    id: 'right-error',
+    at,
+    kind: 'error',
+    role: 'planner',
+    text: 'Repository changed during a read-only turn.',
+  });
+  await h.store.put(w);
+  h.fake.canClose = async () => false;
+  await assert.rejects(h.action(w, 'resume'), /still active/);
+  assert.equal((await h.store.get(w.id)).operation?.id, 'uncertain');
 });

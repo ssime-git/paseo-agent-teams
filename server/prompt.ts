@@ -148,6 +148,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
   const head = [
     instructions[role],
     'Successful review is followed by a mandatory human delivery question: PR or integration on main. Plan approval, final approval, autonomous mode, silence and tool auto-accept never authorize delivery. Do not commit, push, publish or merge during implementation or review. The mission is complete only after approved delivery is verified.',
+    'Separate pre-delivery acceptance from delivery requirements. Plan and review whether the implementation is ready to deliver; commits, PR creation, publication CI and merging happen only in the approved delivery stage and must not be prerequisites for a passing implementation review. Preserve the user’s delivery requirements explicitly as post-approval tasks. For a publication-only request, inspect and validate the existing implementation without reimplementing it. An older plan that requires publishing before review must be revised before retrying the Builder.',
     ...scopeInstructions,
     ...(skillContext
       ? [

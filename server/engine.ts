@@ -675,6 +675,32 @@ export class Engine {
           this.event(w, 'closed', 'Workflow closed by user; working files retained');
           break;
         case 'resume':
+          if (w.operation?.readOnlyFingerprint) {
+            const op = w.operation;
+            const responseIndex = w.events.findLastIndex((e) => e.kind === 'assistant' && e.operationId === op.id);
+            const response = w.events[responseIndex];
+            const violation = w.events
+              .slice(responseIndex + 1)
+              .some(
+                (e) =>
+                  e.kind === 'error' &&
+                  e.role === op.role &&
+                  e.text.startsWith('Repository changed during a read-only turn.'),
+              );
+            if (response && violation) {
+              if (!(await this.runtime.canClose(w)))
+                throw new TeamError('ACTIVE_STEP', 'A native agent is still active or awaiting permissions.');
+              this.stopChangedReadOnlyTurn(w, response.text);
+              this.event(
+                w,
+                'operation_recovered',
+                'Tour terminé récupéré depuis la réponse enregistrée ; aucun renvoi. Une reprise explicite du plan ou des vérifications est possible.',
+                op.role,
+                op.id,
+              );
+              break;
+            }
+          }
           if (w.status === 'awaiting_plan' || w.status === 'awaiting_final')
             throw new TeamError('APPROVAL_REQUIRED', 'Approval is required');
           // A finished invalid turn may be repaired by an explicit user retry. Ambiguous operations stay attached.
@@ -1025,10 +1051,8 @@ export class Engine {
   ) {
     this.event(w, 'assistant', text, op.role, op.id);
     if (op.readOnlyFingerprint && fingerprint !== op.readOnlyFingerprint) {
-      w.status = 'attention';
-      w.error =
-        'Repository changed during a read-only turn. Inspect the files before continuing; no changes were reverted.';
-      this.event(w, 'error', w.error, op.role);
+      this.stopChangedReadOnlyTurn(w, text);
+      this.event(w, 'error', w.error!, op.role);
       await this.save(w);
       return;
     }
@@ -1103,6 +1127,20 @@ export class Engine {
       }
     }
     await this.save(w);
+  }
+  private stopChangedReadOnlyTurn(w: Workflow, text: string) {
+    // applyIdleOutcome already proves this exact turn finished. A failed
+    // read-only integrity check rejects its result, not its completion.
+    delete w.operation;
+    if (w.followup) {
+      w.followupResult = text;
+      w.phase = w.followup.returnPhase;
+      delete w.followup;
+    }
+    if (w.status === 'paused') w.resumeStatus = 'attention';
+    else w.status = 'attention';
+    w.error =
+      'Repository changed during a read-only turn. Inspect the files before continuing; no changes were reverted.';
   }
   private applyHandoff(w: Workflow, paused: boolean) {
     if (w.config.mode === 'auto' && w.pendingRole === 'planner') {
