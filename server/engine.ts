@@ -35,7 +35,7 @@ import { repositoryLocks, scopesOverlap, type RepositoryTarget } from './scopes'
 import { INSTRUCTION_READ_ONLY } from '../shared/provider-selection';
 
 export interface Outcome {
-  status: 'idle' | 'permission' | 'error' | 'timeout' | 'uncertain';
+  status: 'idle' | 'working' | 'permission' | 'error' | 'timeout' | 'uncertain';
   text?: string;
   error?: string;
   cursor?: { epoch: string; seq: number };
@@ -832,7 +832,14 @@ export class Engine {
         ...Object.entries(w.receipts ?? {}).slice(-99),
         [op.id, JSON.stringify({ ...outcome, text })],
       ]);
-      if ((w.status === 'permission' || (w.status === 'attention' && w.inbox?.length)) && this.observed.has(w.id)) {
+      if (
+        w.status !== 'paused' &&
+        (this.observed.has(w.id) || w.config.recovery === 'automatic') &&
+        !(
+          w.config.goalMode &&
+          Date.now() - Date.parse(w.goal?.startedAt ?? op.startedAt) >= (w.config.goalTimeBudgetMs ?? 7_200_000)
+        )
+      ) {
         w.status = 'running';
         delete w.error;
         wake.push(w.id);
@@ -891,6 +898,7 @@ export class Engine {
         const w = await this.store.get(id);
         if (
           w.status === 'ready' ||
+          (w.status === 'running' && w.operation && w.receipts?.[w.operation.id]) ||
           (w.inbox?.length && !w.operation && w.status !== 'paused' && (await this.runtime.canClose(w)))
         )
           this.kick(id);
@@ -1076,9 +1084,9 @@ export class Engine {
     return this.serial(job.w.id, async () => {
       const w = await this.store.get(job.w.id);
       if (w.operation?.id !== op.id) return true;
-      // A completion hook can arrive while the SDK is still returning a permission outcome.
-      // Observe the newly saved receipt once instead of overwriting its wake-up with a stale pause.
-      if (outcome.status === 'permission' && w.receipts?.[op.id] && !job.w.receipts?.[op.id]) {
+      // A hook may complete before send/observation returns. Consume its durable
+      // receipt before parking, so a concurrent wake-up cannot be lost.
+      if (outcome.status !== 'idle' && w.receipts?.[op.id] && !job.w.receipts?.[op.id]) {
         if (w.status === 'paused') return false;
         w.status = 'running';
         await this.save(w);
@@ -1090,7 +1098,21 @@ export class Engine {
       return true;
     });
   }
-  private async applyPendingOutcome(w: Workflow, outcome: Outcome) {
+  private async applyPendingOutcome(w: Workflow, outcome: Outcome): Promise<boolean> {
+    if (outcome.status === 'working') {
+      if (
+        w.status !== 'paused' &&
+        w.config.goalMode &&
+        Date.now() - Date.parse(w.goal?.startedAt ?? w.operation!.startedAt) >= (w.config.goalTimeBudgetMs ?? 7_200_000)
+      ) {
+        return this.applyPendingOutcome(w, { status: 'timeout' });
+      }
+      if (w.status !== 'paused' && w.status !== 'permission') w.status = 'running';
+      if (w.operation) w.operation.state = 'sent';
+      delete w.error;
+      await this.save(w);
+      return false;
+    }
     // Never retry sends after timeouts or transport errors; retain their operation ID.
     if (w.status !== 'paused') {
       w.status =

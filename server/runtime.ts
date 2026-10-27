@@ -156,19 +156,12 @@ export class PaseoRuntime implements Runtime {
     await agent.refresh();
     if (agent.status === 'running' || agent.pendingPermissions?.length)
       return { status: 'uncertain', error: 'Agent is already busy. Open its native session before resuming.' };
-    const result = await agent.run(`[agent-teams-operation:${operationId}]\n${prompt}`, {
+    await agent.send(`[agent-teams-operation:${operationId}]\n${prompt}`, {
       messageId: operationId,
       activeTurnBehavior: 'steer',
-      timeoutMs: 60_000,
     });
-    // Claude may report authentication/entitlement failures as assistant replies with an idle turn.
-    if (
-      result.status === 'idle' &&
-      (/^Failed to authenticate:/i.test(result.lastMessage ?? '') ||
-        /^.{1,120} requires usage credits\./.test(result.lastMessage ?? ''))
-    )
-      return { status: 'error', error: result.lastMessage! };
-    return { status: result.status, text: result.lastMessage ?? undefined, error: result.error ?? undefined };
+    // The completion hook owns the result. Release the engine while the role works.
+    return { status: 'working' };
   }
   async permissions(w: Workflow): Promise<Permission[]> {
     if (!w.operation) return [];
@@ -251,6 +244,13 @@ export class PaseoRuntime implements Runtime {
     const receipt = w.receipts?.[op.id] ?? w.events.find((e) => e.kind === `receipt:${op.id}`)?.text;
     if (receipt) {
       const result = JSON.parse(receipt) as Outcome;
+      // Claude may return authentication/entitlement failures as completed replies.
+      if (
+        result.status === 'idle' &&
+        (/^Failed to authenticate:/i.test(result.text ?? '') ||
+          /^.{1,120} requires usage credits\./.test(result.text ?? ''))
+      )
+        return { status: 'error', error: result.text };
       return {
         ...result,
         cursor: history.cursor,
@@ -261,8 +261,7 @@ export class PaseoRuntime implements Runtime {
       return { status: 'uncertain', error: 'Another prompt was sent to this session; review it before continuing' };
     const cursor = history.cursor;
     if (agent.status === 'running' && agent.activeTurn) {
-      const result = await agent.waitForFinish(60_000);
-      return { status: result.status, text: result.lastMessage ?? undefined, error: result.error ?? undefined, cursor };
+      return { status: 'working', cursor };
     }
     // A stored hook receipt proves completion; idle alone does not.
     return {

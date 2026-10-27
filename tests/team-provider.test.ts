@@ -220,7 +220,7 @@ test('native Team resolves late agent placement before creating the first workfl
   );
 });
 
-test('native Team projects role turns as native sub-agents in one conversation without dispatching another request', async (t) => {
+test('native Team releases its turn while a role works and publishes its finished row once', async (t) => {
   const s = await setup(t);
   await s.open();
   await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Follow the team' }] });
@@ -238,18 +238,21 @@ test('native Team projects role turns as native sub-agents in one conversation w
   await s.prompt('status', { type: 'command', name: 'team-status', arguments: '' });
   const items = () => s.events.flatMap((e) => (e.type === 'timeline.item' ? [e.item] : []));
   const build = items().filter((i) => i.type === 'tool_call' && i.callId === 'team-agent-op-build');
-  assert.equal(build.length, 1);
-  assert.ok(build[0].type === 'tool_call' && build[0].status === 'running' && build[0].detail.type === 'sub_agent');
-  assert.match(JSON.stringify(build[0]), /Code · Codex · Detected/);
+  assert.equal(build.length, 0);
   assert.ok(items().some((i) => i.type === 'todo' && i.items.length === 2));
   assert.equal(
     items().some((i) => i.type === 'plugin'),
     false,
   );
-  // The orchestrator turn stays open while a role works, so the row completes in the same native turn.
+  // The owner is idle while Code works and can receive another message.
   assert.equal(
     s.events.some((e) => e.type === 'session.turn' && e.turnId === 'team:turn:status' && e.state === 'completed'),
-    false,
+    true,
+  );
+  await s.prompt('during-code', { type: 'message', content: [{ type: 'text', text: 'Explain the current task' }] });
+  assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'followup');
+  assert.ok(
+    s.events.some((e) => e.type === 'session.turn' && e.turnId === 'team:turn:during-code' && e.state === 'completed'),
   );
   w.events.push({
     id: 'e4',
@@ -266,6 +269,8 @@ test('native Team projects role turns as native sub-agents in one conversation w
   const updates = items().filter((i) => i.type === 'tool_call' && i.callId === 'team-agent-op-build');
   const last = updates.at(-1);
   assert.equal(last?.type === 'tool_call' && last.status, 'completed');
+  assert.equal(updates.length, 1);
+  assert.match(JSON.stringify(last), /Code · Codex · Detected/);
   assert.match(JSON.stringify(updates.at(-1)), /src\/a\.ts/);
   assert.equal(s.calls.filter((c) => c.kind === 'create').length, 1);
   assert.equal((s.calls[0].value as { ownerAgentId?: string }).ownerAgentId, '00000000-0000-4000-8000-000000000001');

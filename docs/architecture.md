@@ -5,7 +5,7 @@ Agent Teams is a Paseo plugin with a daemon part (`index.server.ts`, `server/`) 
 ## How a mission runs
 
 1. **Team Auto provider** (`server/team-provider.ts`). The plugin registers the provider `agent-teams/auto`. Each Team Auto conversation is a session of that provider. A prompt creates a workflow, answers a question, approves, or sends a follow-up, depending on the workflow state.
-2. **Engine** (`server/engine.ts`, `shared/state-machine.ts`). It drives Plan → Code → tests → Review → correction. Each role turn is an *operation*: its ID is saved before the prompt is sent and embedded in the prompt (`[agent-teams-operation:<id>]`). Results are validated JSON contracts (`shared/contracts.ts`, `shared/artifacts.ts`).
+2. **Engine** (`server/engine.ts`, `shared/state-machine.ts`). It drives Plan → Code → tests → Review → correction. Each role turn is an *operation*: its ID is saved before the prompt is sent and embedded in the prompt (`[agent-teams-operation:<id>]`). The runtime sends once and returns `working`, releasing the driver. The official `agent.turn_ended` hook saves an operation-bound receipt and wakes the driver to consume the result. Results are validated JSON contracts (`shared/contracts.ts`, `shared/artifacts.ts`).
 3. **Role sessions** (`server/runtime.ts`). Each role is a regular Paseo agent on the chosen harness, created with the SDK's `parent` option, so Paseo lists it as a subagent of the Team Auto conversation. Plan and Review get the harness's read-only mode: Claude `plan` with editing tools disabled, Codex `read-only` sandbox options, OpenCode `plan`. A harness without a read-only mode gets an instruction, and a repository fingerprint taken before the turn stops the mission if files change.
 4. **Tests** (`server/commands.ts`). Verification commands run on the daemon host with `/bin/sh`, an environment limited to `PATH`, `HOME`, `LANG`, `LC_ALL`, `TERM`, `CI` and `TMPDIR`, a timeout per command (10 minutes by default) and 128 KiB of output per stream.
 5. **Thread projection** (`server/team-timeline.ts`). The provider turns the workflow into native timeline items with stable IDs (details below).
@@ -19,7 +19,7 @@ Agent Teams is a Paseo plugin with a daemon part (`index.server.ts`, `server/`) 
 | A verification run | `tool_call` with `shell` detail and the command output. |
 | Corrections, approvals, questions, permissions, summary, `/team-status` | `assistant_message`. |
 
-Paseo merges a `tool_call` only within the native turn that started it. So the Team Auto turn stays open while an operation runs, and a finished row is never emitted again: re-emitting it later, for example after a language change, would show it twice.
+Paseo merges a `tool_call` only within the native turn that started it. Team Auto closes its native turn after accepting and projecting a message, while the role continues independently. The provider therefore defers running tool rows and publishes their finished state once. The Team pill and native child sessions provide live progress. Finished rows are never emitted again: re-emitting them later, for example after a language change, would show duplicates. The projection timer reads saved state; it does not wait on a model or drive the workflow.
 
 When a session reopens, Paseo rebuilds the thread from what the provider replays. Messages that depend on the moment they were shown (a plan waiting for approval, open questions, a permission, the summary, `/team-status` answers) and the user's messages are therefore recorded in the session persistence and replayed in place.
 
@@ -28,6 +28,7 @@ When a session reopens, Paseo rebuilds the thread from what the provider replays
 - Workflow state is written atomically, with private permissions, to `PASEO_AGENT_TEAMS_DATA_DIR` (default `~/.local/state/paseo-agent-teams`). It must be outside the edited repository. Git snapshots of the initial state are kept there until the workflow is closed.
 - A repository lock prevents two workflows of this plugin on the same Git common directory, including linked worktrees. It does not lock out tools started outside the plugin.
 - Recovery looks for the exact operation marker in the role session's history and a completion receipt. An idle session alone is not proof of completion. An uncertain operation stops the workflow for intervention; it is never sent again.
+- A working role does not hold an SDK `run`/`waitForFinish` call open. Completion wakes an observed workflow, including a legacy timeout stop with no pending user message. A hook after an explicit-recovery restart saves the receipt but still requires Resume; automatic recovery may wake on the hook. A paused mission stays paused. A receipt arriving before the send acknowledgment or while the driver exits cannot lose its wake-up or cause a second send. Goal budgets still bound execution.
 - Mutating RPCs carry a request ID and the expected revision. Identical retries are idempotent; conflicting writes are rejected.
 - Corrupt state files are quarantined as `.corrupt` and keep their repository lock until repaired.
 

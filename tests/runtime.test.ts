@@ -28,9 +28,8 @@ function adapter(overrides: Record<string, unknown> = {}, entries: unknown[] = [
     pendingPermissions: [],
     activeTurn: null,
     refresh: async () => ({}),
-    run: async () => {
+    send: async () => {
       sends++;
-      return { status: 'idle', lastMessage: 'done' };
     },
     waitForFinish: async () => {
       waits++;
@@ -71,8 +70,15 @@ test('a durable hook receipt and matching prompt recover a finished turn', async
 test('an active accepted turn is observed without a second send', async () => {
   const h = adapter({ status: 'running', activeTurn: { turnId: 'turn' } }, [accepted]);
   const result = await h.runtime.reconcile(savedWorkflow());
-  assert.equal(result.status, 'idle');
-  assert.deepEqual(h.counts(), { sends: 0, waits: 1, appends: 0 });
+  assert.equal(result.status, 'working');
+  assert.deepEqual(h.counts(), { sends: 0, waits: 0, appends: 0 });
+});
+test('dispatch sends once and returns without waiting for role completion', async () => {
+  const h = adapter({
+    run: async () => assert.fail('must not hold an SDK run open'),
+  });
+  assert.equal((await h.runtime.run(savedWorkflow(), 'builder', 'task', 'operation')).status, 'working');
+  assert.deepEqual(h.counts(), { sends: 1, waits: 0, appends: 0 });
 });
 test('foreign prompts, missing acceptance, missing agents and permissions suspend safely', async () => {
   const foreign = adapter({}, [accepted, { item: { type: 'user_message', text: 'foreign task' } }]);
@@ -102,14 +108,15 @@ test('native cards append through the plugin-owned API with stable identity', as
   assert.equal(h.counts().appends, 2);
 });
 test('expired Claude OAuth is reported as an actionable provider error, even when the SDK reports idle', async () => {
-  const h = adapter({
-    run: async () => ({
+  const h = adapter({}, [accepted]);
+  const w = savedWorkflow();
+  w.receipts = {
+    operation: JSON.stringify({
       status: 'idle',
-      lastMessage: 'Failed to authenticate: OAuth session expired and could not be refreshed',
-      error: null,
+      text: 'Failed to authenticate: OAuth session expired and could not be refreshed',
     }),
-  });
-  const result = await h.runtime.run(savedWorkflow(), 'builder', 'task', 'operation');
+  };
+  const result = await h.runtime.reconcile(w);
   assert.equal(result.status, 'error');
   assert.match(result.error!, /OAuth session expired/);
 });
@@ -154,14 +161,15 @@ test('Claude read-only roles cannot exit plan mode or edit files; Builder retain
   assert.equal(builder.config.options, undefined);
 });
 test('a listed model that requires usage credits reports a provider error without substituting another model', async () => {
-  const h = adapter({
-    run: async () => ({
+  const h = adapter({}, [accepted]);
+  const w = savedWorkflow();
+  w.receipts = {
+    operation: JSON.stringify({
       status: 'idle',
-      lastMessage: 'Fable 5.1 requires usage credits. Switch to another model to continue.',
-      error: null,
+      text: 'Fable 5.1 requires usage credits. Switch to another model to continue.',
     }),
-  });
-  const result = await h.runtime.run(savedWorkflow(), 'builder', 'task', 'operation');
+  };
+  const result = await h.runtime.reconcile(w);
   assert.equal(result.status, 'error');
   assert.match(result.error!, /requires usage credits/);
 });

@@ -28,7 +28,7 @@ Requirements: Paseo `>=0.13.0 <0.14.0`, at least one authenticated harness on th
 2. Describe the mission and send it.
 3. When the plan is ready, reply **go**. To change it, describe what you want instead.
 
-The thread shows each step as it happens:
+The Team pill and native role sessions show ongoing work. The thread publishes each role's report and verification output when finished:
 
 | In the thread | Meaning |
 | --- | --- |
@@ -50,7 +50,7 @@ The thread shows each step as it happens:
 - `/team-graphs` lists graphs explicitly admitted for this conversation (up to 10), with saved version, current revision, step, activation budget and waiting state. Reports persist across reconnects. This read-only command works before a V1 mission and does not launch, continue or approve a graph. The report has inline workflow selection and response controls: choose a workflow by name, answer a pending question with an option or free text, or approve/reject a human step with your reason. No IDs to copy or separate response window; continuing is a separate button. Admission and test exceptions still require the client RPCs; a visual launcher is still pending.
 - `/team-advance UUID REVISION` requests one durable boundary for an admitted graph owned by this conversation. Use the current revision shown by `/team-graphs`; stale revisions have no effect. It may prepare/send an agent step or run previously approved tests. Human decisions and permissions remain separate; there is no automatic loop.
 - `/team-status` shows who has control and what is awaited. Other commands: `/team-pause`, `/team-resume`, `/team-approve`, `/team-approve-no-tests`.
-- The stop button pauses the team. A role turn already in progress is allowed to finish.
+- `/team-pause` pauses the team even while the main thread is idle. The stop button pauses a currently active Team turn. A role turn already in progress is allowed to finish.
 
 ![The mission summary and a /team-status answer](docs/screenshots/mission-complete.png)
 
@@ -90,6 +90,7 @@ The **Team** pill in a Team Auto thread shows the team and who has control.
 - **Read-only roles.** Plan and Review use the harness's read-only mode. For a harness without one, read-only is only an instruction, and the mission stops if the repository changes during such a turn.
 - **Tests.** In the default mode you approve the plan, including its test commands, before anything runs. In the final and autonomous modes, Plan's test commands run automatically. A plan without tests needs `/team-approve-no-tests`. Commands run on the daemon host with a minimal environment and a 10-minute timeout each.
 - **Restarts.** Missions survive plugin reloads and daemon restarts. An accepted turn is never sent twice; when an outcome is uncertain, the mission stops and says so.
+- **Long tasks.** The main thread returns to idle after accepting your message. Roles work independently; their completion hook saves the result and wakes the engine for the next step. A healthy role is not stopped by repeated one-minute waits. Explicit pauses and restart recovery choices remain in force.
 - **Input.** Team Auto accepts text only; images and attachments are rejected.
 - **Language.** Model answers and technical logs stay in the language they were written in.
 

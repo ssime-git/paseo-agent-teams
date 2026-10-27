@@ -90,15 +90,6 @@ export const commands = [
   { name: 'team-graphs', description: 'Afficher les graphes de cette conversation' },
   { name: 'team-advance', description: 'Continuer un graphe : UUID révision attendue' },
 ];
-const waiting = new Set([
-  'paused',
-  'attention',
-  'permission',
-  'awaiting_plan',
-  'awaiting_final',
-  'available',
-  'completed',
-]);
 const ACTIVITY_BACKFILL = 8;
 const TRANSCRIPT_LIMIT = 300;
 const finished = (json: string) => {
@@ -189,7 +180,6 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
       const refreshActivity = async (sessionId: string, w: Workflow) => {
         const session = sessions.get(sessionId)!;
         if (!backend.activity) return;
-        const live = w.operation && w.operation.phase !== 'testing' ? w.operation : undefined;
         const pending = w.events
           .filter((e) => e.kind === 'assistant' && e.role && e.operationId && !session.activity.has(e.operationId))
           .slice(-ACTIVITY_BACKFILL);
@@ -197,10 +187,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         for (const e of w.events)
           if (e.kind === 'assistant' && e.operationId && !pending.includes(e) && !session.activity.has(e.operationId))
             session.activity.set(e.operationId, []);
-        const jobs = [
-          ...pending.map((e) => ({ id: e.operationId!, role: e.role! })),
-          ...(live ? [{ id: live.id, role: live.role }] : []),
-        ];
+        const jobs = pending.map((e) => ({ id: e.operationId!, role: e.role! }));
         for (const job of jobs) {
           try {
             session.activity.set(job.id, await backend.activity(w, job.role, job.id));
@@ -318,6 +305,10 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           persist(sessionId, session.saved);
         }
         for (const item of teamThread(w, ctx, transcript())) {
+          // Native tool rows merge only within their originating turn. Publish
+          // finished rows once; live progress is available in the Team pill and
+          // the role's native session without holding the owner turn open.
+          if (item.type === 'tool_call' && item.status === 'running') continue;
           const json = JSON.stringify(item);
           const previous = session.emitted.get(item.id);
           // Narrations and finished tool calls are immutable: Paseo only merges a tool call within the native
@@ -327,9 +318,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           session.emitted.set(item.id, json);
           emit({ type: 'timeline.item', sessionId, item });
         }
-        const unanswered = w.clarifications?.some((q) => !q.resolvedAt);
-        // Keep the turn open while a role works: its sub-agent row must complete in the same native turn.
-        if (session.turn && (unanswered || (waiting.has(w.status) && (!w.operation || w.status === 'attention')))) {
+        if (session.turn) {
           emit({ type: 'session.turn', sessionId, turnId: session.turn, state: 'completed' });
           session.turn = undefined;
         }

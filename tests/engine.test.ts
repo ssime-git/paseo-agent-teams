@@ -551,6 +551,127 @@ test('repeated timeouts reach attention without replaying the prompt', async (t)
   assert.equal(h.fake.recoveryCount, 2);
 });
 
+test('a long role releases the driver and its completion hook advances without Resume or another send', async (t) => {
+  const h = await setup(t);
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'working' };
+  };
+  h.fake.reconcile = async (w?: Workflow) => {
+    h.fake.recoveryCount++;
+    return w?.receipts?.[w.operation!.id]
+      ? (JSON.parse(w.receipts[w.operation!.id]) as Outcome)
+      : { status: 'working' };
+  };
+  let w = await h.create(); // settle returns while the native role is still working.
+  const operationId = w.operation!.id;
+  assert.equal(w.status, 'running');
+  assert.equal(w.operation!.state, 'sent');
+  assert.equal(h.fake.recoveryCount, 0);
+  assert.equal(
+    w.events.some((e) => e.kind === 'timeout'),
+    false,
+  );
+  // Duration alone must not exhaust a healthy role's timeout allowance.
+  w.operation!.startedAt = new Date(Date.now() - 20 * 60_000).toISOString();
+  await h.store.put(w);
+  const timeline = [
+    { type: 'user_message', text: `[agent-teams-operation:${operationId}]` },
+    { type: 'assistant_message', text: JSON.stringify(plan) },
+  ];
+  await Promise.all([
+    h.engine.receipt(w.agents.planner!, { status: 'idle' }, timeline),
+    h.engine.receipt(w.agents.planner!, { status: 'idle' }, timeline),
+  ]);
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 1);
+  assert.equal(w.events.filter((e) => e.kind === 'assistant').length, 1);
+});
+
+test('completion before the dispatch acknowledgment is not lost when the driver parks', async (t) => {
+  const h = await setup(t);
+  h.fake.run = async (w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    await h.engine.receipt(w.agents[role]!, { status: 'idle' }, [
+      { type: 'user_message', text: `[agent-teams-operation:${id}]` },
+      { type: 'assistant_message', text: JSON.stringify(plan) },
+    ]);
+    return { status: 'working' };
+  };
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
+  const w = await h.create();
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 1);
+});
+
+test('completion hooks hand off Plan → Code → tests → Review with no driver waiting between roles', async (t) => {
+  const h = await setup(t);
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'working' };
+  };
+  h.fake.reconcile = async (w?: Workflow) => JSON.parse(w!.receipts![w!.operation!.id]) as Outcome;
+  let w = await h.create();
+  const complete = async (role: Role, text: unknown) => {
+    assert.equal(w.operation?.role, role);
+    await h.engine.receipt(w.agents[role]!, { status: 'idle' }, [
+      { type: 'user_message', text: `[agent-teams-operation:${w.operation!.id}]` },
+      { type: 'assistant_message', text: JSON.stringify(text) },
+    ]);
+    await h.engine.settle();
+    w = await h.store.get(w.id);
+  };
+  await complete('planner', plan);
+  assert.equal(w.status, 'awaiting_plan');
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'running');
+  await complete('builder', build);
+  assert.equal(h.fake.testCount, 1);
+  assert.equal(w.status, 'running');
+  await complete('reviewer', pass);
+  assert.equal(w.status, 'awaiting_final');
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'builder', 'reviewer'],
+  );
+});
+
+test('a late completion wakes a legacy timeout stop without an inbox message', async (t) => {
+  const h = await setup(t, { maxConsecutiveTimeouts: 1 });
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'timeout' };
+  };
+  const w = await h.create();
+  assert.equal(w.status, 'attention');
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(plan) };
+  await h.engine.receipt(w.agents.planner!, { status: 'idle' }, [
+    { type: 'user_message', text: `[agent-teams-operation:${w.operation!.id}]` },
+    { type: 'assistant_message', text: JSON.stringify(plan) },
+  ]);
+  await h.engine.settle();
+  assert.equal((await h.store.get(w.id)).status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, 1);
+});
+
+test('a completion hook saves the result without waking a deliberately paused role', async (t) => {
+  const h = await setup(t);
+  h.fake.run = async () => ({ status: 'working' });
+  let w = await h.create();
+  w = await h.action(w, 'pause');
+  await h.engine.receipt(w.agents.planner!, { status: 'idle' }, [
+    { type: 'user_message', text: `[agent-teams-operation:${w.operation!.id}]` },
+    { type: 'assistant_message', text: JSON.stringify(plan) },
+  ]);
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'paused');
+  assert.ok(w.receipts?.[w.operation!.id]);
+  assert.equal(h.fake.recoveryCount, 0);
+});
+
 test('completion retains the delivery baseline and request retention preserves creation idempotency', async (t) => {
   const { writeFile, access } = await import('node:fs/promises');
   const h = await setup(t);
