@@ -147,14 +147,18 @@ test('concurrent integrity writers publish one revision and permit idempotent re
 });
 
 test('pre-send snapshot failure never claims or sends and ignored files stay outside the declared scope', async (t) => {
+  if (process.getuid?.() === 0) return t.skip('Root can read files with mode 000');
   const h = await setup(t);
   const before = await h.store.get(h.state.id, 'owner');
   await writeFile(join(h.repo, '.gitignore'), 'ignored\n');
   const fingerprint = await graphFingerprint(h.api, before);
   await writeFile(join(h.repo, 'ignored'), 'outside proof');
   assert.equal(await graphFingerprint(h.api, before), fingerprint);
-  await writeFile(join(h.repo, 'too-large'), Buffer.alloc(21 * 1024 * 1024));
-  await assert.rejects(sendGraphDispatch(h.api, h.store, h.input), /20 MiB/);
+  const unreadable = join(h.repo, 'unreadable');
+  await writeFile(unreadable, 'cannot snapshot');
+  await chmod(unreadable, 0o000);
+  t.after(() => chmod(unreadable, 0o600).catch(() => {}));
+  await assert.rejects(sendGraphDispatch(h.api, h.store, h.input), { code: 'EACCES' });
   assert.deepEqual(await h.store.get(h.state.id, 'owner'), before);
   assert.equal(h.sends(), 0);
 });
@@ -174,4 +178,11 @@ test('HEAD changes invalidate the evidence even when the working files are ident
   const receipt = await h.finish();
   const verified = await verifyGraphIntegrity(h.api, h.store, { ...h.input, expectedRevision: receipt.revision });
   assert.equal(verified.activations[0].integrity?.unchanged, false);
+});
+
+test('large untracked files allow graph dispatch', async (t) => {
+  const h = await setup(t);
+  await writeFile(join(h.repo, 'large'), Buffer.alloc(21 * 1024 * 1024));
+  assert.equal((await sendGraphDispatch(h.api, h.store, h.input)).status, 'sent');
+  assert.equal(h.sends(), 1);
 });

@@ -211,8 +211,6 @@ export const en: Record<string, string> = {
   'Un agent est actif ou injoignable. Attendez avant de fermer.':
     'An agent is active or unreachable. Wait before closing.',
   'Une approbation est nécessaire.': 'An approval is required.',
-  'L’instantané dépasse 20 Mio. Réduisez les fichiers du dépôt à analyser.':
-    'The snapshot exceeds 20 MiB. Reduce the repository files to analyze.',
   'Les commandes de test nécessitent un shell POSIX. Windows n’est pas pris en charge.':
     'Test commands need a POSIX shell. Windows is not supported.',
   'Un état corrompu peut verrouiller un dépôt. Réparez les fichiers isolés avant de créer un workflow.':

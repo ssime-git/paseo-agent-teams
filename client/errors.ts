@@ -39,7 +39,6 @@ export const errorTexts: Record<string, string> = {
   ACTIVE_STEP: 'Mettez en pause et attendez la fin de l’étape active avant de fermer.',
   AGENT_UNAVAILABLE: 'Un agent est actif ou injoignable. Attendez avant de fermer.',
   APPROVAL_REQUIRED: 'Une approbation est nécessaire.',
-  SNAPSHOT_TOO_LARGE: 'L’instantané dépasse 20 Mio. Réduisez les fichiers du dépôt à analyser.',
   POSIX_REQUIRED: 'Les commandes de test nécessitent un shell POSIX. Windows n’est pas pris en charge.',
   CORRUPT_STATE: 'Un état corrompu peut verrouiller un dépôt. Réparez les fichiers isolés avant de créer un workflow.',
   NOT_GIT_REPOSITORY: 'Ce chemin n’est pas un dépôt Git accessible. Vérifiez les dépôts sélectionnés pour le workflow.',
