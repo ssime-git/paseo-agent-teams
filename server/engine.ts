@@ -1,4 +1,5 @@
 import { TeamError } from '../shared/errors';
+import { deliveryQuestion, deliveryMethod } from '../shared/delivery';
 import { rm } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -10,6 +11,7 @@ import {
   planRevisionSchema,
   nativePlanRevisionSchema,
   reviewSchema,
+  deliveryResultSchema,
   roles,
   type Action,
   type Config,
@@ -17,6 +19,7 @@ import {
   type TestResult,
   type Workflow,
   type Permission,
+  type DeliveryResult,
 } from '../shared/contracts';
 import {
   HUMAN_CHECKPOINTS,
@@ -53,6 +56,8 @@ export interface Runtime {
   publish(w: Workflow): Promise<void>;
   canClose(w: Workflow): Promise<boolean>;
   fingerprint(w: Workflow): Promise<string>;
+  deliveryFingerprint?(w: Workflow): Promise<string>;
+  verifyDelivery?(w: Workflow, result: DeliveryResult): Promise<void>;
   permissions?(w: Workflow): Promise<Permission[]>;
   respondPermission?(w: Workflow, id: string, behavior: 'allow' | 'deny', selectedActionId?: string): Promise<void>;
   autoApprove?(w: Workflow): Promise<boolean>;
@@ -209,14 +214,24 @@ export class Engine {
       if (w.status === 'completed' && input.action !== 'followup')
         throw new TeamError('WORKFLOW_COMPLETED', 'Workflow already completed');
       const pending = w.clarifications?.find((c) => !c.resolvedAt);
+      if (pending?.purpose === 'delivery' && input.action === 'message') {
+        pending.resolvedAt = new Date().toISOString();
+        delete w.delivery;
+      }
       if (
         pending &&
+        !pending.resolvedAt &&
+        !(
+          pending.purpose === 'delivery' && ['followup', 'adopt_plan', 'continue', 'start_goal'].includes(input.action)
+        ) &&
         !['answer_clarification', 'import_planner_answers', 'pause', 'reconfigure', 'finish'].includes(input.action)
       )
         throw new TeamError('CLARIFICATION_PENDING', 'En attente de réponse : répondez aux questions du Planner.');
       switch (input.action) {
         case 'answer_clarification':
         case 'import_planner_answers': {
+          if (pending?.purpose === 'delivery' && input.action === 'import_planner_answers')
+            throw new TeamError('DELIVERY_CHOICE_REQUIRED', 'Répondez au choix de livraison dans le thread Team.');
           if (
             !pending ||
             (input.action === 'answer_clarification' && pending.id !== input.clarificationId) ||
@@ -287,8 +302,30 @@ export class Engine {
             }
           }
           if (pending.answers.length === pending.request.questions.length) {
+            if (pending.purpose === 'delivery') {
+              const answer = pending.answers[0];
+              const method = answer.optionId ?? deliveryMethod(answer.text);
+              if (method !== 'pull_request' && method !== 'main') {
+                this.event(w, 'user', answer.text ?? 'Revoir la livraison');
+                pending.resolvedAt = new Date().toISOString();
+                delete w.delivery;
+                w.phase = 'planning';
+                w.status = w.status === 'paused' ? 'paused' : 'ready';
+                if (w.status === 'paused') w.resumeStatus = 'ready';
+                else delete w.resumeStatus;
+                delete w.error;
+                break;
+              }
+              if (!w.delivery || w.delivery.fingerprint !== (await this.runtime.fingerprint(w)))
+                throw new TeamError(
+                  'VALIDATION_REQUIRED',
+                  'Le dépôt a changé. Relancez les vérifications avant la livraison.',
+                );
+              w.delivery.method = method;
+              w.delivery.approvedAt = new Date().toISOString();
+              w.phase = 'delivering';
+            } else w.phase = 'planning';
             pending.resolvedAt = new Date().toISOString();
-            w.phase = 'planning';
             delete w.error;
             delete w.resumeStatus;
             if (w.status !== 'paused') w.status = 'ready';
@@ -301,8 +338,10 @@ export class Engine {
             this.event(
               w,
               'clarification_resolved',
-              'Réponses enregistrées ; reprise du Planner, sans approbation du plan.',
-              'planner',
+              pending.purpose === 'delivery'
+                ? 'Livraison autorisée explicitement ; transmission au Code.'
+                : 'Réponses enregistrées ; reprise du Planner, sans approbation du plan.',
+              pending.purpose === 'delivery' ? 'builder' : 'planner',
             );
           }
           break;
@@ -485,6 +524,7 @@ export class Engine {
           w.config.freshSessionPerCycle = true;
           w.goal = { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: 0 };
           delete w.resultRepair;
+          this.invalidateDelivery(w);
           delete w.error;
           delete w.resumeStatus;
           w.phase = 'planning';
@@ -524,6 +564,7 @@ export class Engine {
           if (w.config.mode === 'auto' && role !== 'planner' && (!w.plan || !w.testsApproved))
             throw new TeamError('APPROVAL_REQUIRED', 'Approve the plan and tests before restarting this phase');
           delete w.resultRepair;
+          this.invalidateDelivery(w);
           if (w.config.goalMode)
             w.goal = { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: w.goal?.replans ?? 0 };
           w.config.maxCorrections = Math.max(w.config.maxCorrections, w.cycle + (input.extraCorrections ?? 2));
@@ -578,8 +619,9 @@ export class Engine {
             w.phase = STAGE_TRANSITIONS.planner;
             w.status = 'ready';
           } else if (w.status === 'awaiting_final') {
-            w.phase = STAGE_TRANSITIONS.reviewer;
-            w.status = 'completed';
+            // Older saved final checkpoints did not have a delivery decision.
+            // Reuse their review only if the independent test fingerprint is current.
+            await this.applyReview(w, w.review, await this.runtime.fingerprint(w));
           } else throw new TeamError('APPROVAL_NOT_PENDING', 'No approval pending');
           this.event(w, 'approved', 'Human approval recorded');
           break;
@@ -598,6 +640,7 @@ export class Engine {
           if (w.phase === 'followup')
             throw new TeamError('ACTIVE_STEP', 'Wait for the follow-up response before sending another message.');
           if (!input.message?.trim()) throw new TeamError('MESSAGE_EMPTY', 'Message cannot be empty');
+          delete w.delivery;
           this.event(w, 'user', input.message);
           if (w.operation) w.pendingRole = w.config.mode === 'manual' ? w.activeRole : 'planner';
           else {
@@ -783,7 +826,20 @@ export class Engine {
     if (DISPATCH_BLOCKED.includes(w.status) || w.clarifications?.some((c) => !c.resolvedAt)) return;
     if (w.operation) return { w, reconcile: true };
     if (w.status !== 'ready') return;
-    if (w.config.goalMode && w.phase !== 'followup') {
+    if (
+      w.phase === 'delivering' &&
+      (!w.delivery?.approvedAt ||
+        !w.delivery.method ||
+        w.delivery.contentFingerprint !==
+          (await (this.runtime.deliveryFingerprint?.(w) ?? this.runtime.fingerprint(w))))
+    ) {
+      await this.fail(
+        id,
+        'Livraison non autorisée ou fichiers modifiés depuis la validation. Relancez les vérifications.',
+      );
+      return;
+    }
+    if (w.config.goalMode && w.phase !== 'followup' && w.phase !== 'delivering') {
       const elapsed = Date.now() - Date.parse(w.goal?.startedAt ?? new Date().toISOString());
       if (
         (w.phase !== 'testing' && (w.goal?.turns ?? 0) >= (w.config.goalMaxTurns ?? 30)) ||
@@ -830,7 +886,7 @@ export class Engine {
         startedAt: new Date().toISOString(),
         readOnlyFingerprint: fingerprint,
       };
-      if (current.config.goalMode && current.phase !== 'followup') {
+      if (current.config.goalMode && current.phase !== 'followup' && current.phase !== 'delivering') {
         current.goal ??= { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: 0 };
         current.goal.turns++;
       }
@@ -1021,7 +1077,24 @@ export class Engine {
       return;
     }
     if (!this.applyHandoff(w, paused)) {
-      await this.applyStageResult(w, op.role, text, fingerprint, op.id);
+      if (op.phase === 'delivering') {
+        try {
+          const result = deliveryResultSchema.parse(parseJson(text));
+          if (!w.delivery?.approvedAt || !w.delivery.method)
+            throw new TeamError('DELIVERY_NOT_APPROVED', 'Delivery has no human approval');
+          w.delivery.result = result;
+          if (result.status === 'blocked') throw new Error(result.summary);
+          if (!this.runtime.verifyDelivery) throw new Error('Delivery verification unavailable');
+          await this.runtime.verifyDelivery(w, result);
+          w.phase = 'done';
+          w.status = 'completed';
+          this.event(w, 'delivered', result.summary, 'builder', op.id);
+        } catch (error) {
+          w.status = 'attention';
+          w.error = `Livraison non terminée : ${String(error)}`;
+          this.event(w, 'delivery_blocked', w.error, 'builder', op.id);
+        }
+      } else await this.applyStageResult(w, op.role, text, fingerprint, op.id);
       if (paused && w.status !== 'completed') {
         w.resumeStatus = HUMAN_CHECKPOINTS.includes(w.status)
           ? (w.status as 'awaiting_plan' | 'awaiting_final' | 'attention')
@@ -1090,7 +1163,7 @@ export class Engine {
         }
         w.phase = STAGE_TRANSITIONS.builder;
         w.status = 'ready';
-      } else this.applyReview(w, result, fingerprint);
+      } else await this.applyReview(w, result, fingerprint);
     } catch (e) {
       const attempts = (w.resultRepair?.attempts ?? 0) + 1;
       w.error = `Invalid ${role} result: ${String(e)}`;
@@ -1155,7 +1228,13 @@ export class Engine {
     w.testsApproved = false;
     w.allowNoTests = false;
     delete w.testedFingerprint;
+    this.invalidateDelivery(w);
     this.event(w, 'plan_version', `Plan v${version} enregistré (${source}). Une nouvelle approbation est requise.`);
+  }
+  private invalidateDelivery(w: Workflow) {
+    delete w.delivery;
+    for (const question of w.clarifications ?? [])
+      if (question.purpose === 'delivery' && !question.resolvedAt) question.resolvedAt = new Date().toISOString();
   }
   private approvePlan(w: Workflow, policy: 'human' | 'configuration') {
     const version = w.planVersions?.at(-1);
@@ -1205,7 +1284,7 @@ export class Engine {
       }
     }
   }
-  private applyReview(w: Workflow, result: unknown, fingerprint?: string) {
+  private async applyReview(w: Workflow, result: unknown, fingerprint?: string) {
     w.review = reviewSchema.parse(result);
     const testsPass =
       w.testedFingerprint === fingerprint &&
@@ -1233,8 +1312,27 @@ export class Engine {
         'builder',
       );
     } else if (w.review.verdict === 'pass' && testsPass) {
-      w.phase = STAGE_TRANSITIONS.reviewer;
-      w.status = w.config.validation === 'final' ? 'awaiting_final' : 'completed';
+      w.delivery = {
+        fingerprint: fingerprint!,
+        contentFingerprint: await (this.runtime.deliveryFingerprint?.(w) ?? this.runtime.fingerprint(w)),
+      };
+      w.phase = 'delivering';
+      w.status = 'awaiting_final';
+      w.clarifications ??= [];
+      w.clarifications.push({
+        id: randomUUID(),
+        purpose: 'delivery',
+        at: new Date().toISOString(),
+        answers: [],
+        agentId: w.agents.reviewer,
+        request: structuredClone(deliveryQuestion),
+      });
+      this.event(
+        w,
+        'delivery_requested',
+        'PR ou intégration sur main : en attente de votre choix explicite.',
+        'reviewer',
+      );
     } else if (w.config.goalMode && w.config.autoFix) {
       this.retryGoal(w);
     } else if (w.config.autoFix && w.cycle < w.config.maxCorrections) {

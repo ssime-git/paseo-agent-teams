@@ -7,6 +7,7 @@ export const PHASE_ROLES = {
   building: 'builder',
   testing: 'builder',
   reviewing: 'reviewer',
+  delivering: 'builder',
   done: 'reviewer',
   followup: 'planner',
 } as const;

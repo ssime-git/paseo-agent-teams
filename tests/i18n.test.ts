@@ -36,11 +36,14 @@ function markedTexts() {
 }
 /** Texts translated through a variable, e.g. `t(roleTitle[role])` or `t(errorTexts[code])`. */
 async function dynamicTexts() {
+  const { deliveryQuestion } = await import('../shared/delivery');
   const { errorTexts } = await import('../client/errors');
   const { fieldLabels } = await import('../client/events');
   const { hint, validation } = await import('../client/texts');
   const { models, modes, commands } = await import('../server/team-provider');
   return [
+    deliveryQuestion.summary,
+    ...deliveryQuestion.questions.flatMap((q) => [q.title, ...q.options.map((o) => o.tradeoff)]),
     ...Object.values(roleTitle),
     ...Object.values(errorTexts),
     ...Object.values(fieldLabels),

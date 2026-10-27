@@ -211,3 +211,36 @@ test('the thread speaks English when the language setting is English', () => {
     'The plan is ready (3 steps, tests: `npm test`). Reply **go** to start Codex · GPT-6.1, or describe what to change.',
   );
 });
+
+test('delivery has its own explicit question and the final summary includes verified receipt links', async () => {
+  const { deliveryQuestion } = await import('../shared/delivery');
+  const w = workflowFixture();
+  w.phase = 'delivering';
+  w.status = 'awaiting_final';
+  w.build = build;
+  w.clarifications = [
+    { id: 'delivery-question', purpose: 'delivery', at: 'now', answers: [], request: deliveryQuestion },
+  ];
+  const narrations = stateNarrations(w, ctx);
+  assert.equal(narrations.length, 1);
+  assert.equal(narrations[0].id, 'clarify:delivery-question');
+  assert.match(narrations[0].text, /PR · main/);
+  assert.doesNotMatch(narrations[0].text, /\*\*go\*\*|Mission terminée/);
+  w.clarifications[0].resolvedAt = 'later';
+  w.phase = 'done';
+  w.status = 'completed';
+  w.delivery = {
+    method: 'pull_request',
+    approvedAt: 'later',
+    fingerprint: 'validated',
+    contentFingerprint: 'files',
+    result: {
+      status: 'delivered',
+      summary: 'PR ready',
+      repositories: [{ repository: '/repo', commit: 'a'.repeat(40), url: 'https://github.com/example/project/pull/1' }],
+    },
+  };
+  assert.match(stateNarrations(w, ctx)[0].text, /\[PR\]\(https:\/\/github.com\/example\/project\/pull\/1\)/);
+  w.events.push(event('closed'));
+  assert.equal(stateNarrations(w, ctx).length, 0);
+});

@@ -3,6 +3,7 @@ import {
   planRevisionSchema,
   buildSchema,
   reviewSchema,
+  deliveryResultSchema,
   type Workflow,
   type Role,
 } from '../shared/contracts';
@@ -83,6 +84,25 @@ function artifacts(w: Workflow, role: Role): string[] {
 }
 
 export function buildPrompt(w: Workflow, role: Role, context: string, skillContext = '') {
+  if (w.phase === 'delivering')
+    return [
+      'Deliver the independently validated work using only the explicitly approved method below. This is a delivery turn, not implementation. Do not edit implementation files or alter the validated content. Inspect Git state, remotes, the launch baseline and authentication first. Commit only provably workflow-owned changes; preserve every pre-existing staged, unstaged and untracked user change. If ownership is uncertain, report blocked. Never force-push, reset or clean files.',
+      w.delivery?.method === 'pull_request' && w.delivery.approvedAt
+        ? 'The user explicitly approved a pull request. Create or reuse a matching PR for the validated work, creating a branch, committing and pushing only the workflow changes as needed. Do not merge or change main. Report the real PR URL and its head commit.'
+        : w.delivery?.method === 'main' && w.delivery.approvedAt
+          ? 'The user explicitly approved integration on main. Commit the validated workflow changes and integrate them on the local main branch using a safe fast-forward or merge without rewriting history. Do not push main: approval covers local integration only. If main diverged, conflicts occur, or safe integration needs implementation changes, report blocked and request renewed validation. Report the resulting main commit.'
+          : 'No delivery authorization exists. Do not commit, stage, push, create a PR or merge. Report blocked.',
+      `Approved delivery: ${serialize(w.delivery)}`,
+      `Allowed repositories (deliver each): ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd])}. Use git -C <repository>; the coordination directory may not be a Git repository.`,
+      `Original task: ${boundedText(w.task, 16 * 1024)}`,
+      clarificationContext(w),
+      `Build: ${serialize(w.build, 4 * 1024)}`,
+      `Review: ${serialize(w.review, 4 * 1024)}`,
+      `Tests: ${serialize(testSummary(w), 8 * 1024)}`,
+      `Repository context: ${boundedText(context, 32 * 1024)}`,
+      'When blocked, give the precise blocker and next action. Never invent a URL, commit or success. A partial multi-repository delivery is blocked; include actual progress in the summary so a retry can reuse it.',
+      `Return ONLY a JSON object matching this schema: ${JSON.stringify(deliveryResultSchema.toJSONSchema())}`,
+    ].join('\n');
   if (w.phase === 'followup')
     return [
       w.followup?.purpose === 'plan_revision'
@@ -127,6 +147,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
   };
   const head = [
     instructions[role],
+    'Successful review is followed by a mandatory human delivery question: PR or integration on main. Plan approval, final approval, autonomous mode, silence and tool auto-accept never authorize delivery. Do not commit, push, publish or merge during implementation or review. The mission is complete only after approved delivery is verified.',
     ...scopeInstructions,
     ...(skillContext
       ? [

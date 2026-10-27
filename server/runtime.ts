@@ -13,11 +13,14 @@ import { runCommand } from './commands';
 import { providerProfiles, nativeMode, builderMode } from './providers';
 import { DEFAULT_MODEL, INSTRUCTION_READ_ONLY, readOnlyMode, parseProvider } from '../shared/provider-selection';
 import type { Outcome, Runtime, CheckScope } from './engine';
+import { deliveryFingerprint, verifyDelivery } from './delivery';
 import type { RoleAction } from './team-timeline';
 import type { AgentTimelineItem } from '@getpaseo/protocol/agent-types';
 
 export { readOnlyMode } from '../shared/provider-selection';
 export class PaseoRuntime implements Runtime {
+  deliveryFingerprint = deliveryFingerprint;
+  verifyDelivery = verifyDelivery;
   private permissionReplies = new Map<string, Promise<void>>();
   constructor(
     private api: PaseoApi,

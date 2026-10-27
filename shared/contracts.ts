@@ -108,6 +108,7 @@ export const nativeClarificationAnswersSchema = z
   .strict();
 export const clarificationRecordSchema = z.object({
   id: z.string(),
+  purpose: z.literal('delivery').optional(),
   request: clarificationSchema,
   operationId: z.string().optional(),
   agentId: z.string().optional(),
@@ -162,6 +163,28 @@ export const planProposalSchema = z.object({
   at: z.string(),
 });
 export type Review = z.infer<typeof reviewSchema>;
+export const deliveryResultSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      status: z.literal('delivered'),
+      summary: z.string().min(1),
+      repositories: z
+        .array(
+          z
+            .object({
+              repository: z.string().min(1),
+              commit: z.string().regex(/^[a-f0-9]{40,64}$/),
+              url: z.url().optional(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(20),
+    })
+    .strict(),
+  z.object({ status: z.literal('blocked'), summary: z.string().min(1) }).strict(),
+]);
+export type DeliveryResult = z.infer<typeof deliveryResultSchema>;
 export const testResultSchema = commandSchema.extend({
   stdout: z.string(),
   stderr: z.string(),
@@ -207,7 +230,7 @@ export const workflowSchema = z.object({
   /** Native Team Auto agent that owns this mission; role agents are created as its children. */
   ownerAgentId: z.string().optional(),
   agents: z.partialRecord(roleSchema, z.string()),
-  phase: z.enum(['planning', 'building', 'testing', 'reviewing', 'manual', 'done', 'followup']),
+  phase: z.enum(['planning', 'building', 'testing', 'reviewing', 'delivering', 'manual', 'done', 'followup']),
   status: z.enum([
     'ready',
     'running',
@@ -226,6 +249,15 @@ export const workflowSchema = z.object({
   clarifications: z.array(clarificationRecordSchema).optional(),
   build: buildSchema.optional(),
   review: reviewSchema.optional(),
+  delivery: z
+    .object({
+      method: z.enum(['pull_request', 'main']).optional(),
+      approvedAt: z.string().optional(),
+      fingerprint: z.string(),
+      contentFingerprint: z.string(),
+      result: deliveryResultSchema.optional(),
+    })
+    .optional(),
   testedFingerprint: z.string().optional(),
   nonBlockingAddressed: z.boolean().optional(),
   goal: z
@@ -266,7 +298,7 @@ export const workflowSchema = z.object({
   followup: z
     .object({
       purpose: z.enum(['message', 'pull_request', 'plan_revision']),
-      returnPhase: z.enum(['planning', 'building', 'testing', 'reviewing', 'manual', 'done']),
+      returnPhase: z.enum(['planning', 'building', 'testing', 'reviewing', 'delivering', 'manual', 'done']),
       returnStatus: z.enum(['paused', 'attention', 'awaiting_plan', 'awaiting_final', 'completed']),
       previousError: z.string().optional(),
       previousResumeStatus: z.enum(['ready', 'awaiting_plan', 'awaiting_final', 'attention']).optional(),
@@ -368,6 +400,7 @@ export const workflowRecordRpc = defineRpc({
       clarifications: true,
       build: true,
       review: true,
+      delivery: true,
       tests: true,
       events: true,
       agents: true,
