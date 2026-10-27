@@ -382,6 +382,8 @@ export interface TranscriptEntry {
   id: string;
   role: 'user' | 'assistant';
   graphWorkspaceId?: string;
+  graphId?: string;
+  plannerQuestion?: { id: string; workspaceId: string; clarificationId: string };
   text: string;
   at: number;
 }
@@ -392,16 +394,29 @@ export interface Anchored {
 export const transcriptItem = (entry: TranscriptEntry): ProviderTimelineItem =>
   entry.role === 'user'
     ? { id: `team:user:${entry.id}`, type: 'user_message', text: entry.text, clientMessageId: entry.id }
-    : entry.graphWorkspaceId
+    : entry.plannerQuestion
       ? {
-          id: `team:graph:${entry.id}`,
+          id: `team:question:${entry.id}`,
           type: 'plugin',
           pluginId: 'paseo-agent-teams',
-          kind: 'agent-teams-graphs',
+          kind: 'agent-teams-question',
           version: 1,
-          data: { workspaceId: entry.graphWorkspaceId, text: entry.text },
+          data: { ...entry.plannerQuestion, text: entry.text },
         }
-      : say(entry.id, entry.text);
+      : entry.graphWorkspaceId
+        ? {
+            id: `team:graph:${entry.id}`,
+            type: 'plugin',
+            pluginId: 'paseo-agent-teams',
+            kind: 'agent-teams-graphs',
+            version: 1,
+            data: {
+              workspaceId: entry.graphWorkspaceId,
+              text: entry.text,
+              ...(entry.graphId ? { graphId: entry.graphId } : {}),
+            },
+          }
+        : say(entry.id, entry.text);
 
 /** The complete Team thread in order, as replayed after a restart and diffed while live. */
 export function teamThread(w: Workflow, ctx: TeamTimelineContext, transcript: TranscriptEntry[]) {

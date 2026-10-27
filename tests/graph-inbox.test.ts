@@ -135,4 +135,20 @@ test('thread modal selects by name, keeps silence pending and sends explicit par
   assert.equal(tree.root.findByType('TextInput' as never).props.value, '');
   assert.equal(button('Continuer cette étape').props.disabled, true);
   assert.ok(requests.every((r) => r.name !== 'teams.graph_advance'));
+  // Automatically emitted cards target their own graph without another selection.
+  await act(async () => tree.unmount());
+  state.id = '00000000-0000-4000-8000-000000000002';
+  await act(async () => {
+    tree = create(
+      React.createElement(GraphInbox, {
+        agentId: 'owner',
+        item: { data: { workspaceId: 'workspace', graphId: state.id, text: 'Pending graph' } },
+        theme: { colors: {} },
+      }),
+    );
+  });
+  await act(async () => button('Répondre').props.onPress());
+  assert.match(text(), /Second question/);
+  assert.equal(button('Envoyer la réponse').props.disabled, true);
+  assert.ok(requests.every((r) => r.name !== 'teams.graph_advance'));
 });

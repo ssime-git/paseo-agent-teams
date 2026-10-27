@@ -1,5 +1,9 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  Répondre: 'Respond',
+  'Répondre au Planner': 'Respond to the Planner',
+  'Ces questions ont reçu une réponse. Le workflow conserve le contexte et suit sa politique de reprise.':
+    'These questions have been answered. The workflow keeps the context and follows its resume policy.',
   Recommandé: 'Recommended',
   'Ouvrir les actions du workflow': 'Open workflow actions',
   'Répondre au workflow': 'Respond to the workflow',

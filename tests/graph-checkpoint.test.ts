@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GraphCheckpoints } from '../server/graph-checkpoints';
+import { graphDispatchPrompt } from '../server/graph-preparation';
 import { codeReviewPreset } from '../shared/workflow-definition';
 import { graphCheckpointSchema } from '../shared/graph-checkpoint';
 import { DefinitionCatalog } from '../server/definition-catalog';
@@ -433,4 +434,26 @@ test('rejection preserves its reason across correction and decision IDs cannot b
     /pending human/,
   );
   assert.equal(approved.activations[3].humanDecision, undefined);
+});
+
+test('durable graph notifications report committed state only and cannot change or undo it', async (t) => {
+  const { store, state } = await setup(t);
+  const revisions: number[] = [];
+  const stop = store.onChange((next) => {
+    revisions.push(next.revision);
+    next.task = 'Changed by observer';
+    throw new Error('Observer failed');
+  });
+  const reserved = await store.reserve(state.id, 'owner', state.revision, randomUUID());
+  assert.deepEqual(revisions, [2]);
+  assert.equal(reserved.task, state.task);
+  assert.deepEqual(await store.get(state.id, 'owner'), reserved);
+  await assert.rejects(store.reserve(state.id, 'owner', state.revision, randomUUID()));
+  assert.deepEqual(revisions, [2]);
+  stop();
+  await store.bindDispatch(state.id, 'owner', reserved.revision, reserved.activations[0].operationId, {
+    agentId: randomUUID(),
+    prompt: graphDispatchPrompt(reserved, reserved.activations[0].operationId),
+  });
+  assert.deepEqual(revisions, [2]);
 });

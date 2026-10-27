@@ -1,3 +1,5 @@
+import { plannerQuestionReadRpc, plannerQuestionAnswerRpc } from '../shared/planner-question';
+import { ownedPlannerWorkflow } from './planner-question';
 import { createHash } from 'node:crypto';
 import { TeamError } from '../shared/errors';
 import type { PluginServerContext } from '@getpaseo/plugin/server';
@@ -95,6 +97,24 @@ export function contributeServer(server: PluginServerContext) {
     );
     return engine;
   };
+  server.handle(plannerQuestionReadRpc, async (input, { paseo }) => ownedPlannerWorkflow(paseo, store, input));
+  server.handle(plannerQuestionAnswerRpc, async (input, { paseo }) => {
+    nativeApi = paseo;
+    await ownedPlannerWorkflow(paseo, store, {
+      id: input.id,
+      workspaceId: input.workspaceId,
+      ownerAgentId: input.ownerAgentId,
+    });
+    return (await bind()).action({
+      id: input.id,
+      workspaceId: input.workspaceId,
+      expectedRevision: input.expectedRevision,
+      requestId: `question:${input.ownerAgentId}:${input.clarificationId}:${input.answer.questionId}:${input.expectedRevision}`,
+      action: 'answer_clarification',
+      clarificationId: input.clarificationId,
+      answers: [input.answer],
+    });
+  });
   server.handle(createRpc, async (input, context) => {
     nativeApi = context?.paseo ?? nativeApi;
     await store.init();
@@ -224,6 +244,7 @@ export function contributeServer(server: PluginServerContext) {
           throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Native Team owner unavailable');
         return agent.agent.workspaceId;
       },
+      watchGraphs: (listener) => store.graphs.onChange(listener),
       graphs: async (workspaceId, ownerAgentId) => {
         await bind();
         return listSavedGraphs(recoveryClient!, store.graphs, { workspaceId, ownerAgentId });

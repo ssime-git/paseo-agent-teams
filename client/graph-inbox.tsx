@@ -7,7 +7,9 @@ import { graphListRpc, graphResponseRpc, graphAdvanceRpc } from '../shared/graph
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { useT } from './i18n';
 
-export const graphInboxSchema = z.object({ workspaceId: z.string().min(1), text: z.string() }).strict();
+export const graphInboxSchema = z
+  .object({ workspaceId: z.string().min(1), text: z.string(), graphId: z.uuid().optional() })
+  .strict();
 
 /** Persisted report plus live, explicitly opened actions for this native conversation. */
 export function GraphInbox({
@@ -23,7 +25,7 @@ export function GraphInbox({
     [busy, setBusy] = useState(false),
     [loaded, setLoaded] = useState(false);
   const [states, setStates] = useState<GraphCheckpoint[]>([]),
-    [selected, setSelected] = useState<string>();
+    [selected, setSelected] = useState<string | undefined>(data.graphId);
   const [error, setError] = useState(''),
     [notice, setNotice] = useState('');
   const [drafts, setDrafts] = useState<Record<string, { choice?: string; text: string }>>({});
@@ -58,7 +60,7 @@ export function GraphInbox({
   };
   const refresh = () =>
     run(async () => {
-      setStates(await list(scope));
+      setStates((await list(scope)).filter((s) => !data.graphId || s.id === data.graphId));
       setLoaded(true);
     });
   const replace = (next: GraphCheckpoint) => setStates((all) => all.map((s) => (s.id === next.id ? next : s)));
@@ -114,7 +116,7 @@ export function GraphInbox({
   return (
     <View style={{ gap: 12, paddingVertical: 8 }}>
       <Text style={{ color: c.foreground, lineHeight: 20 }}>{data.text}</Text>
-      {button(t('Ouvrir les actions du workflow'), () => {
+      {button(data.graphId ? t('Répondre') : t('Ouvrir les actions du workflow'), () => {
         setOpen(true);
         void refresh();
       })}

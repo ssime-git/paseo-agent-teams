@@ -24,6 +24,7 @@ async function setup(
   t: { after(fn: () => Promise<void>): void },
   language: 'fr' | 'en' | (() => 'fr' | 'en') = 'fr',
   pluginTimeline = true,
+  overrides: Partial<TeamProviderBackend> = {},
 ) {
   let w = workflowFixture();
   w.config.roles = automaticTeam(choices);
@@ -59,6 +60,7 @@ async function setup(
       return structuredClone(w);
     },
   };
+  Object.assign(backend, overrides);
   const provider = createTeamProvider(backend);
   const connection = await provider.connect({
     versions: [1],
@@ -562,4 +564,106 @@ test('graph action cards survive native persistence and replay as text on hosts 
     ),
   );
   assert.equal(fallback.calls.length, 0);
+});
+
+test('graph wait cards appear from committed change notifications without a prompt and replay once', async (t) => {
+  let notify!: (state: import('../shared/graph-checkpoint').GraphCheckpoint) => void;
+  let removed = 0,
+    reads = 0;
+  let states: import('../shared/graph-checkpoint').GraphCheckpoint[] = [];
+  const s = await setup(t, 'fr', true, {
+    watchGraphs(listener) {
+      notify = listener;
+      return () => {
+        removed++;
+      };
+    },
+    async graphs() {
+      reads++;
+      return states;
+    },
+  });
+  await s.open();
+  const state = {
+    id: '00000000-0000-4000-8000-000000000002',
+    status: 'waiting_human',
+    task: 'Await human input',
+    source: { definition: { name: 'My graph' } },
+    admission: { ownerAgentId: '00000000-0000-4000-8000-000000000001' },
+    activations: [{ operationId: '00000000-0000-4000-8000-000000000003' }],
+  } as unknown as import('../shared/graph-checkpoint').GraphCheckpoint;
+  states = [state];
+  notify(state);
+  notify(state);
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  const cards = () =>
+    s.events.filter(
+      (e) => e.type === 'timeline.item' && e.item.type === 'plugin' && e.item.kind === 'agent-teams-graphs',
+    );
+  assert.equal(cards().length, 1);
+  assert.match(JSON.stringify(cards()), /En attente de réponse/);
+  assert.match(JSON.stringify(cards()), /graphId/);
+  assert.equal(s.calls.length, 0);
+  assert.equal(reads, 2);
+  const saved = s.events.filter((e) => e.type === 'session.persistence').at(-1);
+  assert.ok(saved?.type === 'session.persistence');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  s.events.length = 0;
+  await s.open(saved.persistence);
+  assert.equal(cards().length, 1);
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  assert.equal(cards().length, 1);
+  assert.equal(reads, 3); // Idle projection does not poll graph checkpoints.
+  await s.connection.close();
+  assert.equal(removed, 1);
+});
+
+test('Planner clarification cards appear automatically and old pending transcripts recover their response button', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'An ambiguous task' }] });
+  s.workflow().clarifications = [
+    {
+      id: 'pending',
+      at: 'now',
+      answers: [],
+      request: {
+        kind: 'clarification',
+        summary: 'Pick scope',
+        questions: [
+          {
+            id: 'scope',
+            title: 'What scope?',
+            recommendedOptionId: 'small',
+            options: [
+              { id: 'small', label: 'Small', tradeoff: 'Less' },
+              { id: 'large', label: 'Large', tradeoff: 'More' },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  const cards = s.events.filter(
+    (e) => e.type === 'timeline.item' && e.item.type === 'plugin' && e.item.kind === 'agent-teams-question',
+  );
+  assert.equal(cards.length, 1);
+  assert.equal(s.calls.length, 1);
+  const saved = s.events.filter((e) => e.type === 'session.persistence').at(-1);
+  assert.ok(saved?.type === 'session.persistence');
+  const legacy = structuredClone(saved.persistence);
+  for (const entry of (legacy.data as { transcript: { plannerQuestion?: unknown }[] }).transcript)
+    delete entry.plannerQuestion;
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  s.events.length = 0;
+  const callsBeforeRestore = s.calls.length;
+  await s.open(legacy);
+  assert.equal(
+    s.events.filter(
+      (e) => e.type === 'timeline.item' && e.item.type === 'plugin' && e.item.kind === 'agent-teams-question',
+    ).length,
+    1,
+  );
+  assert.equal(s.calls.length, callsBeforeRestore);
 });

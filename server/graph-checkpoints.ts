@@ -28,6 +28,13 @@ import { TeamError } from '../shared/errors';
 // Foundation only: no dispatch or launch API yet. Keep outside Store's V1 JSON
 // namespace. Immutable revisions arbitrate writers without deleting any locks.
 export class GraphCheckpoints {
+  private listeners = new Set<(state: GraphCheckpoint) => void>();
+  onChange(listener: (state: GraphCheckpoint) => void) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
   constructor(readonly directory: string) {}
 
   private path(id: string) {
@@ -87,6 +94,13 @@ export class GraphCheckpoints {
       }
     } finally {
       await rm(temporary, { force: true });
+    }
+    for (const listener of this.listeners) {
+      try {
+        listener(structuredClone(state));
+      } catch {
+        /* Notification cannot undo a committed checkpoint. */
+      }
     }
     return state;
   }

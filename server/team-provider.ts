@@ -33,6 +33,7 @@ export interface TeamProviderBackend {
   ): Promise<{ workspaceId: string; choices: TeamProviderChoice[]; config: Config }>;
   ownerWorkspace(agentId: string, cwd: string): Promise<string>;
   advanceGraph?(input: z.infer<typeof graphAdvanceRpc.input>): Promise<z.infer<typeof graphAdvanceRpc.output>>;
+  watchGraphs?(listener: (state: GraphCheckpoint) => void): () => void;
   graphs?(workspaceId: string, ownerAgentId: string): Promise<GraphCheckpoint[]>;
   list(workspaceId: string): Promise<Workflow[]>;
   get(id: string, workspaceId: string): Promise<Workflow>;
@@ -55,6 +56,10 @@ const savedSchema = z
             id: z.string(),
             role: z.enum(['user', 'assistant']),
             graphWorkspaceId: z.string().min(1).optional(),
+            graphId: z.uuid().optional(),
+            plannerQuestion: z
+              .object({ id: z.string(), workspaceId: z.string(), clarificationId: z.string() })
+              .optional(),
             text: z.string(),
             at: z.number().int().min(0),
           })
@@ -126,6 +131,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           choices: TeamProviderChoice[];
           turn?: string;
           revision?: number;
+          graphsDirty?: boolean;
           emitted: Map<string, string>;
           activity: Map<string, RoleAction[]>;
           accepted: Set<string>;
@@ -195,14 +201,67 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           }
         }
       };
+      const removeGraphWatch = backend.watchGraphs?.((state) => {
+        for (const session of sessions.values())
+          if (state.admission?.ownerAgentId === session.agentId) session.graphsDirty = true;
+      });
       const project = async (sessionId: string) => {
         const session = sessions.get(sessionId);
         if (!session) return;
-        const transcript = (session.saved.transcript ?? []).map((entry) =>
-          capabilities.includes('timeline.plugin') ? entry : { ...entry, graphWorkspaceId: undefined },
-        );
+        if (session.graphsDirty && backend.graphs) {
+          // Clear before awaiting: a concurrent publication must keep the next refresh dirty.
+          session.graphsDirty = false;
+          try {
+            const workspaceId = await backend.ownerWorkspace(session.agentId, session.cwd);
+            if (session.saved.workflowId && workspaceId !== session.saved.workspaceId)
+              throw new Error('Team workspace changed');
+            const states = await backend.graphs(workspaceId, session.agentId);
+            const t = await tr();
+            if (closed || sessions.get(sessionId) !== session) return;
+            const fresh = states.flatMap((state) => {
+              const active = state.activations.at(-1);
+              const pending =
+                active?.assessment?.status === 'clarification' &&
+                active.assessment.request.questions.some(
+                  (q) => !active.clarificationAnswers?.some((a) => a.questionId === q.id),
+                );
+              if (!active || (state.status !== 'waiting_human' && !pending)) return [];
+              const id = `graph-wait:${state.id}:${active.operationId}`;
+              if (session.saved.transcript?.some((entry) => entry.id === id)) return [];
+              return [
+                {
+                  id,
+                  role: 'assistant' as const,
+                  text: `${t('En attente de réponse')}\n\n${state.source.definition.name}\n\n${state.task}`,
+                  at: 0,
+                  graphWorkspaceId: workspaceId,
+                  graphId: state.id,
+                },
+              ];
+            });
+            if (fresh.length) {
+              session.saved.workspaceId = workspaceId;
+              if (session.saved.workflowId) {
+                const w = await backend.get(session.saved.workflowId, workspaceId);
+                for (const entry of fresh) entry.at = w.events.length;
+              }
+              record(session.saved, ...fresh);
+              persist(sessionId, session.saved);
+            }
+          } catch {
+            // Native placement may not exist until session.open has completed.
+            // Retry only metadata discovery; never run or approve the workflow.
+            session.graphsDirty = true;
+          }
+        }
+        const transcript = () =>
+          (session.saved.transcript ?? []).map((entry) =>
+            capabilities.includes('timeline.plugin')
+              ? entry
+              : { ...entry, graphWorkspaceId: undefined, plannerQuestion: undefined },
+          );
         if (!session.saved.workflowId) {
-          for (const entry of transcript) {
+          for (const entry of transcript()) {
             const item = transcriptItem(entry);
             if (session.emitted.has(item.id)) continue;
             session.emitted.set(item.id, JSON.stringify(item));
@@ -215,12 +274,42 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         await refreshActivity(sessionId, w);
         if (closed || sessions.get(sessionId) !== session) return;
         const ctx = { label: label(sessionId, w), activity: (id: string) => session.activity.get(id), t: await tr() };
-        const fresh = stateNarrations(w, ctx).filter((n) => !session.saved.transcript?.some((e) => e.id === n.id));
-        if (fresh.length) {
-          record(session.saved, ...fresh.map((n) => ({ ...n, role: 'assistant' as const, at: w.events.length })));
+        const pendingQuestion = w.clarifications?.find((q) => !q.resolvedAt);
+        const legacyQuestion =
+          pendingQuestion &&
+          session.saved.transcript?.find(
+            (entry) => entry.id === `clarify:${pendingQuestion.id}` && !entry.plannerQuestion,
+          );
+        if (legacyQuestion) {
+          legacyQuestion.plannerQuestion = {
+            id: w.id,
+            workspaceId: w.workspaceId,
+            clarificationId: pendingQuestion.id,
+          };
           persist(sessionId, session.saved);
         }
-        for (const item of teamThread(w, ctx, transcript)) {
+        const fresh = stateNarrations(w, ctx).filter((n) => !session.saved.transcript?.some((e) => e.id === n.id));
+        if (fresh.length) {
+          record(
+            session.saved,
+            ...fresh.map((n) => ({
+              ...n,
+              role: 'assistant' as const,
+              at: w.events.length,
+              ...(n.id.startsWith('clarify:')
+                ? {
+                    plannerQuestion: {
+                      id: w.id,
+                      workspaceId: w.workspaceId,
+                      clarificationId: n.id.slice('clarify:'.length),
+                    },
+                  }
+                : {}),
+            })),
+          );
+          persist(sessionId, session.saved);
+        }
+        for (const item of teamThread(w, ctx, transcript())) {
           const json = JSON.stringify(item);
           const previous = session.emitted.get(item.id);
           // Narrations and finished tool calls are immutable: Paseo only merges a tool call within the native
@@ -341,6 +430,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             emitted: new Map(),
             activity: new Map(),
             accepted: new Set(),
+            graphsDirty: !!backend.watchGraphs,
           });
           emit({
             type: 'session.opened',
@@ -659,6 +749,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         async close() {
           closed = true;
           clearInterval(timer);
+          removeGraphWatch?.();
           await Promise.allSettled(queues.values());
           sessions.clear();
           listeners.clear();
