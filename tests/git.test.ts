@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readdir } from 'node:fs/promises';
@@ -22,8 +22,18 @@ test('snapshots distinguish pre-existing staged, unstaged, untracked and subsequ
   await symlink('tracked.txt', join(dir, 'link'));
   const index = await readFile(join(dir, '.git/index'));
   const before = await snapshot(dir);
-  assert.match(before.staged, /staged/);
-  assert.match(before.unstaged, /existing unstaged/);
+  assert.equal(
+    before.staged,
+    createHash('sha256')
+      .update(await git(dir, ['diff', '--cached', '--binary', '--no-ext-diff']))
+      .digest('hex'),
+  );
+  assert.equal(
+    before.unstaged,
+    createHash('sha256')
+      .update(await git(dir, ['diff', '--binary', '--no-ext-diff']))
+      .digest('hex'),
+  );
   assert.equal(before.files.link.kind, 'symlink');
   await writeFile(join(dir, 'tracked.txt'), 'workflow modification');
   await writeFile(join(dir, 'new.txt'), 'new');
@@ -63,7 +73,7 @@ test('a non-Git parent explains the launch requirement and suggests its actual c
   await assert.rejects(repository(dir), /Open the repository workspace/);
 });
 
-test('unborn snapshots detect content, executable mode and symlink target changes and enforce the size limit', async (t) => {
+test('unborn snapshots detect content, executable mode and symlink target changes with large files', async (t) => {
   const { chmod } = await import('node:fs/promises');
   const dir = await mkdtemp(join(tmpdir(), 'teams-snapshot-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -81,7 +91,36 @@ test('unborn snapshots detect content, executable mode and symlink target change
   await symlink('other', join(dir, 'link'));
   assert.ok(changes(before, await snapshot(dir)).some((c) => c.path === 'link'));
   await writeFile(join(dir, 'large'), Buffer.alloc(21 * 1024 * 1024));
-  await assert.rejects(snapshot(dir), /exceeds 20 MiB/);
+  const large = await snapshot(dir);
+  assert.ok(large.files.large);
+  await writeFile(join(dir, 'large'), Buffer.alloc(21 * 1024 * 1024, 1));
+  assert.deepEqual(
+    changes(large, await snapshot(dir)).map((c) => c.path),
+    ['large'],
+  );
+});
+
+test('large binary staged and unstaged diffs are streamed into changing SHA-256 hashes', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'teams-large-diff-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await git(dir, ['init']);
+  await writeFile(join(dir, 'base'), 'base');
+  await git(dir, ['add', '.']);
+  await git(dir, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'base']);
+  const bytes = randomBytes(21 * 1024 * 1024);
+  await writeFile(join(dir, 'binary'), bytes);
+  await git(dir, ['add', 'binary']);
+  const before = await snapshot(dir);
+  assert.match(before.staged, /^[a-f0-9]{64}$/);
+  bytes[0] ^= 255;
+  await writeFile(join(dir, 'binary'), bytes);
+  const unstaged = await snapshot(dir);
+  assert.equal(unstaged.staged, before.staged);
+  assert.notEqual(unstaged.unstaged, before.unstaged);
+  await git(dir, ['add', 'binary']);
+  const restaged = await snapshot(dir);
+  assert.notEqual(restaged.staged, before.staged);
+  assert.equal(restaged.unstaged, before.unstaged);
 });
 
 test('runtime context projects changed paths and a bounded diff, including legacy baselines', async (t) => {

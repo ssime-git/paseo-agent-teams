@@ -1,16 +1,34 @@
 import { TeamError } from '../shared/errors';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { lstat, readlink, realpath, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 const exec = promisify(execFile);
 const LIMIT = 20 * 1024 * 1024;
-export async function git(cwd: string, args: string[]) {
-  return (
-    await exec('git', ['-C', cwd, ...args], { maxBuffer: LIMIT, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
-  ).stdout;
+export async function git(cwd: string, args: string[], maxBuffer = LIMIT) {
+  return (await exec('git', ['-C', cwd, ...args], { maxBuffer, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }))
+    .stdout;
+}
+async function gitHash(cwd: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', ['-C', cwd, ...args], {
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const hash = createHash('sha256');
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => hash.update(chunk));
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-64 * 1024);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) reject(new Error(`git ${args.join(' ')} exited with ${code}: ${stderr}`));
+      else resolve(hash.digest('hex'));
+    });
+  });
 }
 export async function repository(cwd: string) {
   let root: string;
@@ -78,13 +96,12 @@ export interface Snapshot {
 export async function snapshot(cwd: string): Promise<Snapshot> {
   const [head, status, staged, unstaged, names] = await Promise.all([
     git(cwd, ['rev-parse', '--verify', 'HEAD']).catch(() => 'unborn'),
-    git(cwd, ['status', '--porcelain=v1', '-z']),
-    git(cwd, ['diff', '--cached', '--binary', '--no-ext-diff']),
-    git(cwd, ['diff', '--binary', '--no-ext-diff']),
-    git(cwd, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']),
+    git(cwd, ['status', '--porcelain=v1', '-z'], Infinity),
+    gitHash(cwd, ['diff', '--cached', '--binary', '--no-ext-diff']),
+    gitHash(cwd, ['diff', '--binary', '--no-ext-diff']),
+    git(cwd, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], Infinity),
   ]);
   const files: Snapshot['files'] = {};
-  let size = Buffer.byteLength(staged + unstaged);
   for (const name of new Set(names.split('\0').filter(Boolean))) {
     const path = join(cwd, name);
     let stat;
@@ -95,12 +112,6 @@ export async function snapshot(cwd: string): Promise<Snapshot> {
       throw e;
     }
     if (!stat.isFile() && !stat.isSymbolicLink()) continue;
-    size += stat.size;
-    if (size > LIMIT)
-      throw new TeamError(
-        'SNAPSHOT_TOO_LARGE',
-        'Repository snapshot exceeds 20 MiB; narrow the tracked/untracked working set first.',
-      );
     files[name] = {
       kind: stat.isSymbolicLink() ? 'symlink' : 'file',
       content: stat.isSymbolicLink() ? await readlink(path) : await hashFile(path),

@@ -69,11 +69,6 @@ export class PaseoRuntime implements Runtime {
     await checkScope?.({ cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets });
     const baseline = join(this.directory, `baseline-${randomUUID()}.snapshot`);
     const captured = JSON.stringify(await captureRepositories(targets));
-    if (Buffer.byteLength(captured) > 20 * 1024 * 1024)
-      throw new TeamError(
-        'SNAPSHOT_TOO_LARGE',
-        'The combined repository snapshot exceeds 20 MiB. Narrow the selected repositories.',
-      );
     await writeFile(baseline, captured, { mode: 0o600, flush: true });
     return { cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets, baseline };
   }

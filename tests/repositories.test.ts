@@ -42,6 +42,7 @@ test('multi-repository launch snapshots, context and fingerprints preserve each 
     await writeFile(join(dir, 'file.txt'), 'existing unstaged');
     await writeFile(join(dir, 'user-notes.txt'), 'preserve');
   }
+  await writeFile(join(b, 'large.bin'), Buffer.alloc(21 * 1024 * 1024));
   const indices = await Promise.all([a, b, external].map((dir) => readFile(join(dir, '.git/index'))));
   const w = workflowFixture();
   const config = { ...w.config, repositoryPaths: ['a', 'services/b', external] };
@@ -58,6 +59,10 @@ test('multi-repository launch snapshots, context and fingerprints preserve each 
   const saved = JSON.parse(await readFile(prepared.baseline, 'utf8'));
   assert.equal(saved.version, 2);
   assert.equal(saved.repositories.length, 3);
+  assert.match(
+    saved.repositories.find((r: { root: string }) => r.root === b).snapshot.files['large.bin'].content,
+    /^[a-f0-9]{64}$/,
+  );
   Object.assign(w, prepared, { config });
   assert.equal(w.cwd, parent);
   assert.equal(w.repositoryTargets?.length, 3);
