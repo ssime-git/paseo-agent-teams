@@ -1,12 +1,12 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
-  Répondre: 'Respond',
-  'Répondre au Planner': 'Respond to the Planner',
+  'Cette demande a été traitée. Consultez la demande en cours dans le fil.':
+    'This request has been handled. See the current request in the thread.',
+  'Réponses enregistrées': 'Responses saved',
+  'Aucun choix n’est appliqué avant l’envoi de votre réponse.': 'No choice is applied until you send your response.',
   'Ces questions ont reçu une réponse. Le workflow conserve le contexte et suit sa politique de reprise.':
     'These questions have been answered. The workflow keeps the context and follows its resume policy.',
   Recommandé: 'Recommended',
-  'Ouvrir les actions du workflow': 'Open workflow actions',
-  'Répondre au workflow': 'Respond to the workflow',
   'Choisissez le workflow par son nom. Aucun identifiant à recopier.': 'Choose the workflow by name. No ID to copy.',
   'Actualiser les attentes': 'Refresh pending requests',
   'Révision {revision}': 'Revision {revision}',
@@ -15,8 +15,6 @@ export const en: Record<string, string> = {
   'Refuser cette étape': 'Reject this step',
   'Votre réponse libre': 'Your free response',
   'Envoyer la réponse': 'Send response',
-  'Fermer garde la question en attente. Aucun choix n’est appliqué sans envoi.':
-    'Closing keeps the question pending. No choice is applied until you send it.',
   'Aucune réponse humaine attendue à cette étape.': 'No human response is pending for this step.',
   'Continuer cette étape': 'Continue this step',
   'Réponse enregistrée. La continuation reste une action distincte.':

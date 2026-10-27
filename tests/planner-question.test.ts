@@ -55,3 +55,119 @@ test('Planner card reads require the native owner, workspace and canonical repos
   assert.equal(plannerQuestionAnswerRpc.input.safeParse({ ...answer, answer: { questionId: 'scope' } }).success, false);
   assert.equal(plannerQuestionAnswerRpc.input.safeParse({ ...answer, expectedRevision: -1 }).success, false);
 });
+
+test('Planner shows inline radio choices and free response, blocks double submission and preserves pending context', async (t) => {
+  const React = (await import('react')).default;
+  const { create, act } = await import('react-test-renderer');
+  const { loadResponseUi } = await import('./response-ui-harness');
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  const { PlannerQuestionCard } = await loadResponseUi(t, 'client/planner-question.tsx', '__plannerInlineTest');
+  const options = [
+    { id: 'small', label: 'Small', tradeoff: 'Quick' },
+    { id: 'large', label: 'Large', tradeoff: 'Thorough' },
+  ];
+  const request = {
+    kind: 'clarification',
+    summary: 'Choose scope',
+    questions: [
+      { id: 'scope', title: 'Scope?', options, recommendedOptionId: 'small' },
+      { id: 'format', title: 'Format?', options, recommendedOptionId: 'large' },
+    ],
+  };
+  let w = {
+    revision: 4,
+    clarifications: [
+      { id: 'pending', request, answers: [] as { questionId: string; optionId?: string; text?: string }[] },
+    ],
+  };
+  const calls: { name: string; input: Record<string, unknown> }[] = [];
+  let fail = true,
+    release!: () => void;
+  (globalThis as Record<string, unknown>).__plannerInlineTest = {
+    language: 'en',
+    rpc: (name: string) => async (input: Record<string, unknown>) => {
+      calls.push({ name, input });
+      if (name === 'teams.planner_question') return structuredClone(w);
+      if (fail) throw new Error('Revision conflict');
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      w = structuredClone(w);
+      w.revision++;
+      w.clarifications[0].answers.push(input.answer as (typeof w.clarifications)[0]['answers'][number]);
+      return structuredClone(w);
+    },
+  };
+  t.after(() => {
+    delete (globalThis as Record<string, unknown>).__plannerInlineTest;
+  });
+  let tree!: ReturnType<typeof create>;
+  await act(async () => {
+    tree = create(
+      React.createElement(PlannerQuestionCard, {
+        agentId: 'owner',
+        item: {
+          data: { id: 'workflow', workspaceId: 'workspace', clarificationId: 'pending', text: 'Historical request' },
+        },
+        theme: { colors: {} },
+      }),
+    );
+  });
+  t.after(() => act(() => tree.unmount()));
+  const nodes = () => tree.root.findAllByType('Pressable' as never);
+  const button = (label: string) => nodes().find((n) => n.props.accessibilityLabel === label)!;
+  const text = () => JSON.stringify(tree.toJSON());
+  assert.match(text(), /Scope\?/);
+  assert.equal(calls.length, 1);
+  assert.equal(tree.root.findAllByType('Modal' as never).length, 0);
+  assert.ok(
+    nodes()
+      .filter((n) => n.props.accessibilityRole === 'radio')
+      .every((n) => n.props.accessibilityState.checked === false),
+  );
+  assert.equal(button('Send response').props.disabled, true);
+  await act(async () => button('Small · Recommended').props.onPress());
+  assert.equal(button('Small · Recommended').props.accessibilityState.checked, true);
+  await act(async () => tree.root.findByType('TextInput' as never).props.onChangeText('Only documentation'));
+  await act(async () => button('Send response').props.onPress());
+  assert.match(text(), /Revision conflict/);
+  assert.equal(tree.root.findByType('TextInput' as never).props.value, 'Only documentation');
+  fail = false;
+  await act(async () => {
+    const send = button('Send response').props.onPress;
+    send();
+    send();
+  });
+  assert.equal(calls.filter((c) => c.name === 'teams.planner_answer').length, 2); // One failed attempt, one in flight.
+  await act(async () => release());
+  assert.deepEqual(calls.at(-1)?.input, {
+    id: 'workflow',
+    workspaceId: 'workspace',
+    ownerAgentId: 'owner',
+    expectedRevision: 4,
+    clarificationId: 'pending',
+    answer: { questionId: 'scope', optionId: 'small', text: 'Only documentation' },
+  });
+  assert.match(text(), /Format\?/);
+  assert.equal(tree.root.findByType('TextInput' as never).props.value, '');
+  assert.equal(button('Send response').props.disabled, true);
+  assert.equal(calls.filter((c) => c.name === 'teams.planner_question').length, 1); // No read loop or model loop.
+  // Reusing a timeline row for a different clarification must not copy an unsent draft.
+  await act(async () => tree.root.findByType('TextInput' as never).props.onChangeText('Draft for the old request'));
+  w = {
+    revision: 6,
+    clarifications: [{ id: 'next', request: { ...request, questions: [request.questions[1]] }, answers: [] }],
+  };
+  await act(async () =>
+    tree.update(
+      React.createElement(PlannerQuestionCard, {
+        agentId: 'owner',
+        item: { data: { id: 'workflow', workspaceId: 'workspace', clarificationId: 'next', text: 'Next request' } },
+        theme: { colors: {} },
+      }),
+    ),
+  );
+  assert.equal(tree.root.findByType('TextInput' as never).props.value, '');
+  assert.equal(button('Send response').props.disabled, true);
+  assert.equal(calls.filter((c) => c.name === 'teams.planner_question').length, 2);
+});

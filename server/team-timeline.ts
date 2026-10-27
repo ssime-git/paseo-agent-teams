@@ -414,6 +414,9 @@ export const transcriptItem = (entry: TranscriptEntry): ProviderTimelineItem =>
               workspaceId: entry.graphWorkspaceId,
               text: entry.text,
               ...(entry.graphId ? { graphId: entry.graphId } : {}),
+              ...(entry.graphId && entry.id.startsWith(`graph-wait:${entry.graphId}:`)
+                ? { operationId: entry.id.slice(`graph-wait:${entry.graphId}:`.length) }
+                : {}),
             },
           }
         : say(entry.id, entry.text);
