@@ -451,3 +451,83 @@ test('graph report projection failure finishes the accepted native turn with an 
   assert.ok(s.events.some((e) => e.type === 'session.turn' && e.turnId === 'team:turn:graphs' && e.state === 'failed'));
   assert.equal(s.calls.length, 1);
 });
+
+test('native graph continuation is scoped, bounded, persisted and replayed after reconnect', async (t) => {
+  const s = await setup(t, 'en');
+  const requests: unknown[] = [];
+  const id = '00000000-0000-4000-8000-000000000002';
+  s.backend.advanceGraph = async (input) => {
+    requests.push(input);
+    // Presentation fixture: checkpoint validity and advancement are tested by graph-launch.test.ts.
+    return {
+      status: 'waiting',
+      reason: 'human',
+      state: {
+        id,
+        revision: 3,
+        status: 'waiting_human',
+        activations: [],
+        nextStepId: 'approval',
+        source: { revision: 1, definition: { name: 'Custom flow', maxTransitions: 2 } },
+      } as unknown as Awaited<ReturnType<NonNullable<TeamProviderBackend['advanceGraph']>>>['state'],
+    };
+  };
+  await s.open();
+  await s.prompt('advance', { type: 'message', content: [{ type: 'text', text: `/team-advance ${id} 2` }] });
+  assert.deepEqual(requests, [
+    {
+      id,
+      expectedRevision: 2,
+      workspaceId: s.workflow().workspaceId,
+      ownerAgentId: '00000000-0000-4000-8000-000000000001',
+    },
+  ]);
+  assert.equal(s.calls.length, 0);
+  assert.match(JSON.stringify(s.events), /Waiting for a human decision/);
+  assert.match(JSON.stringify(s.events), /No implicit human decision or approval/);
+  const saved = s.events.filter((e) => e.type === 'session.persistence').at(-1);
+  assert.ok(saved?.type === 'session.persistence');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  await s.open(saved.persistence);
+  await s.prompt('advance', { type: 'command', name: 'team-advance', arguments: `${id} 2` });
+  assert.equal(requests.length, 1);
+  assert.equal(s.calls.length, 0);
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Wait for my plan approval' }] });
+  await s.prompt('advance-again', { type: 'command', name: 'team-advance', arguments: `${id} 2` });
+  assert.equal(requests.length, 2);
+  assert.equal(s.calls.length, 1);
+  assert.equal(s.workflow().status, 'awaiting_plan');
+});
+
+test('native continuation rejects missing revisions, malformed arguments and ownership failures', async (t) => {
+  const s = await setup(t);
+  let calls = 0;
+  s.backend.advanceGraph = async () => {
+    calls++;
+    throw new Error('Native Team owner unavailable');
+  };
+  await s.open();
+  const id = '00000000-0000-4000-8000-000000000002';
+  for (const [i, args] of [
+    '',
+    id,
+    `${id} 0`,
+    `${id} -1`,
+    `${id} 1.5`,
+    `${id} 1e2`,
+    `${id} 9007199254740992`,
+    `${id} 1 approve`,
+    'bad 1',
+  ].entries()) {
+    await s.prompt(`invalid-${i}`, { type: 'command', name: 'team-advance', arguments: args });
+  }
+  assert.equal(calls, 0);
+  await s.prompt('denied', { type: 'command', name: 'team-advance', arguments: `${id} 1` });
+  assert.equal(calls, 1);
+  assert.equal(s.calls.length, 0);
+  assert.ok(
+    s.events
+      .filter((e) => e.type === 'session.prompt_result')
+      .every((e) => e.type === 'session.prompt_result' && e.result.type === 'failed'),
+  );
+});

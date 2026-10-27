@@ -2,7 +2,7 @@ import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import type { Translate } from '../shared/i18n';
 
 /** Bounded native-thread report; identifiers and model output keep their original spelling. */
-export function graphStatusReport(states: GraphCheckpoint[], t: Translate) {
+export function graphStatusReport(states: GraphCheckpoint[], t: Translate, readOnly = true) {
   if (!states.length) return t('Aucun graphe admis pour cette conversation.');
   const statuses: Record<GraphCheckpoint['status'], string> = {
     ready: t('Prêt à continuer'),
@@ -37,6 +37,10 @@ export function graphStatusReport(states: GraphCheckpoint[], t: Translate) {
     );
   }
   if (states.length > 10) lines.push(t('Affichage limité à 10 graphes.'));
-  lines.push(t('Lecture seule : aucune continuation ni approbation.'));
+  lines.push(
+    readOnly
+      ? t('Lecture seule : aucune continuation ni approbation.')
+      : t('Un seul avancement demandé. Aucune décision humaine ni approbation implicite.'),
+  );
   return lines.join('\n\n');
 }

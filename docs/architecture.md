@@ -149,5 +149,12 @@ its language and checkpoint revision when replayed. A fresh invocation reads cur
 snapshots; retransmission of an acknowledged message ID replays the saved report.
 This also works before a V1 mission exists and neither binds a V1 receipt to a graph
 nor creates a mission. Existing V1 workflows and role dispatch remain unchanged.
-Admission, explicit continuation and human decisions still need native UI wiring;
-there is no automatic graph polling or scheduler in this command.
+`/team-advance UUID REVISION` delegates to `continueSavedGraph`, with workspace and
+owner resolved from the native conversation, never accepted from command arguments.
+The revision must be an explicit positive safe integer. Exactly one persisted boundary
+is requested; retries with a stale revision do not advance a second boundary. The
+existing native transcript stores the outcome and replays acknowledged message IDs
+after reconnects. This can dispatch a step or execute previously approved tests;
+human decisions, clarification answers and permissions remain separate. Admission
+and human decisions still need native UI wiring. Neither command adds automatic
+graph polling, model retries or a scheduler.

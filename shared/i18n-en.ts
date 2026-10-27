@@ -1,5 +1,15 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Continuer un graphe : UUID révision attendue': 'Continue a graph: UUID expected revision',
+  'Usage : /team-advance UUID révision-attendue': 'Usage: /team-advance UUID expected-revision',
+  'Frontière suivante enregistrée': 'Next boundary recorded',
+  'En attente': 'Waiting',
+  'Continuation bloquée': 'Continuation blocked',
+  'Graphe terminé': 'Graph finished',
+  'Révision périmée : aucune continuation': 'Stale revision: no continuation',
+  'Un seul avancement demandé. Aucune décision humaine ni approbation implicite.':
+    'One advance requested. No implicit human decision or approval.',
+
   'Afficher les graphes de cette conversation': 'Show graphs owned by this conversation',
   'Aucun graphe admis pour cette conversation.': 'No admitted graphs for this conversation.',
   'Prêt à continuer': 'Ready to continue',

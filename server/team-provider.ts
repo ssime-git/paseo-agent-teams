@@ -17,6 +17,7 @@ import {
 } from './team-timeline';
 import { roleTitle, TEAM_PROVIDER_ID, type TeamProviderChoice } from '../shared/team-composition';
 import { translator, type Language, type Translate } from '../shared/i18n';
+import { graphAdvanceRpc } from '../shared/graph-actions';
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { graphStatusReport } from './graph-status';
 import { readOnlyMode } from '../shared/provider-selection';
@@ -31,6 +32,7 @@ export interface TeamProviderBackend {
     workspaceId: string,
   ): Promise<{ workspaceId: string; choices: TeamProviderChoice[]; config: Config }>;
   ownerWorkspace(agentId: string, cwd: string): Promise<string>;
+  advanceGraph?(input: z.infer<typeof graphAdvanceRpc.input>): Promise<z.infer<typeof graphAdvanceRpc.output>>;
   graphs?(workspaceId: string, ownerAgentId: string): Promise<GraphCheckpoint[]>;
   list(workspaceId: string): Promise<Workflow[]>;
   get(id: string, workspaceId: string): Promise<Workflow>;
@@ -80,6 +82,7 @@ export const commands = [
   { name: 'team-approve', description: 'Approuver le plan ou le résultat en attente' },
   { name: 'team-approve-no-tests', description: 'Approuver explicitement sans commande de test' },
   { name: 'team-graphs', description: 'Afficher les graphes de cette conversation' },
+  { name: 'team-advance', description: 'Continuer un graphe : UUID révision attendue' },
 ];
 const waiting = new Set(['paused', 'attention', 'permission', 'awaiting_plan', 'awaiting_final', 'completed']);
 const ACTIVITY_BACKFILL = 8;
@@ -441,25 +444,58 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
                 .trim()
             : '';
         if (prompt.input.type === 'message' && !text) throw new Error(t('Décrivez votre mission.'));
-        if (prompt.input.type === 'command' && prompt.input.name === 'team-graphs') {
-          if (prompt.input.arguments.trim()) throw new Error(t('Cette commande ne prend pas d’argument.'));
-          const reportId = `graphs:${prompt.clientMessageId}`;
+        if (prompt.input.type === 'command' && ['team-graphs', 'team-advance'].includes(prompt.input.name)) {
+          const advancing = prompt.input.name === 'team-advance';
+          const args = prompt.input.arguments.trim().split(/\s+/);
+          let continuation: { id: string; expectedRevision: number } | undefined;
+          if (advancing) {
+            const parsed = z.object({ id: z.uuid(), expectedRevision: z.number().int().positive().safe() }).safeParse({
+              id: args[0],
+              expectedRevision: args.length === 2 && /^[1-9][0-9]*$/.test(args[1]) ? Number(args[1]) : NaN,
+            });
+            if (!parsed.success) throw new Error(t('Usage : /team-advance UUID révision-attendue'));
+            continuation = parsed.data;
+          } else if (prompt.input.arguments.trim()) throw new Error(t('Cette commande ne prend pas d’argument.'));
+          const reportId = `${advancing ? 'advance' : 'graphs'}:${prompt.clientMessageId}`;
           if (!session.saved.transcript?.some((entry) => entry.id === reportId)) {
-            if (!backend.graphs) throw new Error('Team graph discovery unavailable');
             // Resolve actual placement even before this conversation has a V1 mission.
             // The backend rechecks native ownership and canonical Git identity.
             const workspaceId = await backend.ownerWorkspace(session.agentId, session.cwd);
             if (workspaceId !== session.saved.workspaceId && session.saved.workflowId)
               throw new Error('Team workspace changed');
-            const states = await backend.graphs(workspaceId, session.agentId);
+            let report: string;
+            if (continuation) {
+              if (!backend.advanceGraph) throw new Error('Team graph continuation unavailable');
+              const result = await backend.advanceGraph({
+                ...continuation,
+                workspaceId,
+                ownerAgentId: session.agentId,
+              });
+              const labels = {
+                progressed: t('Frontière suivante enregistrée'),
+                waiting: t('En attente'),
+                blocked: t('Continuation bloquée'),
+                terminal: t('Graphe terminé'),
+                stale: t('Révision périmée : aucune continuation'),
+              };
+              report = `${labels[result.status]} · ${result.reason}\n\n${graphStatusReport([result.state], t, false)}`;
+            } else {
+              if (!backend.graphs) throw new Error('Team graph discovery unavailable');
+              report = graphStatusReport(await backend.graphs(workspaceId, session.agentId), t);
+            }
             session.saved.workspaceId = workspaceId;
             const at = session.saved.workflowId
               ? (await backend.get(session.saved.workflowId, workspaceId)).events.length
               : 0;
             record(
               session.saved,
-              { id: prompt.clientMessageId, role: 'user', text: '/team-graphs', at },
-              { id: reportId, role: 'assistant', text: graphStatusReport(states, t), at },
+              {
+                id: prompt.clientMessageId,
+                role: 'user',
+                text: advancing ? `/team-advance ${prompt.input.arguments.trim()}` : '/team-graphs',
+                at,
+              },
+              { id: reportId, role: 'assistant', text: report, at },
             );
             persist(sessionId, session.saved);
           }

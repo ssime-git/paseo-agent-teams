@@ -220,6 +220,10 @@ export function contributeServer(server: PluginServerContext) {
         await bind();
         return listSavedGraphs(recoveryClient!, store.graphs, { workspaceId, ownerAgentId });
       },
+      advanceGraph: async (input) => {
+        await bind();
+        return continueSavedGraph(recoveryClient!, store.graphs, input);
+      },
       list: (workspaceId) => store.all().then((all) => all.filter((w) => w.workspaceId === workspaceId)),
       get: (id, workspaceId) => store.authorize(id, workspaceId),
       create: async (workspaceId, task, config, requestId, ownerAgentId) =>
