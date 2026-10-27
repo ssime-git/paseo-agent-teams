@@ -1,4 +1,5 @@
 import { TeamError } from '../shared/errors';
+import { deliveryQuestion, deliveryMethod } from '../shared/delivery';
 import { rm } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -10,6 +11,8 @@ import {
   planRevisionSchema,
   nativePlanRevisionSchema,
   reviewSchema,
+  deliveryResultSchema,
+  coordinationSchema,
   roles,
   type Action,
   type Config,
@@ -17,6 +20,7 @@ import {
   type TestResult,
   type Workflow,
   type Permission,
+  type DeliveryResult,
 } from '../shared/contracts';
 import {
   HUMAN_CHECKPOINTS,
@@ -35,6 +39,7 @@ export interface Outcome {
   text?: string;
   error?: string;
   cursor?: { epoch: string; seq: number };
+  externallyContinued?: boolean;
 }
 export type PreparedScope = { cwd: string; repo: string; repositoryTargets?: RepositoryTarget[] };
 export type CheckScope = (scope: PreparedScope) => Promise<void>;
@@ -53,6 +58,8 @@ export interface Runtime {
   publish(w: Workflow): Promise<void>;
   canClose(w: Workflow): Promise<boolean>;
   fingerprint(w: Workflow): Promise<string>;
+  deliveryFingerprint?(w: Workflow): Promise<string>;
+  verifyDelivery?(w: Workflow, result: DeliveryResult): Promise<void>;
   permissions?(w: Workflow): Promise<Permission[]>;
   respondPermission?(w: Workflow, id: string, behavior: 'allow' | 'deny', selectedActionId?: string): Promise<void>;
   autoApprove?(w: Workflow): Promise<boolean>;
@@ -209,14 +216,25 @@ export class Engine {
       if (w.status === 'completed' && input.action !== 'followup')
         throw new TeamError('WORKFLOW_COMPLETED', 'Workflow already completed');
       const pending = w.clarifications?.find((c) => !c.resolvedAt);
+      if (pending?.purpose === 'delivery' && input.action === 'message') {
+        pending.resolvedAt = new Date().toISOString();
+        delete w.delivery;
+      }
       if (
         pending &&
+        !pending.resolvedAt &&
+        !(
+          (input.action === 'followup' && (!input.purpose || input.purpose === 'message')) ||
+          (pending.purpose === 'delivery' && ['adopt_plan', 'continue', 'start_goal'].includes(input.action))
+        ) &&
         !['answer_clarification', 'import_planner_answers', 'pause', 'reconfigure', 'finish'].includes(input.action)
       )
         throw new TeamError('CLARIFICATION_PENDING', 'En attente de réponse : répondez aux questions du Planner.');
       switch (input.action) {
         case 'answer_clarification':
         case 'import_planner_answers': {
+          if (pending?.purpose === 'delivery' && input.action === 'import_planner_answers')
+            throw new TeamError('DELIVERY_CHOICE_REQUIRED', 'Répondez au choix de livraison dans le thread Team.');
           if (
             !pending ||
             (input.action === 'answer_clarification' && pending.id !== input.clarificationId) ||
@@ -287,8 +305,30 @@ export class Engine {
             }
           }
           if (pending.answers.length === pending.request.questions.length) {
+            if (pending.purpose === 'delivery') {
+              const answer = pending.answers[0];
+              const method = answer.optionId ?? deliveryMethod(answer.text);
+              if (method !== 'pull_request' && method !== 'main') {
+                this.event(w, 'user', answer.text ?? 'Revoir la livraison');
+                pending.resolvedAt = new Date().toISOString();
+                delete w.delivery;
+                w.phase = 'planning';
+                w.status = w.status === 'paused' ? 'paused' : 'ready';
+                if (w.status === 'paused') w.resumeStatus = 'ready';
+                else delete w.resumeStatus;
+                delete w.error;
+                break;
+              }
+              if (!w.delivery || w.delivery.fingerprint !== (await this.runtime.fingerprint(w)))
+                throw new TeamError(
+                  'VALIDATION_REQUIRED',
+                  'Le dépôt a changé. Relancez les vérifications avant la livraison.',
+                );
+              w.delivery.method = method;
+              w.delivery.approvedAt = new Date().toISOString();
+              w.phase = 'delivering';
+            } else w.phase = 'planning';
             pending.resolvedAt = new Date().toISOString();
-            w.phase = 'planning';
             delete w.error;
             delete w.resumeStatus;
             if (w.status !== 'paused') w.status = 'ready';
@@ -301,15 +341,27 @@ export class Engine {
             this.event(
               w,
               'clarification_resolved',
-              'Réponses enregistrées ; reprise du Planner, sans approbation du plan.',
-              'planner',
+              pending.purpose === 'delivery'
+                ? 'Livraison autorisée explicitement ; transmission au Code.'
+                : 'Réponses enregistrées ; reprise du Planner, sans approbation du plan.',
+              pending.purpose === 'delivery' ? 'builder' : 'planner',
             );
           }
           break;
         }
         case 'followup': {
           if (
-            !['completed', 'paused', 'attention', 'awaiting_plan', 'awaiting_final'].includes(w.status) ||
+            (!input.purpose || input.purpose === 'message') &&
+            (w.operation ||
+              w.phase === 'followup' ||
+              this.jobs.has(w.id) ||
+              !['completed', 'paused', 'attention', 'available', 'awaiting_plan', 'awaiting_final'].includes(w.status))
+          ) {
+            this.enqueueMessage(w, input);
+            break;
+          }
+          if (
+            !['completed', 'paused', 'attention', 'available', 'awaiting_plan', 'awaiting_final'].includes(w.status) ||
             w.operation ||
             w.phase === 'followup' ||
             this.jobs.has(w.id)
@@ -326,7 +378,10 @@ export class Engine {
           if (blocker)
             throw new TeamError('REPOSITORY_LOCKED', `Another workflow holds this repository: ${blocker.id}`);
           if (!(await this.runtime.canClose(w)))
-            throw new TeamError('ACTIVE_STEP', 'A native agent is still active or awaiting permissions.');
+            if (!input.purpose || input.purpose === 'message') {
+              this.enqueueMessage(w, input);
+              break;
+            } else throw new TeamError('ACTIVE_STEP', 'A native agent is still active or awaiting permissions.');
           const purpose = input.purpose ?? 'message';
           if (purpose === 'plan_revision' && (w.config.mode !== 'auto' || !w.plan || w.status === 'completed'))
             throw new TeamError('PLAN_REVISION_UNAVAILABLE', 'A live automatic workflow with a plan is required');
@@ -350,6 +405,8 @@ export class Engine {
             );
           w.followup = {
             purpose,
+            message: input.message.trim(),
+            ...(purpose === 'message' && !input.role ? { coordinating: true } : {}),
             returnPhase: w.phase,
             returnStatus: w.status as NonNullable<Workflow['followup']>['returnStatus'],
             previousError: w.error,
@@ -485,6 +542,7 @@ export class Engine {
           w.config.freshSessionPerCycle = true;
           w.goal = { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: 0 };
           delete w.resultRepair;
+          this.invalidateDelivery(w);
           delete w.error;
           delete w.resumeStatus;
           w.phase = 'planning';
@@ -524,6 +582,7 @@ export class Engine {
           if (w.config.mode === 'auto' && role !== 'planner' && (!w.plan || !w.testsApproved))
             throw new TeamError('APPROVAL_REQUIRED', 'Approve the plan and tests before restarting this phase');
           delete w.resultRepair;
+          this.invalidateDelivery(w);
           if (w.config.goalMode)
             w.goal = { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: w.goal?.replans ?? 0 };
           w.config.maxCorrections = Math.max(w.config.maxCorrections, w.cycle + (input.extraCorrections ?? 2));
@@ -578,8 +637,9 @@ export class Engine {
             w.phase = STAGE_TRANSITIONS.planner;
             w.status = 'ready';
           } else if (w.status === 'awaiting_final') {
-            w.phase = STAGE_TRANSITIONS.reviewer;
-            w.status = 'completed';
+            // Older saved final checkpoints did not have a delivery decision.
+            // Reuse their review only if the independent test fingerprint is current.
+            await this.applyReview(w, w.review, await this.runtime.fingerprint(w));
           } else throw new TeamError('APPROVAL_NOT_PENDING', 'No approval pending');
           this.event(w, 'approved', 'Human approval recorded');
           break;
@@ -598,6 +658,7 @@ export class Engine {
           if (w.phase === 'followup')
             throw new TeamError('ACTIVE_STEP', 'Wait for the follow-up response before sending another message.');
           if (!input.message?.trim()) throw new TeamError('MESSAGE_EMPTY', 'Message cannot be empty');
+          delete w.delivery;
           this.event(w, 'user', input.message);
           if (w.operation) w.pendingRole = w.config.mode === 'manual' ? w.activeRole : 'planner';
           else {
@@ -632,6 +693,33 @@ export class Engine {
           this.event(w, 'closed', 'Workflow closed by user; working files retained');
           break;
         case 'resume':
+          if (w.status === 'available') break;
+          if (w.operation?.readOnlyFingerprint) {
+            const op = w.operation;
+            const responseIndex = w.events.findLastIndex((e) => e.kind === 'assistant' && e.operationId === op.id);
+            const response = w.events[responseIndex];
+            const violation = w.events
+              .slice(responseIndex + 1)
+              .some(
+                (e) =>
+                  e.kind === 'error' &&
+                  e.role === op.role &&
+                  e.text.startsWith('Repository changed during a read-only turn.'),
+              );
+            if (response && violation) {
+              if (!(await this.runtime.canClose(w)))
+                throw new TeamError('ACTIVE_STEP', 'A native agent is still active or awaiting permissions.');
+              this.stopChangedReadOnlyTurn(w, response.text);
+              this.event(
+                w,
+                'operation_recovered',
+                'Tour terminé récupéré depuis la réponse enregistrée ; aucun renvoi. Une reprise explicite du plan ou des vérifications est possible.',
+                op.role,
+                op.id,
+              );
+              break;
+            }
+          }
           if (w.status === 'awaiting_plan' || w.status === 'awaiting_final')
             throw new TeamError('APPROVAL_REQUIRED', 'Approval is required');
           // A finished invalid turn may be repaired by an explicit user retry. Ambiguous operations stay attached.
@@ -649,8 +737,55 @@ export class Engine {
     if (input.action !== 'reconfigure') this.kick(w.id);
     return w;
   }
+  private enqueueMessage(w: Workflow, input: Action) {
+    if (!input.message?.trim()) throw new TeamError('MESSAGE_EMPTY', 'Message cannot be empty');
+    const inbox = [
+      ...(w.inbox ?? []),
+      { id: input.requestId, message: input.message.trim(), ...(input.role ? { role: input.role } : {}) },
+    ];
+    if (inbox.length > 100 || Buffer.byteLength(JSON.stringify(inbox)) > 128 * 1024 || input.message.length > 32000)
+      throw new TeamError(
+        'INBOX_FULL',
+        'La boîte de réception est pleine. Attendez le traitement des messages en cours.',
+      );
+    w.inbox = inbox;
+    this.event(w, 'user', input.message.trim(), undefined, input.requestId);
+    this.event(w, 'message_queued', 'Message reçu par l’orchestrateur ; traitement après le tour courant.');
+    // Wake only reconciliation of an accepted turn, never resend its prompt.
+    if (w.status === 'attention' && w.operation && w.receipts?.[w.operation.id]) w.status = 'running';
+  }
+  private async prepareInbox(snapshot: Workflow): Promise<boolean> {
+    if (!snapshot.inbox?.length || snapshot.operation || snapshot.phase === 'followup' || snapshot.status === 'paused')
+      return false;
+    if (!(await this.runtime.canClose(snapshot))) return false;
+    return this.serial(snapshot.id, async () => {
+      const w = await this.store.get(snapshot.id);
+      if (w.revision !== snapshot.revision || w.operation || w.phase === 'followup' || !w.inbox?.length) return false;
+      const message = w.inbox.shift()!;
+      w.followup = {
+        purpose: 'message',
+        coordinating: !message.role,
+        message: message.message,
+        returnPhase: w.phase,
+        returnStatus: w.status as NonNullable<Workflow['followup']>['returnStatus'],
+        previousError: w.error,
+        previousResumeStatus: w.resumeStatus,
+      };
+      w.phase = 'followup';
+      w.activeRole = message.role ?? 'planner';
+      w.status = 'ready';
+      delete w.error;
+      this.event(w, 'message_dispatched', 'L’orchestrateur prend en charge le message en attente.', w.activeRole);
+      await this.save(w);
+      return true;
+    });
+  }
   async recoverAutomatic() {
     for (const w of await this.store.all()) {
+      if (w.inbox?.length && w.status !== 'paused' && (!w.operation || w.receipts?.[w.operation.id])) {
+        this.kick(w.id);
+        continue;
+      }
       if (w.config.recovery !== 'automatic' || TERMINAL_OR_WAITING.includes(w.status)) continue;
       this.kick(w.id);
     }
@@ -697,7 +832,7 @@ export class Engine {
         ...Object.entries(w.receipts ?? {}).slice(-99),
         [op.id, JSON.stringify({ ...outcome, text })],
       ]);
-      if (w.status === 'permission' && this.observed.has(w.id)) {
+      if ((w.status === 'permission' || (w.status === 'attention' && w.inbox?.length)) && this.observed.has(w.id)) {
         w.status = 'running';
         delete w.error;
         wake.push(w.id);
@@ -705,6 +840,12 @@ export class Engine {
       await this.save(w);
     });
     for (const id of wake) this.kick(id);
+    // A native consultation can finish while no pipeline operation is attached.
+    // Its hook still releases pending orchestrator messages.
+    for (const id of await this.store.forAgent(agentId)) {
+      const w = await this.store.get(id);
+      if (w.inbox?.length && !w.operation && w.status !== 'paused') this.kick(id);
+    }
   }
   async resolvePermission(agentId: string) {
     const ids: string[] = [];
@@ -746,7 +887,13 @@ export class Engine {
       .catch(console.error)
       .finally(async () => {
         this.jobs.delete(id);
-        if (!this.closed && (await this.store.get(id)).status === 'ready') this.kick(id);
+        if (this.closed) return;
+        const w = await this.store.get(id);
+        if (
+          w.status === 'ready' ||
+          (w.inbox?.length && !w.operation && w.status !== 'paused' && (await this.runtime.canClose(w)))
+        )
+          this.kick(id);
       });
     this.jobs.set(id, job);
   }
@@ -779,11 +926,28 @@ export class Engine {
     }
   }
   private async dispatchNext(id: string): Promise<Work | undefined> {
-    const w = await this.serial(id, async () => this.store.get(id));
-    if (DISPATCH_BLOCKED.includes(w.status) || w.clarifications?.some((c) => !c.resolvedAt)) return;
+    let w = await this.serial(id, async () => this.store.get(id));
+    if (await this.prepareInbox(w)) w = await this.store.get(id);
+    if (w.operation && w.inbox?.length && w.receipts?.[w.operation.id] && !['paused', 'permission'].includes(w.status))
+      return { w, reconcile: true };
+    if (DISPATCH_BLOCKED.includes(w.status) || (w.phase !== 'followup' && w.clarifications?.some((c) => !c.resolvedAt)))
+      return;
     if (w.operation) return { w, reconcile: true };
     if (w.status !== 'ready') return;
-    if (w.config.goalMode && w.phase !== 'followup') {
+    if (
+      w.phase === 'delivering' &&
+      (!w.delivery?.approvedAt ||
+        !w.delivery.method ||
+        w.delivery.contentFingerprint !==
+          (await (this.runtime.deliveryFingerprint?.(w) ?? this.runtime.fingerprint(w))))
+    ) {
+      await this.fail(
+        id,
+        'Livraison non autorisée ou fichiers modifiés depuis la validation. Relancez les vérifications.',
+      );
+      return;
+    }
+    if (w.config.goalMode && w.phase !== 'followup' && w.phase !== 'delivering') {
       const elapsed = Date.now() - Date.parse(w.goal?.startedAt ?? new Date().toISOString());
       if (
         (w.phase !== 'testing' && (w.goal?.turns ?? 0) >= (w.config.goalMaxTurns ?? 30)) ||
@@ -830,7 +994,7 @@ export class Engine {
         startedAt: new Date().toISOString(),
         readOnlyFingerprint: fingerprint,
       };
-      if (current.config.goalMode && current.phase !== 'followup') {
+      if (current.config.goalMode && current.phase !== 'followup' && current.phase !== 'delivering') {
         current.goal ??= { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: 0 };
         current.goal.turns++;
       }
@@ -922,7 +1086,7 @@ export class Engine {
       }
       if (outcome.cursor) w.cursors[op.role] = outcome.cursor;
       if (outcome.status !== 'idle') return this.applyPendingOutcome(w, outcome);
-      await this.applyIdleOutcome(w, op, outcome.text ?? '', fingerprint);
+      await this.applyIdleOutcome(w, op, outcome.text ?? '', fingerprint, outcome.externallyContinued);
       return true;
     });
   }
@@ -966,13 +1130,12 @@ export class Engine {
     op: NonNullable<Workflow['operation']>,
     text: string,
     fingerprint?: string,
+    externallyContinued = false,
   ) {
     this.event(w, 'assistant', text, op.role, op.id);
     if (op.readOnlyFingerprint && fingerprint !== op.readOnlyFingerprint) {
-      w.status = 'attention';
-      w.error =
-        'Repository changed during a read-only turn. Inspect the files before continuing; no changes were reverted.';
-      this.event(w, 'error', w.error, op.role);
+      this.stopChangedReadOnlyTurn(w, text);
+      this.event(w, 'error', w.error!, op.role);
       await this.save(w);
       return;
     }
@@ -980,8 +1143,40 @@ export class Engine {
     delete w.operation;
     delete w.error;
     if (op.phase === 'followup' && w.followup) {
+      if (w.followup.briefing) {
+        w.followup.delegatedResult = text.slice(-16000);
+        delete w.followup.briefing;
+        w.followup.coordinating = true;
+        w.activeRole = 'planner';
+        w.status = paused ? 'paused' : 'ready';
+        await this.save(w);
+        return;
+      }
+      let coordination: ReturnType<typeof coordinationSchema.parse> | undefined;
+      if (w.followup.coordinating) {
+        try {
+          coordination = coordinationSchema.parse(parseJson(text));
+        } catch {
+          /* Legacy Markdown replies remain readable. */
+        }
+      }
+      if (coordination?.kind === 'delegate') {
+        if ((w.followup.delegationCount ?? 0) >= 3) {
+          coordination = { kind: 'reply', summary: w.followup.delegatedResult ?? coordination.briefing };
+        } else {
+          w.followup.delegationCount = (w.followup.delegationCount ?? 0) + 1;
+          w.followup.coordinating = false;
+          w.followup.briefing = coordination.briefing;
+          w.activeRole = coordination.role;
+          w.status = paused ? 'paused' : 'ready';
+          this.event(w, 'delegated', coordination.briefing, coordination.role);
+          await this.save(w);
+          return;
+        }
+      }
       const revision = w.followup.purpose === 'plan_revision';
-      w.followupResult = text;
+      w.followupResult = coordination?.summary ?? text;
+      if (w.followup.purpose === 'message') this.event(w, 'orchestrator_reply', w.followupResult, op.role, op.id);
       w.phase = w.followup.returnPhase;
       w.status = w.followup.returnStatus === 'completed' ? 'completed' : paused ? 'paused' : w.followup.returnStatus;
       w.resumeStatus =
@@ -991,6 +1186,15 @@ export class Engine {
           : undefined);
       if (w.followup.previousError) w.error = w.followup.previousError;
       delete w.followup;
+      if (coordination?.kind === 'replan') {
+        w.phase = 'planning';
+        w.testsApproved = false;
+        this.invalidateDelivery(w);
+        w.status = paused ? 'paused' : 'ready';
+        if (paused) w.resumeStatus = 'ready';
+        delete w.error;
+        this.event(w, 'coordination', coordination.summary, 'planner');
+      }
       if (revision) {
         delete w.planProposal;
         try {
@@ -1021,7 +1225,33 @@ export class Engine {
       return;
     }
     if (!this.applyHandoff(w, paused)) {
-      await this.applyStageResult(w, op.role, text, fingerprint, op.id);
+      if (op.phase === 'delivering') {
+        try {
+          const result = deliveryResultSchema.parse(parseJson(text));
+          if (!w.delivery?.approvedAt || !w.delivery.method)
+            throw new TeamError('DELIVERY_NOT_APPROVED', 'Delivery has no human approval');
+          w.delivery.result = result;
+          if (result.status === 'blocked') throw new Error(result.summary);
+          if (!this.runtime.verifyDelivery) throw new Error('Delivery verification unavailable');
+          await this.runtime.verifyDelivery(w, result);
+          w.phase = 'done';
+          w.status = 'completed';
+          this.event(w, 'delivered', result.summary, 'builder', op.id);
+        } catch (error) {
+          w.status = 'attention';
+          w.error = `Livraison non terminée : ${String(error)}`;
+          this.event(w, 'delivery_blocked', w.error, 'builder', op.id);
+        }
+      } else await this.applyStageResult(w, op.role, text, fingerprint, op.id);
+      if (externallyContinued && w.status !== 'completed') {
+        w.status = 'available';
+        delete w.error;
+        this.event(
+          w,
+          'native_continuation',
+          'La session native a poursuivi le travail ; l’orchestrateur examine le nouvel état sans rejouer les anciennes étapes.',
+        );
+      }
       if (paused && w.status !== 'completed') {
         w.resumeStatus = HUMAN_CHECKPOINTS.includes(w.status)
           ? (w.status as 'awaiting_plan' | 'awaiting_final' | 'attention')
@@ -1030,6 +1260,20 @@ export class Engine {
       }
     }
     await this.save(w);
+  }
+  private stopChangedReadOnlyTurn(w: Workflow, text: string) {
+    // applyIdleOutcome already proves this exact turn finished. A failed
+    // read-only integrity check rejects its result, not its completion.
+    delete w.operation;
+    if (w.followup) {
+      w.followupResult = text;
+      w.phase = w.followup.returnPhase;
+      delete w.followup;
+    }
+    if (w.status === 'paused') w.resumeStatus = 'attention';
+    else w.status = 'attention';
+    w.error =
+      'Repository changed during a read-only turn. Inspect the files before continuing; no changes were reverted.';
   }
   private applyHandoff(w: Workflow, paused: boolean) {
     if (w.config.mode === 'auto' && w.pendingRole === 'planner') {
@@ -1090,7 +1334,7 @@ export class Engine {
         }
         w.phase = STAGE_TRANSITIONS.builder;
         w.status = 'ready';
-      } else this.applyReview(w, result, fingerprint);
+      } else await this.applyReview(w, result, fingerprint);
     } catch (e) {
       const attempts = (w.resultRepair?.attempts ?? 0) + 1;
       w.error = `Invalid ${role} result: ${String(e)}`;
@@ -1155,7 +1399,13 @@ export class Engine {
     w.testsApproved = false;
     w.allowNoTests = false;
     delete w.testedFingerprint;
+    this.invalidateDelivery(w);
     this.event(w, 'plan_version', `Plan v${version} enregistré (${source}). Une nouvelle approbation est requise.`);
+  }
+  private invalidateDelivery(w: Workflow) {
+    delete w.delivery;
+    for (const question of w.clarifications ?? [])
+      if (question.purpose === 'delivery' && !question.resolvedAt) question.resolvedAt = new Date().toISOString();
   }
   private approvePlan(w: Workflow, policy: 'human' | 'configuration') {
     const version = w.planVersions?.at(-1);
@@ -1205,7 +1455,7 @@ export class Engine {
       }
     }
   }
-  private applyReview(w: Workflow, result: unknown, fingerprint?: string) {
+  private async applyReview(w: Workflow, result: unknown, fingerprint?: string) {
     w.review = reviewSchema.parse(result);
     const testsPass =
       w.testedFingerprint === fingerprint &&
@@ -1213,28 +1463,28 @@ export class Engine {
       (w.plan!.tests.length > 0
         ? w.tests.length === w.plan!.tests.length && w.tests.every((t) => t.exitCode === 0 && !t.timedOut)
         : w.allowNoTests);
-    if (
-      w.review.verdict === 'pass' &&
-      testsPass &&
-      w.review.issues.length &&
-      w.config.autoFix &&
-      !w.nonBlockingAddressed &&
-      (w.config.goalMode || w.cycle < w.config.maxCorrections)
-    ) {
-      // Non-blocking remarks are fixed once automatically; a second pass closes even if new remarks remain.
-      w.nonBlockingAddressed = true;
-      w.cycle++;
-      w.phase = STAGE_TRANSITIONS.planner;
-      w.status = 'ready';
+    if (w.review.verdict === 'pass' && testsPass) {
+      w.delivery = {
+        fingerprint: fingerprint!,
+        contentFingerprint: await (this.runtime.deliveryFingerprint?.(w) ?? this.runtime.fingerprint(w)),
+      };
+      w.phase = 'delivering';
+      w.status = 'awaiting_final';
+      w.clarifications ??= [];
+      w.clarifications.push({
+        id: randomUUID(),
+        purpose: 'delivery',
+        at: new Date().toISOString(),
+        answers: [],
+        agentId: w.agents.reviewer,
+        request: structuredClone(deliveryQuestion),
+      });
       this.event(
         w,
-        'correction',
-        `Revue validée avec ${w.review.issues.length} point(s) non bloquant(s) : traitement automatique par le Builder.`,
-        'builder',
+        'delivery_requested',
+        'PR ou intégration sur main : en attente de votre choix explicite.',
+        'reviewer',
       );
-    } else if (w.review.verdict === 'pass' && testsPass) {
-      w.phase = STAGE_TRANSITIONS.reviewer;
-      w.status = w.config.validation === 'final' ? 'awaiting_final' : 'completed';
     } else if (w.config.goalMode && w.config.autoFix) {
       this.retryGoal(w);
     } else if (w.config.autoFix && w.cycle < w.config.maxCorrections) {

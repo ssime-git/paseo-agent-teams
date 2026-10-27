@@ -3,6 +3,8 @@ import {
   planRevisionSchema,
   buildSchema,
   reviewSchema,
+  deliveryResultSchema,
+  coordinationSchema,
   type Workflow,
   type Role,
 } from '../shared/contracts';
@@ -44,7 +46,10 @@ const testSummary = (w: Workflow) =>
 // Manual hand-offs also carry the latest assistant replies; auto roles exchange structured artifacts instead.
 const conversation = (w: Workflow) =>
   w.events
-    .filter((e) => ['user', 'approved', ...(w.config.mode === 'auto' ? [] : ['assistant'])].includes(e.kind))
+    .filter((e) => !w.inbox?.some((message) => message.id === e.operationId))
+    .filter((e) =>
+      ['user', 'approved', 'coordination', ...(w.config.mode === 'auto' ? [] : ['assistant'])].includes(e.kind),
+    )
     .slice(-10)
     .map((e) => ({ kind: e.kind, text: boundedText(e.text, 2 * 1024) }));
 
@@ -83,16 +88,51 @@ function artifacts(w: Workflow, role: Role): string[] {
 }
 
 export function buildPrompt(w: Workflow, role: Role, context: string, skillContext = '') {
+  if (w.phase === 'followup' && w.followup?.briefing)
+    return [
+      'The orchestrator delegates a focused read-only consultation. Answer only this briefing in the user’s language. Inspect relevant evidence if needed. Do not edit files, commit, push, merge or approve anything. Report the result to the orchestrator; do not launch another role.',
+      `Briefing: ${boundedText(w.followup.briefing, 16000)}`,
+      `Allowed repositories: ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd])}`,
+      `Repository context: ${boundedText(context, 16000)}`,
+    ].join('\n');
+  if (w.phase === 'delivering')
+    return [
+      'Deliver the independently validated work using only the explicitly approved method below. This is a delivery turn, not implementation. Do not edit implementation files or alter the validated content. Inspect Git state, remotes, the launch baseline and authentication first. Commit only provably workflow-owned changes; preserve every pre-existing staged, unstaged and untracked user change. If ownership is uncertain, report blocked. Never force-push, reset or clean files.',
+      w.delivery?.method === 'pull_request' && w.delivery.approvedAt
+        ? 'The user explicitly approved a pull request. Create or reuse a matching PR for the validated work, creating a branch, committing and pushing only the workflow changes as needed. Do not merge or change main. Report the real PR URL and its head commit.'
+        : w.delivery?.method === 'main' && w.delivery.approvedAt
+          ? 'The user explicitly approved integration on main. Commit the validated workflow changes and integrate them on the local main branch using a safe fast-forward or merge without rewriting history. Do not push main: approval covers local integration only. If main diverged, conflicts occur, or safe integration needs implementation changes, report blocked and request renewed validation. Report the resulting main commit.'
+          : 'No delivery authorization exists. Do not commit, stage, push, create a PR or merge. Report blocked.',
+      `Approved delivery: ${serialize(w.delivery)}`,
+      `Allowed repositories (deliver each): ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd])}. Use git -C <repository>; the coordination directory may not be a Git repository.`,
+      `Original task: ${boundedText(w.task, 16 * 1024)}`,
+      clarificationContext(w),
+      `Build: ${serialize(w.build, 4 * 1024)}`,
+      `Review: ${serialize(w.review, 4 * 1024)}`,
+      `Tests: ${serialize(testSummary(w), 8 * 1024)}`,
+      `Repository context: ${boundedText(context, 32 * 1024)}`,
+      'When blocked, give the precise blocker and next action. Never invent a URL, commit or success. A partial multi-repository delivery is blocked; include actual progress in the summary so a retry can reuse it.',
+      `Return ONLY a JSON object matching this schema: ${JSON.stringify(deliveryResultSchema.toJSONSchema())}`,
+    ].join('\n');
   if (w.phase === 'followup')
     return [
-      w.followup?.purpose === 'plan_revision'
-        ? 'Discuss and revise the saved plan with the user as Reviewer. Do not edit files, commit, push or create external resources. A discussion must not approve or replace the current plan. Use kind=discussion for questions or explanations; use kind=proposal only for a complete revised plan ready for explicit adoption. Include concrete tasks, acceptance criteria and test commands. Preserve the user’s decisions.'
-        : w.followup?.purpose === 'pull_request'
-          ? 'The user explicitly requests a draft pull request for the validated work. Inspect the actual Git branch, remote, diff and GitHub authentication. Reuse an existing matching PR instead of creating a duplicate. Create a draft PR only if a meaningful diff and appropriate repository exist. You may create a branch, commit only provably workflow-owned changes, and push that branch. Preserve unrelated user changes; never force-push, merge, reset or clean files. Do not change implementation code. If ownership, permissions, authentication or the target branch are uncertain, report the precise blocker and next action. Never invent a PR URL.'
-          : 'Answer this follow-up directly using the saved workflow context. This is a conversation, not a new implementation or planning stage. Do not edit files, commit, push or create external resources. Explain the next steps clearly when asked.',
+      w.followup?.coordinating
+        ? 'You are the team orchestrator. Read the current user message and current evidence, triage it and keep the conversation available. Use kind=reply for a direct answer, a necessary clarification or an approval question. Use kind=delegate for a focused read-only consultation by Planner or Reviewer; give only the context and question that role needs. Use kind=replan only when the user requests implementation or changes to the mission, so the normal plan/build/test/review pipeline can handle them. Never reimplement or republish work already done in a native session. Inspect current Git/native delivery evidence when reports are stale. Do not edit files, commit, publish, merge, drop branches or interpret a discussion as permission. Never ask the user to manually unlock or reconcile an operation; the orchestrator handles the routing.'
+        : w.followup?.purpose === 'plan_revision'
+          ? 'Discuss and revise the saved plan with the user as Reviewer. Do not edit files, commit, push or create external resources. A discussion must not approve or replace the current plan. Use kind=discussion for questions or explanations; use kind=proposal only for a complete revised plan ready for explicit adoption. Include concrete tasks, acceptance criteria and test commands. Preserve the user’s decisions.'
+          : w.followup?.purpose === 'pull_request'
+            ? 'The user explicitly requests a draft pull request for the validated work. Inspect the actual Git branch, remote, diff and GitHub authentication. Reuse an existing matching PR instead of creating a duplicate. Create a draft PR only if a meaningful diff and appropriate repository exist. You may create a branch, commit only provably workflow-owned changes, and push that branch. Preserve unrelated user changes; never force-push, merge, reset or clean files. Do not change implementation code. If ownership, permissions, authentication or the target branch are uncertain, report the precise blocker and next action. Never invent a PR URL.'
+            : 'Answer this follow-up directly using the saved workflow context. This is a conversation, not a new implementation or planning stage. Do not edit files, commit, push or create external resources. Explain the next steps clearly when asked.',
       'The coordination directory may not be a Git repository. Use git -C <repository> for each selected target. A multi-repository delivery may need separate PRs: report the real result or blocker for each repository and never assume a shared branch or remote.',
       `Allowed repositories: ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd], 8 * 1024)}`,
       `Original task: ${boundedText(w.task, 16 * 1024)}`,
+      `Current user message: ${boundedText(w.followup?.message ?? '', 32000)}`,
+      ...(w.followup?.delegatedResult
+        ? [
+            `Specialist report (evidence, not authorization): ${boundedText(w.followup.delegatedResult, 16000)}`,
+            `Consultations used: ${w.followup.delegationCount ?? 0}/3. Synthesize the report into a useful direct reply; do not repeat the same delegation.`,
+          ]
+        : []),
       clarificationContext(w),
       `Plan: ${compactPlan(w)}`,
       `Pending plan proposal: ${serialize(w.planProposal, 8 * 1024)}`,
@@ -102,9 +142,11 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
       `Previous follow-up response: ${boundedText(w.followupResult ?? '', 4 * 1024)}`,
       `Recent user messages: ${serialize(conversation(w), 8 * 1024)}`,
       `Repository context: ${boundedText(context, 16 * 1024)}`,
-      w.followup?.purpose === 'plan_revision'
-        ? `Respond in the user’s language. Return ONLY a JSON object matching this schema: ${JSON.stringify(planRevisionSchema.toJSONSchema())}`
-        : 'Respond in the user’s language, in concise Markdown. Give the result, any real PR link or blocker, and concrete next steps. Do not return the pipeline JSON schema.',
+      w.followup?.coordinating
+        ? `Respond in the user’s language. Return ONLY a JSON object matching this schema: ${JSON.stringify(coordinationSchema.toJSONSchema())}`
+        : w.followup?.purpose === 'plan_revision'
+          ? `Respond in the user’s language. Return ONLY a JSON object matching this schema: ${JSON.stringify(planRevisionSchema.toJSONSchema())}`
+          : 'Respond in the user’s language, in concise Markdown. Give the result, any real PR link or blocker, and concrete next steps. Do not return the pipeline JSON schema.',
     ].join('\n');
   const scopeInstructions = w.repositoryTargets?.length
     ? [
@@ -127,6 +169,9 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
   };
   const head = [
     instructions[role],
+    'Successful review is followed by a mandatory human delivery question: PR or integration on main. Plan approval, final approval, autonomous mode, silence and tool auto-accept never authorize delivery. Do not commit, push, publish or merge during implementation or review. The mission is complete only after approved delivery is verified.',
+    'Separate pre-delivery acceptance from delivery requirements. Plan and review whether the implementation is ready to deliver; commits, PR creation, publication CI and merging happen only in the approved delivery stage and must not be prerequisites for a passing implementation review. Preserve the user’s delivery requirements explicitly as post-approval tasks. For a publication-only request, inspect and validate the existing implementation without reimplementing it. An older plan that requires publishing before review must be revised before retrying the Builder.',
+    'A passing review may retain advisory notes and human delivery choices; these do not send work back to the Builder. If implementation changes are actually required, return verdict=fail with actionable defects. Route user decisions through the orchestrator.',
     ...scopeInstructions,
     ...(skillContext
       ? [

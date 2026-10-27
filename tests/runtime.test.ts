@@ -718,3 +718,19 @@ test('Team Auto role sessions are titled in the interface language', async () =>
   await new PaseoRuntime(api, '/unused').agent(w, 'reviewer');
   assert.deepEqual(titles, ['Review', 'Revue']);
 });
+
+test('a later native conversation cannot invalidate or replace an exact completed-operation receipt', async () => {
+  const h = adapter({}, [
+    accepted,
+    { item: { type: 'assistant_message', text: 'original' } },
+    { item: { type: 'user_message', text: 'human answered a question' } },
+    { item: { type: 'assistant_message', text: 'later native work is now finished' } },
+  ]);
+  const w = savedWorkflow();
+  w.receipts = { operation: JSON.stringify({ status: 'idle', text: 'original proven result' }) };
+  const result = await h.runtime.reconcile(w);
+  assert.equal(result.status, 'idle');
+  assert.equal(result.text, 'original proven result');
+  assert.equal(result.externallyContinued, true);
+  assert.equal(h.counts().sends, 0);
+});

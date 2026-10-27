@@ -90,7 +90,15 @@ export const commands = [
   { name: 'team-graphs', description: 'Afficher les graphes de cette conversation' },
   { name: 'team-advance', description: 'Continuer un graphe : UUID révision attendue' },
 ];
-const waiting = new Set(['paused', 'attention', 'permission', 'awaiting_plan', 'awaiting_final', 'completed']);
+const waiting = new Set([
+  'paused',
+  'attention',
+  'permission',
+  'awaiting_plan',
+  'awaiting_final',
+  'available',
+  'completed',
+]);
 const ACTIVITY_BACKFILL = 8;
 const TRANSCRIPT_LIMIT = 300;
 const finished = (json: string) => {
@@ -670,12 +678,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
               : approval.test(text) && ['awaiting_plan', 'awaiting_final'].includes(w.status)
                 ? { action: 'approve' }
                 : {
-                    action:
-                      w.status === 'completed' ||
-                      ['awaiting_plan', 'awaiting_final', 'paused', 'attention'].includes(w.status)
-                        ? 'followup'
-                        : 'message',
-                    role: w.phase === 'done' ? 'builder' : w.activeRole,
+                    action: 'followup',
                     message: text,
                     purpose: 'message',
                   }),

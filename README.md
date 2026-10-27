@@ -8,6 +8,8 @@ Run a team of coding agents in one Paseo thread. Pick **Agent Teams → Team Aut
 
 The plugin runs the planned tests between Code and Review. A failed test or a rejected review goes back to Code, up to the correction limit. Each role can use a different harness and model discovered by your Paseo daemon: Claude Code, Codex, OpenCode, Pi or a custom provider.
 
+After a successful review, Team Auto asks how to deliver the validated work: **PR** or **main**. This question is mandatory in every validation mode, including autonomous. Choose in the inline response card or reply exactly `PR` or `main`. Code then creates or reuses a PR, or integrates the changes on local `main` without pushing `main`. The mission completes only after the plugin verifies the delivery. A blocker keeps the mission open. See [delivery behavior](docs/delivery.md).
+
 ![A mission waiting for plan approval](docs/screenshots/plan-ready.png)
 
 ## Install
@@ -41,6 +43,7 @@ The thread shows each step as it happens:
 
 ## Talk to the team
 
+- You can keep messaging the orchestrator while a role is working or a follow-up is being answered. Messages are acknowledged, saved and handled in order after the current turn. The orchestrator answers directly, delegates a focused read-only briefing, or sends requested implementation changes through planning. Questions do not approve plans, permissions or delivery choices. A completed native turn is reconciled from its own receipt even if you continued the native conversation afterward.
 - **go** (or `ok`, `yes`, `oui`, `lgtm`) approves a waiting plan or result. Any other message asks for changes, or a follow-up once the mission is complete.
 - When Plan asks questions, the **Awaiting response** card shows the form directly in the Team thread: radio choices, a labelled recommendation, a free-response field and **Send response**. No popup or opening button. Nothing is preselected or submitted until you send. Pending questions are answered one at a time. You can also reply through the composer; with several questions, write one answer per line: `1. …`, `2. …`.
 - Admitted graphs also show their choices and response field directly in an automatic **Awaiting response** card. The card targets its own graph and activation; no command, UUID, manual workflow selection or modal is needed to answer. Continuation remains a separate explicit action.
@@ -82,7 +85,7 @@ The **Team** pill in a Team Auto thread shows the team and who has control.
 
 ## Good to know
 
-- **Files.** All roles work in the workspace directory. The plugin creates no branch, commit or worktree. Your existing changes are recorded before the first turn and kept.
+- **Files.** All roles work in the workspace directory. Your existing changes are recorded before the first turn and kept. After your explicit delivery choice, Code may create a branch, commit workflow changes and push a PR branch, or integrate on local `main`.
 - **One mission per repository.** A repository is locked while a mission runs, including its other worktrees.
 - **Read-only roles.** Plan and Review use the harness's read-only mode. For a harness without one, read-only is only an instruction, and the mission stops if the repository changes during such a turn.
 - **Tests.** In the default mode you approve the plan, including its test commands, before anything runs. In the final and autonomous modes, Plan's test commands run automatically. A plan without tests needs `/team-approve-no-tests`. Commands run on the daemon host with a minimal environment and a 10-minute timeout each.

@@ -13,11 +13,14 @@ import { runCommand } from './commands';
 import { providerProfiles, nativeMode, builderMode } from './providers';
 import { DEFAULT_MODEL, INSTRUCTION_READ_ONLY, readOnlyMode, parseProvider } from '../shared/provider-selection';
 import type { Outcome, Runtime, CheckScope } from './engine';
+import { deliveryFingerprint, verifyDelivery } from './delivery';
 import type { RoleAction } from './team-timeline';
 import type { AgentTimelineItem } from '@getpaseo/protocol/agent-types';
 
 export { readOnlyMode } from '../shared/provider-selection';
 export class PaseoRuntime implements Runtime {
+  deliveryFingerprint = deliveryFingerprint;
+  verifyDelivery = verifyDelivery;
   private permissionReplies = new Map<string, Promise<void>>();
   constructor(
     private api: PaseoApi,
@@ -243,6 +246,17 @@ export class PaseoRuntime implements Runtime {
         status: 'uncertain',
         error: 'Cannot prove that the saved prompt was accepted; inspect the native session',
       };
+    // A durable receipt belongs to the exact operation, even if a user later
+    // continued the native conversation. Never substitute the later turn's text.
+    const receipt = w.receipts?.[op.id] ?? w.events.find((e) => e.kind === `receipt:${op.id}`)?.text;
+    if (receipt) {
+      const result = JSON.parse(receipt) as Outcome;
+      return {
+        ...result,
+        cursor: history.cursor,
+        externallyContinued: history.entries.slice(index + 1).some((e) => e.item.type === 'user_message'),
+      };
+    }
     if (history.entries.slice(index + 1).some((e) => e.item.type === 'user_message'))
       return { status: 'uncertain', error: 'Another prompt was sent to this session; review it before continuing' };
     const cursor = history.cursor;
@@ -251,11 +265,6 @@ export class PaseoRuntime implements Runtime {
       return { status: result.status, text: result.lastMessage ?? undefined, error: result.error ?? undefined, cursor };
     }
     // A stored hook receipt proves completion; idle alone does not.
-    const receipt = w.receipts?.[op.id] ?? w.events.find((e) => e.kind === `receipt:${op.id}`)?.text;
-    if (receipt) {
-      const result = JSON.parse(receipt) as Outcome;
-      return { ...result, cursor };
-    }
     return {
       status: 'uncertain',
       error: 'No durable completion receipt. The operation is retained and will not be replayed.',

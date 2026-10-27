@@ -225,6 +225,12 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
       case 'goal_replan':
         items.push(say(event.id, correctionText(ctx.t, event.text)));
         return;
+      case 'orchestrator_reply':
+        items.push(say(event.id, event.text));
+        return;
+      case 'message_queued':
+        items.push(say(event.id, ctx.t('Message reçu ; l’orchestrateur le traitera après le tour courant.')));
+        return;
       case 'plan_approved': {
         const version = /Plan v(\d+)/.exec(event.text)?.[1];
         items.push(
@@ -285,11 +291,11 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
     out.push({
       id: `clarify:${pending.id}`,
       text: [
-        pending.request.summary,
+        pending.purpose === 'delivery' ? ctx.t(pending.request.summary) : pending.request.summary,
         '',
         ...open.map(
           (q, i) =>
-            `${open.length > 1 ? `${i + 1}. ` : ''}**${q.title}** — ${q.options.map((o) => o.label).join(' · ')}`,
+            `${open.length > 1 ? `${i + 1}. ` : ''}**${pending.purpose === 'delivery' ? ctx.t(q.title) : q.title}** — ${q.options.map((o) => o.label).join(' · ')}`,
         ),
         '',
         open.length > 1
@@ -320,14 +326,14 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
         { role: ctx.t(roleTitle[w.operation.role]) },
       ),
     });
-  if (w.status === 'awaiting_final')
+  if (w.status === 'awaiting_final' && !pending)
     out.push({
       id: `final:${last?.id ?? w.revision}`,
       text: ctx.t(
         'Le résultat attend votre accord. Répondez **go** pour le valider, ou décrivez ce qu’il faut reprendre.',
       ),
     });
-  if (w.status === 'completed' && w.build) {
+  if (w.status === 'completed' && w.build && !w.events.some((e) => e.kind === 'closed')) {
     const passed = w.tests.filter((t) => t.exitCode === 0 && !t.timedOut).length;
     out.push({
       id: `done:${w.id}:${last?.id ?? w.cycle}`,
@@ -338,6 +344,12 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
         w.review ? `\n${ctx.t('Relecture : {summary}', { summary: w.review.summary })}` : '',
         w.tests.length ? ctx.t('Tests : {passed}/{total} réussis.', { passed, total: w.tests.length }) : '',
         w.cycle ? ctx.t('Corrections : {count}.', { count: w.cycle }) : '',
+        w.delivery?.result?.summary ?? '',
+        ...(w.delivery?.result?.status === 'delivered'
+          ? w.delivery.result.repositories.map((r) =>
+              w.delivery?.method === 'pull_request' && r.url ? `[PR](${r.url})` : `main · \`${r.commit}\``,
+            )
+          : []),
       ]
         .filter(Boolean)
         .join('\n'),
@@ -350,25 +362,29 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
 export function statusReport(w: Workflow, ctx: TeamTimelineContext) {
   const t = ctx.t;
   const role = w.operation?.role;
-  const state = w.clarifications?.some((q) => !q.resolvedAt)
-    ? t('Des questions attendent votre réponse.')
-    : w.status === 'awaiting_plan'
-      ? t('Le plan attend votre accord.')
-      : w.status === 'awaiting_final'
-        ? t('Le résultat attend votre accord.')
-        : w.status === 'permission' && role
-          ? t('Le rôle {role} attend une autorisation.', { role: t(roleTitle[role]) })
-          : w.status === 'paused'
-            ? t('Équipe en pause. Envoyez `/team-resume` pour reprendre.')
-            : w.status === 'attention'
-              ? t('Intervention nécessaire : {error}', { error: w.error ?? t('Tour interrompu.') })
-              : w.status === 'completed'
-                ? t('Mission terminée.')
-                : w.operation?.phase === 'testing'
-                  ? t('Les tests sont en cours.')
-                  : role
-                    ? t('{role} travaille.', { role: t(roleTitle[role]) })
-                    : t('L’équipe prépare la prochaine étape.');
+  const state = w.events.some((e) => e.kind === 'closed')
+    ? t('Mission clôturée')
+    : w.status === 'available'
+      ? t('L’orchestrateur est disponible pour vos messages.')
+      : w.clarifications?.some((q) => !q.resolvedAt)
+        ? t('Des questions attendent votre réponse.')
+        : w.status === 'awaiting_plan'
+          ? t('Le plan attend votre accord.')
+          : w.status === 'awaiting_final'
+            ? t('Le résultat attend votre accord.')
+            : w.status === 'permission' && role
+              ? t('Le rôle {role} attend une autorisation.', { role: t(roleTitle[role]) })
+              : w.status === 'paused'
+                ? t('Équipe en pause. Envoyez `/team-resume` pour reprendre.')
+                : w.status === 'attention'
+                  ? t('Intervention nécessaire : {error}', { error: w.error ?? t('Tour interrompu.') })
+                  : w.status === 'completed'
+                    ? t('Mission terminée.')
+                    : w.operation?.phase === 'testing'
+                      ? t('Les tests sont en cours.')
+                      : role
+                        ? t('{role} travaille.', { role: t(roleTitle[role]) })
+                        : t('L’équipe prépare la prochaine étape.');
   const team = (['planner', 'builder', 'reviewer'] as const)
     .map((r) => `${t(roleTitle[r])} · ${ctx.label(r)}`)
     .join(' — ');

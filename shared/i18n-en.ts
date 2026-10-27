@@ -1,5 +1,18 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Équipe disponible': 'Team available',
+  'L’orchestrateur est disponible pour vos messages.': 'The orchestrator is ready for your messages.',
+  'Message reçu ; l’orchestrateur le traitera après le tour courant.':
+    'Message received; the orchestrator will handle it after the current turn.',
+  'Mission clôturée': 'Mission closed',
+  'PR ou intégration sur main : à vous de choisir.': 'Choose a PR or integration on main.',
+  'Les tests et la revue sont validés. Votre accord est nécessaire pour livrer les travaux.':
+    'Tests and review passed. Your approval is required to deliver the work.',
+  'Comment souhaitez-vous livrer les travaux validés ?': 'How would you like to deliver the validated work?',
+  'Créer ou réutiliser une pull request pour relire les changements avant intégration.':
+    'Create or reuse a pull request to review changes before integration.',
+  'Intégrer les changements validés sur main en local, sans pousser main sur le dépôt distant.':
+    'Integrate validated changes on the local main branch. This answer authorizes integration, without pushing main.',
   'Cette demande a été traitée. Consultez la demande en cours dans le fil.':
     'This request has been handled. See the current request in the thread.',
   'Réponses enregistrées': 'Responses saved',

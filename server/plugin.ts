@@ -358,7 +358,11 @@ export function contributeServer(server: PluginServerContext) {
     recovering = true;
     try {
       if (
-        !(await store.all()).some((w) => w.config.recovery === 'automatic' && !TERMINAL_OR_WAITING.includes(w.status))
+        !(await store.all()).some(
+          (w) =>
+            (w.inbox?.length && w.status !== 'paused' && (!w.operation || w.receipts?.[w.operation.id])) ||
+            (w.config.recovery === 'automatic' && !TERMINAL_OR_WAITING.includes(w.status)),
+        )
       )
         return;
       if (!disposed) await (await bind()).recoverAutomatic();

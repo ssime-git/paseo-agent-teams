@@ -129,8 +129,12 @@ export function PlannerQuestionCard({
       })}
       {question && pending && w ? (
         <>
-          <Text style={{ color: c.foreground }}>{pending.request.summary}</Text>
-          <Text style={{ color: c.foreground, fontWeight: '600' }}>{question.title}</Text>
+          <Text style={{ color: c.foreground }}>
+            {pending.purpose === 'delivery' ? t(pending.request.summary) : pending.request.summary}
+          </Text>
+          <Text style={{ color: c.foreground, fontWeight: '600' }}>
+            {pending.purpose === 'delivery' ? t(question.title) : question.title}
+          </Text>
           {question.options.map((option) => (
             <View key={option.id} style={{ gap: 4 }}>
               {button(
@@ -139,7 +143,9 @@ export function PlannerQuestionCard({
                 busy,
                 draft.choice === option.id,
               )}
-              <Text style={{ color: c.foregroundMuted }}>{option.tradeoff}</Text>
+              <Text style={{ color: c.foregroundMuted }}>
+                {pending.purpose === 'delivery' ? t(option.tradeoff) : option.tradeoff}
+              </Text>
             </View>
           ))}
           <TextInput

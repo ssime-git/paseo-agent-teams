@@ -13,12 +13,22 @@ const identity = {
   reviewer: { label: roleTitle.reviewer, name: roleTitle.reviewer, color: '#e9b65f', initial: 'R' },
 };
 export function teamControl(w: Workflow, t: Translate = french): { title: string; detail: string; role?: Role } {
+  if (w.status === 'available')
+    return { title: t('Équipe disponible'), detail: t('L’orchestrateur est disponible pour vos messages.') };
   if (w.status === 'completed')
-    return { title: t('Mission terminée'), detail: t('Le résultat est conservé dans l’historique.') };
+    return {
+      title: w.events.some((e) => e.kind === 'closed') ? t('Mission clôturée') : t('Mission terminée'),
+      detail: t('Le résultat est conservé dans l’historique.'),
+    };
   if (w.status === 'paused')
     return { title: t('Équipe en pause'), detail: t('Le contexte est conservé pour la reprise.') };
   if (w.clarifications?.some((q) => !q.resolvedAt))
-    return { title: t('À vous de répondre'), detail: t('Le Plan attend votre précision.') };
+    return {
+      title: t('À vous de répondre'),
+      detail: w.clarifications.some((q) => !q.resolvedAt && q.purpose === 'delivery')
+        ? t('PR ou intégration sur main : à vous de choisir.')
+        : t('Le Plan attend votre précision.'),
+    };
   if (w.status === 'awaiting_plan' || w.status === 'awaiting_final')
     return {
       title: t('À vous de valider'),
@@ -40,7 +50,7 @@ export function teamControl(w: Workflow, t: Translate = french): { title: string
     w.operation?.role ??
     (w.phase === 'planning'
       ? 'planner'
-      : w.phase === 'building'
+      : w.phase === 'building' || w.phase === 'delivering'
         ? 'builder'
         : w.phase === 'reviewing'
           ? 'reviewer'

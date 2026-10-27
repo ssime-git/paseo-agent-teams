@@ -52,6 +52,7 @@ class Fake implements Runtime {
   async canClose() {
     return true;
   }
+  async verifyDelivery() {}
   async fingerprint() {
     return 'snapshot-fingerprint';
   }
@@ -104,6 +105,32 @@ async function setup(t: TestContext, overrides: Partial<Config> = {}) {
       await engine.settle();
       return store.get(w.id);
     },
+    async deliver(w: Workflow, method = 'pull_request') {
+      const question = w.clarifications!.find((q) => !q.resolvedAt)!;
+      fake.responses.builder = [
+        JSON.stringify({
+          status: 'delivered',
+          summary: 'Delivered',
+          repositories: [
+            {
+              repository: '/repo',
+              commit: 'a'.repeat(40),
+              ...(method === 'pull_request' ? { url: 'https://github.com/example/project/pull/1' } : {}),
+            },
+          ],
+        }),
+      ];
+      await engine.action({
+        id: w.id,
+        expectedRevision: w.revision,
+        requestId: `deliver-${w.revision}`,
+        action: 'answer_clarification',
+        clarificationId: question.id,
+        answers: [{ questionId: 'delivery', optionId: method }],
+      });
+      await engine.settle();
+      return store.get(w.id);
+    },
     async action(w: Workflow, action: Action['action'], extra = {}) {
       await engine.action({
         id: w.id,
@@ -123,7 +150,7 @@ test('approved plan → build → tests → review completes and reuses three se
   assert.equal(w.status, 'awaiting_plan');
   assert.equal(h.fake.calls.length, 1);
   w = await h.action(w, 'approve');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(h.fake.creationCount, 3);
   assert.equal(h.fake.testCount, 1);
   assert.deepEqual(
@@ -142,17 +169,22 @@ test('failed review triggers at most two corrections', async (t) => {
   assert.equal(h.fake.creationCount, 3);
   assert.match(h.fake.calls.filter((c) => c.role === 'builder')[1].prompt, /Missing state verification/);
 });
-test('a passing review with non-blocking points sends them to the builder once, then completes', async (t) => {
+test('a passing review preserves advisory points without dispatching another Builder turn', async (t) => {
   const h = await setup(t);
-  const remarks = { verdict: 'pass', summary: 'Ready', issues: ['Rename helper'] };
-  h.fake.responses.reviewer = [JSON.stringify(remarks), JSON.stringify(remarks)];
+  const remarks = {
+    verdict: 'pass',
+    summary: 'Ready',
+    issues: ['Optional naming improvement', 'Ask the user about delivery scope'],
+  };
+  h.fake.responses.reviewer = [JSON.stringify(remarks)];
   let w = await h.create();
   w = await h.action(w, 'approve');
-  assert.equal(w.status, 'completed');
-  assert.equal(w.cycle, 1);
-  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 2);
-  assert.match(h.fake.calls.filter((c) => c.role === 'builder')[1].prompt, /Rename helper/);
+  assert.equal(w.status, 'awaiting_final');
+  assert.equal(w.cycle, 0);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+  assert.deepEqual(w.review?.issues, remarks.issues);
 });
+
 test('failed tests cannot be overridden by a passing review', async (t) => {
   const h = await setup(t, { maxCorrections: 0 });
   h.fake.tests = async (w) =>
@@ -172,13 +204,10 @@ test('failed tests cannot be overridden by a passing review', async (t) => {
 test('explicit launch commands override planner commands for final and autonomous policies', async (t) => {
   for (const validation of ['final', 'autonomous'] as const) {
     const h = await setup(t, { validation, testCommands: [{ command: 'trusted-check', timeoutMs: 1000 }] });
-    let w = await h.create();
+    const w = await h.create();
     assert.equal(w.plan!.tests[0].command, 'trusted-check');
-    assert.equal(w.status, validation === 'final' ? 'awaiting_final' : 'completed');
-    if (validation === 'final') {
-      w = await h.action(w, 'approve');
-      assert.equal(w.status, 'completed');
-    }
+    assert.equal(w.status, 'awaiting_final');
+    await assert.rejects(h.action(w, 'approve'), /En attente de réponse/);
   }
 });
 test('planner commands require explicit approval in autonomous and final modes', async (t) => {
@@ -192,7 +221,7 @@ test('planner commands require explicit approval in autonomous and final modes',
       ['planner'],
     );
     w = await h.action(w, 'approve');
-    assert.equal(w.status, validation === 'final' ? 'awaiting_final' : 'completed');
+    assert.equal(w.status, 'awaiting_final');
     assert.equal(w.tests[0].command, 'npm test');
     assert.equal(w.tests[0].exitCode, 0);
   }
@@ -202,7 +231,7 @@ test('an autonomous planner proposing no tests pauses after planning unless thei
     const h = await setup(t, { validation: 'autonomous', allowNoTests });
     h.fake.responses.planner = [JSON.stringify({ ...plan, tests: [] })];
     const w = await h.create();
-    assert.equal(w.status, allowNoTests ? 'completed' : 'awaiting_plan');
+    assert.equal(w.status, allowNoTests ? 'awaiting_final' : 'awaiting_plan');
     assert.equal(h.fake.calls.length, allowNoTests ? 3 : 1);
   }
 });
@@ -215,7 +244,7 @@ test('no tests requires explicit acceptance and is recorded', async (t) => {
     /absence of tests/,
   );
   w = await h.action(w, 'approve', { allowNoTests: true });
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(w.allowNoTests, true);
   assert.equal(w.planVersions!.at(-1)!.approval?.allowNoTests, true);
 });
@@ -434,7 +463,7 @@ test('shutdown preserves an accepted in-flight checkpoint when the SDK connectio
   assert.equal(w.status, 'awaiting_plan');
   assert.equal(h.fake.calls.length, 1);
 });
-test('instruction-only read-only roles stop on repository changes and keep their checkpoint across recovery', async (t) => {
+test('completed read-only violations stop safely without retaining an already finished operation', async (t) => {
   const h = await setup(t, { recovery: 'automatic' });
   h.config.roles.planner = { provider: 'pi/connected/model', modeId: INSTRUCTION_READ_ONLY };
   h.fake.lost = true;
@@ -454,7 +483,7 @@ test('instruction-only read-only roles stop on repository changes and keep their
   w = await h.store.get(w.id);
   assert.equal(w.status, 'attention');
   assert.match(w.error!, /changed during a read-only turn/);
-  assert.equal(w.operation?.readOnlyFingerprint, 'original-tree');
+  assert.equal(w.operation, undefined);
   assert.equal(w.plan, undefined);
   assert.equal(h.fake.calls.length, 1);
 });
@@ -532,7 +561,7 @@ test('completion retains the delivery baseline and request retention preserves c
   for (let i = 0; i < 220; i++) w.requests[`old-${i}`] = String(i);
   await h.store.put(w);
   w = await h.action(w, 'approve');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   await access(baseline);
   assert.ok(Object.keys(w.requests).length <= 200);
   const duplicate = await h.engine.create('workspace', 'Implement OAuth2', h.config, 'create-1');
@@ -552,7 +581,7 @@ test('late permission observation reconciles a finished failed review and runs a
   };
   let w = await h.create();
   w = await h.action(w, 'approve');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(w.cycle, 1);
   assert.equal(h.fake.testCount, 2);
   assert.deepEqual(
@@ -762,7 +791,7 @@ test('hot reconfiguration replaces only the chosen session, persists generation 
   assert.match(w.events.find((e) => e.kind === 'reconfigured')!.text, new RegExp(previous.reviewer!));
   assert.equal((await new Store(h.store.directory).get(w.id)).agentGenerations?.reviewer, 1);
   w = await h.action(w, 'continue', { role: 'reviewer', extraCorrections: 1 });
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(h.fake.calls.at(-1)!.role, 'reviewer');
   assert.equal(h.fake.creationCount, 4);
 });
@@ -788,6 +817,7 @@ test('completed workflow messages reach the selected role once without restartin
   const h = await setup(t);
   let w = await h.create();
   w = await h.action(w, 'approve');
+  w = await h.deliver(w);
   const before = h.fake.calls.length,
     tests = h.fake.testCount,
     review = w.review;
@@ -836,6 +866,7 @@ test('PR requests use the Builder with explicit draft instructions and require c
     /still match a successfully validated/,
   );
   w = await h.action(w, 'approve');
+  w = await h.deliver(w);
   const before = h.fake.calls.length;
   h.fake.responses.builder = ['PR brouillon : https://github.com/example/project/pull/1'];
   w = await h.action(w, 'followup', { purpose: 'pull_request', message: 'Créer une PR' });
@@ -856,6 +887,7 @@ test('completed follow-up cannot reopen a repository held by another workflow', 
   const h = await setup(t);
   let w = await h.create();
   w = await h.action(w, 'approve');
+  w = await h.deliver(w);
   const other = await h.engine.create('workspace', 'Another task', h.config, 'other-create');
   await h.engine.settle();
   await assert.rejects(h.action(w, 'followup', { message: 'Que faire ensuite ?' }), new RegExp(other.id));
@@ -866,6 +898,7 @@ test('a lost follow-up response is reconciled without sending twice', async (t) 
   const h = await setup(t);
   let w = await h.create();
   w = await h.action(w, 'approve');
+  w = await h.deliver(w);
   h.fake.lost = true;
   w = await h.action(w, 'followup', { message: 'Étapes suivantes ?' });
   const before = h.fake.calls.length;
@@ -957,7 +990,7 @@ test('automatic plan approval records the effective launch commands, not the pro
   const commands = [{ command: 'npm run check', timeoutMs: 2000 }];
   const h = await setup(t, { validation: 'autonomous', testCommands: commands });
   const w = await h.create();
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(w.planVersions?.length, 1);
   assert.deepEqual(w.planVersions![0].plan.tests, commands);
   assert.equal(w.planVersions![0].approval?.policy, 'configuration');
@@ -1028,7 +1061,7 @@ test('Reviewer discussions and proposals preserve the approved plan until explic
   w = await h.action(w, 'resume');
   assert.equal(w.status, 'awaiting_plan');
   w = await h.action(w, 'approve');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
 });
 
 test('invalid Reviewer proposals never mutate or approve the current plan', async (t) => {
@@ -1055,7 +1088,9 @@ test('plan proposal adoption is idempotent, rejects stale clients and applies co
   for (const validation of ['plan', 'final', 'autonomous'] as const) {
     const h = await setup(t, { validation, testCommands: validation === 'plan' ? [] : plan.tests });
     let w = await h.create();
-    // final/autonomous complete normally first; restore a live paused checkpoint for this test.
+    // Restore a live implementation checkpoint for the proposal test.
+    w.clarifications = [];
+    delete w.delivery;
     w.status = 'paused';
     w.phase = 'building';
     await h.store.put(w);
@@ -1158,7 +1193,9 @@ test('Reviewer revision detects repository edits even in native read-only modes'
   w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Revise' });
   assert.equal(w.status, 'attention');
   assert.match(w.error!, /Repository changed during a read-only turn/);
-  assert.ok(w.operation);
+  assert.equal(w.operation, undefined);
+  assert.equal(w.phase, 'building');
+  assert.equal(w.followup, undefined);
   assert.equal(w.planProposal, undefined);
   assert.deepEqual(w.plan, plan);
 });
@@ -1235,7 +1272,7 @@ test('goal execution replans after correction failures and completes without ano
   let w = await h.create();
   assert.equal(w.status, 'awaiting_plan');
   w = await h.action(w, 'approve');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(w.goal?.replans, 1);
   assert.equal(w.goal?.turns, 6);
   assert.deepEqual(
@@ -1253,7 +1290,7 @@ test('goal execution repairs verification commands, runs them and reviews indepe
   const corrected = [{ command: 'node --test tests/real.test.js', timeoutMs: 1000 }];
   h.fake.responses.builder = [JSON.stringify({ ...build, tests: corrected })];
   const w = await h.create();
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.deepEqual(
     w.tests.map((t) => t.command),
     corrected.map((t) => t.command),
@@ -1269,7 +1306,7 @@ test('goal execution sends failing verification back for diagnosis before spendi
   h.fake.tests = async (w) =>
     (await successful(w)).map((r) => ({ ...r, exitCode: ++calls === 1 ? 1 : 0, stderr: 'bad verification path' }));
   const w = await h.create();
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(h.fake.calls.filter((c) => c.role === 'reviewer').length, 1);
   assert.match(h.fake.calls.filter((c) => c.role === 'planner')[1].prompt, /bad verification path/);
 });
@@ -1289,7 +1326,7 @@ test('completed malformed reports get a formatting-only repair instead of reimpl
   h.fake.responses.builder = ['Implementation is complete but report is not JSON', JSON.stringify(build)];
   let w = await h.create();
   w = await h.action(w, 'approve');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(w.cycle, 0);
   assert.equal(h.fake.testCount, 1);
   const repairs = h.fake.calls.filter((c) => c.prompt.includes('Repair only the report format'));
@@ -1305,7 +1342,7 @@ test('a paused legacy workflow can explicitly opt into goal execution with a fre
   w = await h.action(w, 'approve');
   assert.equal(w.status, 'attention');
   w = await h.action(w, 'start_goal');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(w.config.goalMode, true);
   assert.equal(w.config.recovery, 'automatic');
 });
@@ -1349,7 +1386,7 @@ test('an exhausted goal can explicitly renew its budget and finish without disca
   assert.equal(w.status, 'attention');
   const previousEvents = w.events.length;
   w = await h.action(w, 'start_goal');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(w.goal?.turns, 3);
   assert.ok(w.events.length > previousEvents);
   assert.equal(w.planVersions?.filter((v) => v.approval).length, 2);
@@ -1363,7 +1400,7 @@ test('goal command evolution preserves explicit launch verification commands', a
   });
   h.fake.responses.builder = [JSON.stringify({ ...build, tests: [{ command: 'echo success', timeoutMs: 1000 }] })];
   const w = await h.create();
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.deepEqual(
     w.tests.map((t) => t.command),
     ['trusted-behavior-check'],
@@ -1388,7 +1425,7 @@ test('starting goal execution recovers a legacy rejected fenced Builder report f
   });
   await h.store.put(w);
   w = await h.action(w, 'start_goal');
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.match(h.fake.calls.filter((c) => c.role === 'planner')[1].prompt, /Only the real integration check remains/);
 });
 
@@ -1515,7 +1552,7 @@ for (const validation of ['plan', 'final', 'autonomous'] as const) {
     assert.equal(w.error, 'En attente de réponse');
     assert.equal(w.testsApproved, false);
     const id = w.clarifications![0].id;
-    for (const action of ['approve', 'resume', 'continue', 'start_goal', 'message', 'followup'] as const) {
+    for (const action of ['approve', 'resume', 'continue', 'start_goal', 'message'] as const) {
       await assert.rejects(h.action(w, action, { role: 'builder', message: 'silence' }), /En attente de réponse/);
     }
     w = await h.action(w, 'answer_clarification', {
@@ -1563,7 +1600,7 @@ for (const validation of ['plan', 'final', 'autonomous'] as const) {
       assert.equal(h.fake.calls.length, 2);
       assert.equal(w.testsApproved, false);
     } else {
-      assert.equal(w.status, validation === 'final' ? 'awaiting_final' : 'completed');
+      assert.equal(w.status, 'awaiting_final');
       assert.deepEqual(
         h.fake.calls.map((c) => c.role),
         ['planner', 'planner', 'builder', 'reviewer'],
@@ -1619,7 +1656,7 @@ test('goal replanning cannot reuse a prior plan approval to bypass an unanswered
   assert.equal((await h.store.get(w.id)).clarifications![0].answers.length, 0);
   h.fake.canClose = async () => true;
   w = await h.action(w, 'answer_clarification', extra);
-  assert.equal(w.status, 'completed');
+  assert.equal(w.status, 'awaiting_final');
   assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 2);
 });
 
@@ -1791,4 +1828,480 @@ test('native imports remain atomic when another role starts during the final tim
     if (role === 'planner') assert.equal(imported.clarifications![0].answers.length, 1);
     else assert.equal(imported.planProposal?.plan.summary, 'Native revision');
   }
+});
+
+for (const validation of ['plan', 'final', 'autonomous'] as const) {
+  test(`delivery waits for an explicit choice, survives reload and completes only after verified delivery (${validation})`, async (t) => {
+    const h = await setup(t, { validation, testCommands: plan.tests });
+    let w = await h.create();
+    if (w.status === 'awaiting_plan') w = await h.action(w, 'approve');
+    assert.equal(w.status, 'awaiting_final');
+    assert.equal(w.phase, 'delivering');
+    assert.equal(w.delivery?.approvedAt, undefined);
+    const question = w.clarifications!.find((q) => !q.resolvedAt)!;
+    assert.equal(question.purpose, 'delivery');
+    assert.deepEqual(
+      question.request.questions[0].options.map((o) => o.id),
+      ['pull_request', 'main'],
+    );
+    const before = h.fake.calls.length;
+    await h.engine.recoverAutomatic();
+    await h.engine.settle();
+    assert.equal(h.fake.calls.length, before);
+    await assert.rejects(h.action(w, 'approve'), /En attente de réponse/);
+    await assert.rejects(h.action(w, 'resume'), /En attente de réponse/);
+    const reloaded = await new Store(h.store.directory).get(w.id);
+    assert.equal(reloaded.clarifications!.at(-1)!.id, question.id);
+    w = await h.deliver(reloaded, validation === 'final' ? 'main' : 'pull_request');
+    assert.equal(w.status, 'completed');
+    assert.equal(w.phase, 'done');
+    assert.ok(w.delivery?.approvedAt);
+    assert.equal(w.delivery?.result?.status, 'delivered');
+    assert.equal(h.fake.calls.length, before + 1);
+    assert.equal(h.fake.calls.at(-1)!.role, 'builder');
+    assert.match(h.fake.calls.at(-1)!.prompt, /explicitly approved/);
+  });
+}
+
+test('delivery rejects stale validation and a reported success is insufficient without verification', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const count = h.fake.calls.length;
+  h.fake.fingerprint = async () => 'changed';
+  await assert.rejects(h.deliver(w), /Le dépôt a changé/);
+  assert.equal(h.fake.calls.length, count);
+  h.fake.fingerprint = async () => 'snapshot-fingerprint';
+  h.fake.verifyDelivery = async () => {
+    throw new Error('PR head mismatch');
+  };
+  w = await h.deliver(w);
+  assert.equal(w.status, 'attention');
+  assert.match(w.error!, /PR head mismatch/);
+  assert.equal(
+    w.events.some((e) => e.kind === 'delivered'),
+    false,
+  );
+});
+
+test('delivery blockers retain the approved choice and never trigger an automatic retry', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const question = w.clarifications!.at(-1)!;
+  h.fake.responses.builder = [JSON.stringify({ status: 'blocked', summary: 'GitHub authentication missing' })];
+  w = await h.action(w, 'answer_clarification', {
+    clarificationId: question.id,
+    answers: [{ questionId: 'delivery', optionId: 'pull_request' }],
+  });
+  assert.equal(w.status, 'attention');
+  assert.equal(w.phase, 'delivering');
+  assert.equal(w.delivery!.method, 'pull_request');
+  assert.match(w.error!, /authentication missing/);
+  const count = h.fake.calls.length;
+  await h.engine.recoverAutomatic();
+  await h.engine.settle();
+  assert.equal(h.fake.calls.length, count);
+});
+
+test('a free response to the delivery question returns to planning without authorizing delivery', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const count = h.fake.calls.filter((c) => c.role === 'builder').length;
+  w = await h.action(w, 'answer_clarification', {
+    clarificationId: w.clarifications!.at(-1)!.id,
+    answers: [{ questionId: 'delivery', text: 'Revoir le périmètre avant de livrer' }],
+  });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.delivery, undefined);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, count);
+  assert.match(h.fake.calls.at(-1)!.prompt, /Revoir le périmètre/);
+});
+
+test('composer PR and main answers authorize the exact delivery method without inferring consent from go', async (t) => {
+  for (const text of ['PR', ' main ']) {
+    const h = await setup(t);
+    let w = await h.create();
+    w = await h.action(w, 'approve');
+    const question = w.clarifications!.at(-1)!;
+    h.fake.responses.builder = [JSON.stringify({ status: 'blocked', summary: 'Awaiting credentials' })];
+    w = await h.action(w, 'answer_clarification', {
+      clarificationId: question.id,
+      answers: [{ questionId: 'delivery', text }],
+    });
+    assert.equal(w.delivery?.method, text.trim() === 'PR' ? 'pull_request' : 'main');
+    assert.ok(w.delivery?.approvedAt);
+    assert.equal(w.status, 'attention');
+  }
+});
+
+test('a paused delivery choice stays paused until resume and is not sent twice', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  w = await h.action(w, 'pause');
+  const count = h.fake.calls.length;
+  w = await h.deliver(w, 'main');
+  assert.equal(w.status, 'paused');
+  assert.equal(w.phase, 'delivering');
+  assert.ok(w.delivery?.approvedAt);
+  assert.equal(h.fake.calls.length, count);
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'completed');
+  assert.equal(h.fake.calls.length, count + 1);
+});
+
+test('legacy final approval requests delivery without treating go as delivery consent', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  delete w.delivery;
+  w.clarifications = [];
+  w.phase = 'done';
+  await h.store.put(w);
+  const count = h.fake.calls.length;
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'awaiting_final');
+  assert.equal(w.phase, 'delivering');
+  assert.equal(w.delivery?.approvedAt, undefined);
+  assert.equal(w.clarifications!.at(-1)!.purpose, 'delivery');
+  assert.equal(h.fake.calls.length, count);
+});
+
+test('resume recovers a legacy completed read-only follow-up without a missing receipt or another send', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  const at = new Date().toISOString();
+  w.phase = 'followup';
+  w.status = 'attention';
+  w.followup = { purpose: 'message', returnPhase: 'reviewing', returnStatus: 'attention' };
+  w.operation = {
+    id: 'old-completed',
+    role: 'planner',
+    phase: 'followup',
+    state: 'prepared',
+    startedAt: at,
+    readOnlyFingerprint: 'old-tree',
+  };
+  w.events.push(
+    {
+      id: 'completed-response',
+      at,
+      kind: 'assistant',
+      role: 'planner',
+      operationId: 'old-completed',
+      text: 'Existing work is ready for a new plan.',
+    },
+    {
+      id: 'integrity-error',
+      at,
+      kind: 'error',
+      role: 'planner',
+      text: 'Repository changed during a read-only turn. Inspect the files before continuing; no changes were reverted.',
+    },
+  );
+  w.error = 'No durable completion receipt. The operation is retained and will not be replayed.';
+  await h.store.put(w);
+  const count = h.fake.calls.length;
+  const recovery = h.fake.recoveryCount;
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'attention');
+  assert.equal(w.phase, 'reviewing');
+  assert.equal(w.operation, undefined);
+  assert.equal(w.followup, undefined);
+  assert.equal(w.followupResult, 'Existing work is ready for a new plan.');
+  assert.equal(w.events.filter((e) => e.kind === 'operation_recovered').length, 1);
+  assert.equal(h.fake.calls.length, count);
+  assert.equal(h.fake.recoveryCount, recovery);
+  assert.equal((await new Store(h.store.directory).get(w.id)).operation, undefined);
+  w = await h.action(w, 'continue', {
+    role: 'planner',
+    message: 'Validate the existing implementation; do not reimplement it.',
+  });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.length, count + 1);
+  assert.equal(h.fake.calls.at(-1)!.role, 'planner');
+});
+
+test('legacy completion recovery requires a matching saved response, integrity failure and idle native sessions', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  const at = new Date().toISOString();
+  w.phase = 'followup';
+  w.status = 'attention';
+  w.followup = { purpose: 'message', returnPhase: 'reviewing', returnStatus: 'attention' };
+  w.operation = {
+    id: 'uncertain',
+    role: 'planner',
+    phase: 'followup',
+    state: 'prepared',
+    startedAt: at,
+    readOnlyFingerprint: 'before',
+  };
+  w.events.push({
+    id: 'wrong-response',
+    at,
+    kind: 'assistant',
+    role: 'planner',
+    operationId: 'another-operation',
+    text: 'Unrelated answer',
+  });
+  w.events.push({
+    id: 'integrity-error',
+    at,
+    kind: 'error',
+    role: 'planner',
+    text: 'Repository changed during a read-only turn.',
+  });
+  await h.store.put(w);
+  w = await h.action(w, 'resume');
+  assert.equal(w.operation?.id, 'uncertain');
+  assert.equal(
+    w.events.some((e) => e.kind === 'operation_recovered'),
+    false,
+  );
+  w.events.splice(w.events.length - 1, 0, {
+    id: 'right-response',
+    at,
+    kind: 'assistant',
+    role: 'planner',
+    operationId: 'uncertain',
+    text: 'Finished',
+  });
+  // Put a matching integrity rejection after the matching response.
+  w.events.push({
+    id: 'right-error',
+    at,
+    kind: 'error',
+    role: 'planner',
+    text: 'Repository changed during a read-only turn.',
+  });
+  await h.store.put(w);
+  h.fake.canClose = async () => false;
+  await assert.rejects(h.action(w, 'resume'), /still active/);
+  assert.equal((await h.store.get(w.id)).operation?.id, 'uncertain');
+});
+
+test('orchestrator messages persist while a Builder works and drain once in order before verification', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  let release!: () => void;
+  h.fake.gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await h.engine.action({ id: w.id, expectedRevision: w.revision, requestId: 'begin-build', action: 'approve' });
+  while (h.fake.calls.length < 2) await new Promise((r) => setTimeout(r, 5));
+  w = await h.store.get(w.id);
+  const operation = w.operation!.id;
+  h.fake.responses.planner = [
+    JSON.stringify({ kind: 'reply', summary: 'First answer' }),
+    JSON.stringify({ kind: 'reply', summary: 'Second answer' }),
+  ];
+  const first = {
+    id: w.id,
+    expectedRevision: w.revision,
+    requestId: 'inbox-one',
+    action: 'followup' as const,
+    message: 'FIRST_QUESTION',
+  };
+  await h.engine.action(first);
+  w = await h.store.get(w.id);
+  await h.engine.action({
+    id: w.id,
+    expectedRevision: w.revision,
+    requestId: 'inbox-two',
+    action: 'followup',
+    message: 'SECOND_UNSENT_QUESTION',
+  });
+  await h.engine.action(first);
+  w = await new Store(h.store.directory).get(w.id);
+  assert.equal(w.operation?.id, operation);
+  assert.equal(w.inbox?.length, 2);
+  assert.equal(h.fake.calls.length, 2);
+  h.fake.gate = undefined;
+  release();
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.deepEqual(w.inbox, []);
+  assert.deepEqual(
+    w.events.filter((e) => e.kind === 'orchestrator_reply').map((e) => e.text),
+    ['First answer', 'Second answer'],
+  );
+  const coordination = h.fake.calls.filter((c) => c.prompt.includes('You are the team orchestrator'));
+  assert.equal(coordination.length, 2);
+  assert.match(coordination[0].prompt, /FIRST_QUESTION/);
+  assert.doesNotMatch(coordination[0].prompt, /SECOND_UNSENT_QUESTION/);
+  assert.match(coordination[1].prompt, /SECOND_UNSENT_QUESTION/);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+  assert.equal(h.fake.testCount, 1);
+  assert.equal(w.status, 'awaiting_final');
+});
+
+test('the orchestrator delegates only a focused briefing and synthesizes the specialist answer', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w.build = { summary: 'UNRELATED_LARGE_IMPLEMENTATION_REPORT', changes: [], remaining: [] };
+  await h.store.put(w);
+  h.fake.responses.planner = [
+    JSON.stringify({
+      kind: 'delegate',
+      role: 'reviewer',
+      briefing: 'Compare the preserved branch with main; do not delete it.',
+    }),
+    JSON.stringify({ kind: 'reply', summary: 'Keep the branch until its changes are integrated.' }),
+  ];
+  h.fake.responses.reviewer = ['The branch has two useful commits absent from main.'];
+  w = await h.action(w, 'followup', { message: 'Should we keep the preserved branch?' });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.followupResult, 'Keep the branch until its changes are integrated.');
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'planner', 'reviewer', 'planner'],
+  );
+  const specialist = h.fake.calls.find((c) => c.role === 'reviewer')!;
+  assert.match(specialist.prompt, /Compare the preserved branch/);
+  assert.doesNotMatch(specialist.prompt, /UNRELATED_LARGE_IMPLEMENTATION_REPORT/);
+  assert.match(h.fake.calls.at(-1)!.prompt, /two useful commits absent from main/);
+  assert.equal(h.fake.testCount, 0);
+  assert.equal(w.testsApproved, false);
+});
+
+test('conversation stays available with a pending clarification without approving it', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w.clarifications = [
+    {
+      id: 'pending',
+      at: 'now',
+      answers: [],
+      request: {
+        kind: 'clarification',
+        summary: 'Need a decision',
+        questions: [
+          {
+            id: 'choice',
+            title: 'Which scope?',
+            recommendedOptionId: 'small',
+            options: [
+              { id: 'small', label: 'Small', tradeoff: 'Less' },
+              { id: 'large', label: 'Large', tradeoff: 'More' },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+  w.status = 'attention';
+  await h.store.put(w);
+  h.fake.responses.planner = [JSON.stringify({ kind: 'reply', summary: 'Here is what the options mean.' })];
+  w = await h.action(w, 'followup', { message: 'Explain the options before I choose.' });
+  assert.equal(w.clarifications![0].resolvedAt, undefined);
+  assert.deepEqual(w.clarifications![0].answers, []);
+  assert.equal(w.testsApproved, false);
+  assert.equal(w.followupResult, 'Here is what the options mean.');
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 0);
+});
+
+test('a superseded native turn is consumed once and the queued question does not rerun its pipeline', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  const at = new Date().toISOString();
+  w.phase = 'building';
+  w.status = 'attention';
+  w.testsApproved = true;
+  w.operation = { id: 'old-native-build', role: 'builder', phase: 'building', state: 'prepared', startedAt: at };
+  w.receipts = { 'old-native-build': JSON.stringify({ status: 'idle', text: JSON.stringify(build) }) };
+  w.error = 'Another prompt was sent to this session; review it before continuing';
+  await h.store.put(w);
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(build), externallyContinued: true };
+  h.fake.responses.planner = [
+    JSON.stringify({ kind: 'reply', summary: 'The PR was merged; keep the preserved branch for now.' }),
+  ];
+  w = await h.action(w, 'followup', { message: 'What about the preserved branch?' });
+  assert.equal(w.operation, undefined);
+  assert.equal(w.status, 'available');
+  assert.equal(w.error, undefined);
+  assert.equal(w.followupResult, 'The PR was merged; keep the preserved branch for now.');
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 0);
+  assert.equal(h.fake.testCount, 0);
+  const calls = h.fake.calls.length;
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'available');
+  assert.equal(h.fake.calls.length, calls);
+  w = await h.action(w, 'pause');
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'available');
+  assert.equal(h.fake.calls.length, calls);
+});
+
+test('accepted inbox messages survive restart and drain even with explicit pipeline recovery', async (t) => {
+  const h = await setup(t, { recovery: 'explicit' });
+  let w = await h.create();
+  w.inbox = [{ id: 'persisted-message', message: 'Explain the current state' }];
+  await h.store.put(w);
+  h.engine.close();
+  h.fake.responses.planner = [JSON.stringify({ kind: 'reply', summary: 'Current state explained.' })];
+  const restarted = new Engine(new Store(h.store.directory), h.fake);
+  t.after(() => restarted.close());
+  await restarted.recoverAutomatic();
+  await restarted.settle();
+  w = await restarted.store.get(w.id);
+  assert.deepEqual(w.inbox, []);
+  assert.equal(w.followupResult, 'Current state explained.');
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 0);
+});
+
+test('the inbox waits for a real permission and then answers without resending the Builder', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  const originalRun = h.fake.run.bind(h.fake);
+  let blocked = true;
+  h.fake.run = async (workflow, role, prompt, id) => {
+    if (role === 'builder' && blocked) {
+      h.fake.calls.push({ role, prompt, id });
+      return { status: 'permission' };
+    }
+    return originalRun(workflow, role, prompt, id);
+  };
+  h.fake.nextRecovery = { status: 'permission' };
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'permission');
+  const op = w.operation!.id;
+  h.fake.responses.planner = [JSON.stringify({ kind: 'reply', summary: 'Status explained after the permission.' })];
+  w = await h.action(w, 'followup', { message: 'What is the current status?' });
+  assert.equal(w.status, 'permission');
+  assert.equal(w.inbox?.length, 1);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+  blocked = false;
+  h.fake.nextRecovery = { status: 'idle', text: JSON.stringify(build) };
+  await h.engine.receipt(w.agents.builder!, { status: 'idle' }, [
+    { type: 'user_message', text: `[agent-teams-operation:${op}]` },
+    { type: 'assistant_message', text: JSON.stringify(build) },
+  ]);
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.inbox?.length, 0);
+  assert.equal(w.status, 'awaiting_final');
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+  assert.equal(w.followupResult, 'Status explained after the permission.');
+});
+
+test('requested implementation changes route back to planning and invalidate delivery approval', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const builderCalls = h.fake.calls.filter((c) => c.role === 'builder').length;
+  h.fake.responses.planner = [
+    JSON.stringify({ kind: 'replan', summary: 'Add the requested regression case to the current mission.' }),
+    JSON.stringify({ ...plan, summary: 'Updated plan', tasks: ['Add the requested regression case'] }),
+  ];
+  w = await h.action(w, 'followup', { message: 'Add a regression case before delivering.' });
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.plan?.summary, 'Updated plan');
+  assert.equal(w.delivery, undefined);
+  assert.equal(w.testsApproved, false);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, builderCalls);
+  assert.ok(w.clarifications!.filter((c) => c.purpose === 'delivery').every((c) => c.resolvedAt));
 });
