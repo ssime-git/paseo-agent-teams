@@ -108,6 +108,19 @@ without migrating historical graphs or V1 operations. Approval covers the select
 revision's steps, models/modes, shell commands and limits; later catalog edits do
 not change that snapshot. This is daemon-client trust, not individual human identity.
 
+New launcher clients can use `teams.graph_preview` followed by `teams.graph_confirm`.
+The preview is a read: it returns the complete immutable definition record, canonical
+repository root/common directory, normalized task, native owner and a SHA-256 fingerprint.
+Confirmation requires that fingerprint plus `approveDefinition: true`; live ownership,
+repository and saved revision are read again before comparing and publishing the same
+snapshot. A changed task, owner, repository or revision fails with `GRAPH_PREVIEW_CHANGED`.
+Saving a newer catalog revision does not invalidate an explicitly selected older revision.
+The fingerprint is a consistency check, not a secret, human identity proof or filesystem
+baseline. Repository contents may change independently and retain their existing dispatch
+integrity checks. `graph_admit` remains compatible for existing explicit RPC clients;
+new launch UI must use the preview/confirm pair. Neither preview nor confirmation dispatches
+an activation. The visual confirmation and launcher are still pending.
+
 Admission uses the existing Store critical section and V1/graph repository gates.
 Identical UUID/scope/task/source/owner replays return the current persisted checkpoint,
 even after progress/restart; contradictory replays fail. Workspace and owner are

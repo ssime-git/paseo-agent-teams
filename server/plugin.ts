@@ -32,10 +32,12 @@ import {
   graphListRpc,
   graphActionRpc,
   graphAdmitRpc,
+  graphPreviewRpc,
+  graphConfirmRpc,
   graphAdvanceRpc,
 } from '../shared/graph-actions';
 import { listSavedGraphs } from './graph-list';
-import { admitSavedGraph } from './graph-admission';
+import { admitSavedGraph, previewSavedGraph, confirmSavedGraph } from './graph-admission';
 import { continueSavedGraph } from './graph-continuation';
 import { submitGraphAction, respondToOwnedGraph } from './graph-actions';
 import { completedTurnTimeline } from './turn-timeline';
@@ -53,6 +55,8 @@ export function contributeServer(server: PluginServerContext) {
   const definitions = new DefinitionCatalog(join(directory, 'definitions'));
   server.handle(graphListRpc, async (input, { paseo }) => listSavedGraphs(paseo, store.graphs, input));
   server.handle(graphAdvanceRpc, async (input, { paseo }) => continueSavedGraph(paseo, store.graphs, input));
+  server.handle(graphPreviewRpc, async (input, { paseo }) => previewSavedGraph(paseo, definitions, input));
+  server.handle(graphConfirmRpc, async (input, { paseo }) => confirmSavedGraph(paseo, store, definitions, input));
   server.handle(graphAdmitRpc, async (input, { paseo }) => admitSavedGraph(paseo, store, definitions, input));
   server.handle(graphRecordRpc, async ({ id, workspaceId }) => store.graphs.get(id, workspaceId));
   server.handle(graphResponseRpc, async (input, { paseo }) => respondToOwnedGraph(paseo, store.graphs, input));

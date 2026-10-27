@@ -464,3 +464,25 @@ Plugin principal rechargé seul après contrôles verts et inactivité. Running,
 superviseur **1923177**, worker **134766**, identité/version inchangées, quatre
 SHA-256 V1 conservés. Preuves
 `/tmp/teams-inline-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
+
+
+### 27 octobre 2026 — prévisualisation exacte avant admission
+
+Daemon officiel 0.13.0 séparé sur `127.0.0.1:6913`, home, état et dépôt
+`/tmp/teams-preview-live-nm7t34me`. Plugin chargé depuis le dépôt, provider Codex
+et modèles découverts via l'API officielle ; aucun tour de modèle lancé.
+Le script `/tmp/teams-preview-live.mts` vérifie les véritables RPC : sauvegarde,
+prévisualisation sans réservation, modification du catalogue sans réinterprétation
+de l'ancienne révision, refus d'une tâche/révision ne correspondant pas à l'empreinte,
+confirmation explicite et réessai identique. Une continuation réserve uniquement
+l'étape humaine ; après arrêt/démarrage du daemon isolé, confirmation et aperçu
+renvoient les mêmes données, checkpoint en attente conservé et README intact.
+Preuves locales : `providers.json`, `proof.json`, `restart-proof.json` dans cette
+racine ; arrêt final `/tmp/teams-preview-isolated-stopped.json`.
+
+Trois nouveaux tests dans `tests/graph-launch.test.ts` couvrent aussi schémas stricts,
+propriétaire/dépôt modifiés, reprise et confirmations concurrentes dans l'unique Store
+du plugin. `npm run check` : 304 tests verts, typecheck/lint/format verts
+(`/tmp/teams-preview-check-final.log`). APIs unitaires simulées et dépôts/checkpoints
+réels sur disque. Aucun navigateur, appareil mobile, Claude ou conversation modèle
+revendiqué : interface inchangée, lanceur visuel et NATIVE-IDLE-001 encore ouverts.

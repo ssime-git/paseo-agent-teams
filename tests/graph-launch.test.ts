@@ -5,13 +5,13 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PaseoApi } from '@getpaseo/client';
-import { admitSavedGraph } from '../server/graph-admission';
+import { admitSavedGraph, previewSavedGraph, confirmSavedGraph } from '../server/graph-admission';
 import { Store } from '../server/store';
 import { DefinitionCatalog } from '../server/definition-catalog';
 import { git, repository } from '../server/git';
 import { codeReviewPreset } from '../shared/workflow-definition';
 import { continueSavedGraph } from '../server/graph-continuation';
-import { graphAdvanceRpc, graphAdmitRpc } from '../shared/graph-actions';
+import { graphAdvanceRpc, graphAdmitRpc, graphPreviewRpc, graphConfirmRpc } from '../shared/graph-actions';
 
 async function setup(t: { after(fn: () => Promise<void>): void }) {
   const directory = await mkdtemp(join(tmpdir(), 'teams-graph-launch-'));
@@ -221,4 +221,81 @@ test('concurrent continuations cannot spend a second activation or progress anot
   assert.equal(saved.activations.length, 1);
   assert.equal(saved.revision, 2);
   assert.equal(saved.activations[0].dispatch, undefined);
+});
+
+test('launch preview is read-only and confirms the displayed revision after catalog edits and restart', async (t) => {
+  const { api, store, catalog, input, source, data } = await setup(t);
+  const { id, approveDefinition, ...request } = input;
+  const preview = await previewSavedGraph(api, catalog, request);
+  assert.equal(graphPreviewRpc.output.safeParse(preview).success, true);
+  assert.deepEqual(preview.source, source);
+  assert.deepEqual(await store.graphs.all(), []);
+  await store.assertCanCreate(preview.repository.lock);
+  const newer = structuredClone(source.definition);
+  newer.steps[0].tests![0].command = 'exit 99';
+  newer.steps[0].selection.provider = 'other/model';
+  newer.maxTransitions++;
+  await catalog.save({ id: source.id, workspaceId: input.workspaceId, expectedRevision: 1, definition: newer });
+  assert.deepEqual(await previewSavedGraph(api, new DefinitionCatalog(catalog.directory), request), preview);
+  const confirm = { ...input, confirmation: preview.confirmation };
+  const graph = await confirmSavedGraph(api, store, catalog, confirm);
+  assert.deepEqual(graph.source, source);
+  assert.deepEqual(graph.activations, []);
+  assert.equal(graph.id, id);
+  assert.equal(approveDefinition, true);
+  const progressed = await store.graphs.reserve(id, input.workspaceId, 1, randomUUID());
+  assert.deepEqual(await confirmSavedGraph(api, new Store(data), catalog, confirm), progressed);
+  assert.equal((await store.graphs.all()).length, 1);
+});
+
+test('exact preview rejects changed task, owner, revision, repository and malformed confirmation without admission', async (t) => {
+  const { api, store, catalog, input, source, cwd, setWorkspace, setOwner } = await setup(t);
+  const { id: _id, approveDefinition: _approved, ...request } = input;
+  const preview = await previewSavedGraph(api, catalog, request);
+  const changed = structuredClone(source.definition);
+  changed.steps[0].instruction = 'Changed instruction';
+  await catalog.save({ id: source.id, workspaceId: input.workspaceId, expectedRevision: 1, definition: changed });
+  const confirmation = { ...input, confirmation: preview.confirmation };
+  for (const override of [
+    { task: 'Different task' },
+    { ownerAgentId: 'different-team' },
+    { definitionRevision: 2 },
+    { confirmation: '0'.repeat(64) },
+  ])
+    await assert.rejects(confirmSavedGraph(api, store, catalog, { ...confirmation, ...override }), /preview changed/);
+  for (const override of [
+    { confirmation: undefined },
+    { confirmation: 'invalid' },
+    { approveDefinition: false },
+    { approveDefinition: undefined },
+    { definition: source.definition },
+  ])
+    assert.equal(graphConfirmRpc.input.safeParse({ ...confirmation, ...override }).success, false);
+  assert.equal(graphPreviewRpc.input.safeParse({ ...request, approveDefinition: true }).success, false);
+  const other = join(cwd, 'other');
+  await mkdir(other);
+  await git(other, ['init', '-q']);
+  setWorkspace({ workspaceDirectory: other });
+  setOwner({ workspaceId: input.workspaceId, provider: 'agent-teams', cwd: other });
+  await assert.rejects(confirmSavedGraph(api, store, catalog, confirmation), /preview changed/);
+  setOwner(null);
+  await assert.rejects(previewSavedGraph(api, catalog, request), /owner unavailable/);
+  assert.deepEqual(await store.graphs.all(), []);
+});
+
+test('exact concurrent confirmations publish once and cannot bypass repository reservations', async (t) => {
+  const { api, store, catalog, input, data } = await setup(t);
+  const { id: _id, approveDefinition: _approved, ...request } = input;
+  const preview = await previewSavedGraph(api, catalog, request);
+  const confirm = { ...input, confirmation: preview.confirmation };
+  const [a, b] = await Promise.all([
+    confirmSavedGraph(api, store, catalog, confirm),
+    confirmSavedGraph(api, store, catalog, confirm),
+  ]);
+  assert.deepEqual(a, b);
+  assert.deepEqual(await confirmSavedGraph(api, new Store(data), catalog, confirm), a);
+  // Preview remains a read even while another graph owns the repository.
+  assert.deepEqual(await previewSavedGraph(api, catalog, request), preview);
+  await assert.rejects(confirmSavedGraph(api, store, catalog, { ...confirm, id: randomUUID() }), /Another graph/);
+  assert.equal((await store.graphs.all()).length, 1);
 });

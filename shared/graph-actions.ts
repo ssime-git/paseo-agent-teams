@@ -1,5 +1,6 @@
 import { defineRpc } from '@getpaseo/plugin';
 import { z } from 'zod';
+import { definitionRecordSchema } from './definition-catalog';
 import { clarificationAnswerSchema } from './contracts';
 import { graphCheckpointSchema, graphHumanDecisionSchema } from './graph-checkpoint';
 
@@ -52,6 +53,27 @@ export const graphAdmitRpc = defineRpc({
       approveDefinition: z.literal(true),
     })
     .strict(),
+  output: graphCheckpointSchema,
+});
+
+// Read-only launch preview. The fingerprint binds the displayed immutable record,
+// task, native owner and canonical repository; it is not an authorization token.
+export const graphPreviewRpc = defineRpc({
+  name: 'teams.graph_preview',
+  input: graphAdmitRpc.input.omit({ id: true, approveDefinition: true }).strict(),
+  output: z
+    .object({
+      source: definitionRecordSchema,
+      repository: z.object({ root: z.string(), lock: z.string() }).strict(),
+      task: z.string(),
+      ownerAgentId: z.string(),
+      confirmation: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
+});
+export const graphConfirmRpc = defineRpc({
+  name: 'teams.graph_confirm',
+  input: graphAdmitRpc.input.extend({ confirmation: graphPreviewRpc.output.shape.confirmation }).strict(),
   output: graphCheckpointSchema,
 });
 
