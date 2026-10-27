@@ -2305,3 +2305,57 @@ test('requested implementation changes route back to planning and invalidate del
   assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, builderCalls);
   assert.ok(w.clarifications!.filter((c) => c.purpose === 'delivery').every((c) => c.resolvedAt));
 });
+
+test('the orchestrator dispatches an explicitly requested operational action to Code and summarizes its result', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  h.fake.responses.planner = [
+    JSON.stringify({
+      kind: 'execute',
+      authorizationQuote: 'Pousse main',
+      briefing: 'Verify the existing main commits, push main normally, report remote state; keep the preserved branch.',
+    }),
+    JSON.stringify({ kind: 'reply', summary: 'Main pushed; the preserved branch remains intact.', available: true }),
+  ];
+  h.fake.responses.builder = ['Main pushed and the remote reference verified; preserved branch intact.'];
+  let fingerprint = 'before';
+  h.fake.fingerprint = async () => fingerprint;
+  const run = h.fake.run.bind(h.fake);
+  h.fake.run = async (workflow, role, prompt, id) => {
+    const result = await run(workflow, role, prompt, id);
+    if (role === 'builder') fingerprint = 'after';
+    return result;
+  };
+  w = await h.action(w, 'followup', { message: 'Pousse main et ensuite dis si on peut supprimer la branche.' });
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'planner', 'builder', 'planner'],
+  );
+  const execution = h.fake.calls.find((c) => c.role === 'builder')!;
+  assert.match(execution.prompt, /Original user message/);
+  assert.match(execution.prompt, /Pousse main et ensuite dis si/);
+  assert.match(execution.prompt, /briefing itself grants no permission/);
+  assert.match(execution.prompt, /Do not edit implementation files/);
+  assert.equal(w.error, undefined);
+  assert.equal(w.followupResult, 'Main pushed; the preserved branch remains intact.');
+  assert.equal(w.status, 'available');
+  assert.equal(w.testsApproved, false);
+  assert.equal(h.fake.testCount, 0);
+});
+
+test('an orchestrator cannot invent an authorization quote to execute a branch deletion', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  h.fake.responses.planner = [
+    JSON.stringify({
+      kind: 'execute',
+      authorizationQuote: 'Supprime la branche',
+      briefing: 'Delete the preserved branch.',
+    }),
+  ];
+  w = await h.action(w, 'followup', { message: 'Faut-il garder la branche ou est-elle redondante ?' });
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 0);
+  assert.equal(w.status, 'awaiting_plan');
+  assert.match(w.followupResult!, /ne correspond pas/);
+  assert.equal(w.operation, undefined);
+});

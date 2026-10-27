@@ -164,8 +164,15 @@ export const planProposalSchema = z.object({
 });
 export type Review = z.infer<typeof reviewSchema>;
 export const coordinationSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('reply'), summary: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('reply'), summary: z.string().min(1), available: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal('replan'), summary: z.string().min(1) }).strict(),
+  z
+    .object({
+      kind: z.literal('execute'),
+      briefing: z.string().min(1).max(16000),
+      authorizationQuote: z.string().min(1).max(8000),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('delegate'),
@@ -323,6 +330,9 @@ export const workflowSchema = z.object({
     .object({
       purpose: z.enum(['message', 'pull_request', 'plan_revision']),
       coordinating: z.boolean().optional(),
+      execution: z.boolean().optional(),
+      executionCompleted: z.boolean().optional(),
+      authorizationQuote: z.string().optional(),
       briefing: z.string().optional(),
       message: z.string().optional(),
       delegatedResult: z.string().optional(),

@@ -978,7 +978,7 @@ export class Engine {
     const fingerprint =
       w.resultRepair ||
       w.config.roles[role].modeId === INSTRUCTION_READ_ONLY ||
-      (w.phase === 'followup' && w.followup?.purpose !== 'pull_request')
+      (w.phase === 'followup' && w.followup?.purpose !== 'pull_request' && !w.followup?.execution)
         ? await this.runtime.fingerprint(w)
         : undefined;
     return this.serial(id, async () => {
@@ -1144,8 +1144,11 @@ export class Engine {
     delete w.error;
     if (op.phase === 'followup' && w.followup) {
       if (w.followup.briefing) {
+        if (w.followup.execution) w.followup.executionCompleted = true;
         w.followup.delegatedResult = text.slice(-16000);
         delete w.followup.briefing;
+        delete w.followup.execution;
+        delete w.followup.authorizationQuote;
         w.followup.coordinating = true;
         w.activeRole = 'planner';
         w.status = paused ? 'paused' : 'ready';
@@ -1160,21 +1163,36 @@ export class Engine {
           /* Legacy Markdown replies remain readable. */
         }
       }
-      if (coordination?.kind === 'delegate') {
+      if (coordination?.kind === 'execute' && !w.followup.message?.includes(coordination.authorizationQuote)) {
+        coordination = {
+          kind: 'reply',
+          summary: 'L’action proposée ne correspond pas à votre demande. Précisez l’action à exécuter.',
+        };
+      }
+      if (coordination?.kind === 'delegate' || coordination?.kind === 'execute') {
         if ((w.followup.delegationCount ?? 0) >= 3) {
           coordination = { kind: 'reply', summary: w.followup.delegatedResult ?? coordination.briefing };
         } else {
           w.followup.delegationCount = (w.followup.delegationCount ?? 0) + 1;
           w.followup.coordinating = false;
           w.followup.briefing = coordination.briefing;
-          w.activeRole = coordination.role;
+          if (coordination.kind === 'execute') {
+            w.followup.execution = true;
+            w.followup.authorizationQuote = coordination.authorizationQuote;
+          }
+          w.activeRole = coordination.kind === 'execute' ? 'builder' : coordination.role;
           w.status = paused ? 'paused' : 'ready';
-          this.event(w, 'delegated', coordination.briefing, coordination.role);
+          this.event(w, 'delegated', coordination.briefing, w.activeRole);
           await this.save(w);
           return;
         }
       }
       const revision = w.followup.purpose === 'plan_revision';
+      const operationalConversation =
+        coordination?.kind === 'reply' &&
+        coordination.available &&
+        w.followup.executionCompleted &&
+        !w.clarifications?.some((question) => !question.resolvedAt);
       w.followupResult = coordination?.summary ?? text;
       if (w.followup.purpose === 'message') this.event(w, 'orchestrator_reply', w.followupResult, op.role, op.id);
       w.phase = w.followup.returnPhase;
@@ -1186,6 +1204,12 @@ export class Engine {
           : undefined);
       if (w.followup.previousError) w.error = w.followup.previousError;
       delete w.followup;
+      if (operationalConversation) {
+        w.status = paused ? 'paused' : 'available';
+        if (paused) w.resumeStatus = 'available';
+        else delete w.resumeStatus;
+        delete w.error;
+      }
       if (coordination?.kind === 'replan') {
         w.phase = 'planning';
         w.testsApproved = false;
