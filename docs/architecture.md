@@ -156,5 +156,30 @@ is requested; retries with a stale revision do not advance a second boundary. Th
 existing native transcript stores the outcome and replays acknowledged message IDs
 after reconnects. This can dispatch a step or execute previously approved tests;
 human decisions, clarification answers and permissions remain separate. Admission
-and human decisions still need native UI wiring. Neither command adds automatic
+and test exceptions still need native UI wiring. Neither command adds automatic
 graph polling, model retries or a scheduler.
+
+
+Graph reports now persist an optional `graphWorkspaceId` in the existing session
+transcript. With negotiated `timeline.plugin`, they project to the registered
+`agent-teams-graphs` card; other clients replay plain text. Older transcripts remain
+unchanged. The card opens the host SDK Modal, using its actual native `agentId` and
+the persisted workspace to discover current admitted graphs. Users select a run by
+name, without supplying UUIDs, revisions or operation IDs. The report itself remains
+a historical snapshot; opening/refreshing the modal reads the current checkpoints.
+
+The modal sends one explicit human decision (reason required) or one clarification
+answer at a time. Recommended options are labelled but never selected automatically;
+free responses and partial answers are supported. Closing does not submit. Drafts
+stay separate by graph/operation/question and remain available after an RPC error.
+A synchronous in-flight guard prevents double taps; checkpoint revisions and decision
+IDs keep server retries idempotent. Successful submissions refresh the local snapshot
+and leave continuation separate. No graph polling or model loop is added.
+
+`teams.graph_response` validates native Team ownership and canonical Git placement
+using the discovery checks before delegating to existing strict graph actions. This
+RPC trusts authenticated daemon clients; it does not claim individual human identity.
+Existing graph RPCs and V1 operations retain their contracts. The modal currently
+covers admitted graph human steps and clarifications; admission, test exceptions,
+and a graphical response form for historical V1 Planner questions remain separate
+work for the roadmap.

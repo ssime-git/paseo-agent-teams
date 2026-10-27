@@ -276,3 +276,52 @@ Seul le plugin principal a été rechargé après vérification d'inactivité et
 verts. Plugin running, PID superviseur **1923177**, worker **134766**, identité et
 version inchangés ; les quatre états V1 gardent leurs SHA-256. Preuves
 `/tmp/teams-native-advance-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
+
+## 27 octobre 2026 — réponses aux graphes dans un modal natif du chat
+
+Incrément `d2c9fdd`. Les nouveaux comptes rendus `/team-graphs` et `/team-advance`
+exposent **Ouvrir les actions du workflow**. Le renderer ouvre `Modal` et `TextInput`
+du SDK officiel 0.13.0, retrouve les graphes de la conversation et masque la saisie
+technique des UUID/révisions/opérations. Il permet de répondre aux clarifications
+(choix recommandé non présélectionné ou texte libre) et aux étapes humaines
+(approbation/refus et motif), sans continuation implicite.
+
+Daemon isolé 0.13.0 sur `127.0.0.1:6911`, racine
+`/tmp/teams-response-live-r3rmhzbd`, voix/dictée/relais désactivés. Deux conversations
+natives Team, découverte Codex officielle, zéro tour de modèle. Les scripts
+`/tmp/teams-response-live.mts` et `/tmp/teams-response-pending.mts` créent des graphes
+humains via les RPC officiels. Chromium ouvre le thread puis le modal à **1440 × 1050**
+et **390 × 844** ; sélection par nom, envoi désactivé avant choix et motif, décision
+mobile explicite réellement enregistrée. Aucun débordement horizontal ni erreur JS.
+Captures finales inspectées : [desktop](screenshots/graph-response-desktop.png),
+[mobile](screenshots/graph-response-mobile.png),
+[réponse enregistrée](screenshots/graph-response-mobile-saved.png).
+Scripts navigateur `/tmp/teams-response-browser{,-final}.mjs`, preuves
+`modal-ui-proof.json`, `response-proof.json` et `pending-response-proof.json` dans
+la racine. Premier essai navigateur arrivé trop tôt avant l'initialisation du host,
+corrigé par l'attente d'initialisation déjà employée dans les essais antérieurs.
+
+Le script `/tmp/teams-response-verify.mts resume after-restart` confirme, après
+arrêt/démarrage du seul daemon isolé, la décision et le checkpoint profondément
+identiques (`response-restart-proof.json`), avec une seule activation et aucun
+second envoi. Le deuxième parcours conserve aussi la décision explicite dans
+`pending-response-proof.json`. Daemon isolé arrêté à la fin
+(`/tmp/teams-response-status-stopped.json`). Aucun vrai Planner/Claude, choix de
+clarification produit par un modèle ou navigateur anglais revendiqué ici : le
+parcours de clarification est testé avec backend UI simulé.
+
+`npm run check` final : **296 tests**, zéro échec, typecheck/lint/format verts
+(`/tmp/teams-response-check-release.log`). Trois nouveaux tests : composant réel avec
+hôte simulé (choix recommandé, réponse libre, réponse partielle, fermeture sans envoi,
+brouillon conservé après refus, portée exacte et absence de continuation), réponse
+serveur sur checkpoints disque réels (propriétaire étranger refusé, décision explicite,
+relecture/retransmission), carte native persistante avec repli texte sans capacité
+`timeline.plugin`. Les fixtures initiales ont été corrigées après détection par les
+contrôles de graphe (étape humaine read-only et aucune étape inaccessible), la
+compilation du harnais React et le contrôle de traduction ; aucune frontière de
+validation produit assouplie.
+
+Seul le plugin principal a été rechargé après inactivité et contrôles verts. Running,
+PID superviseur **1923177**, worker **134766**, identité/version inchangées et quatre
+SHA-256 V1 conservés. Preuves
+`/tmp/teams-response-primary-{before,after,status-before,status-after,reload,plugins-after}.json`.
