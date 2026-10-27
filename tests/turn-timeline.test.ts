@@ -93,6 +93,26 @@ test('turn history spans bounded pages without borrowing a preceding turn', asyn
   assert.equal(h.calls(), 2);
 });
 
+test('progress cards without a turn ID do not obscure completion, even with overlapping update ranges', async () => {
+  const progress = { ...entry(2, null, 'plugin'), seqEnd: 20 };
+  const prompt = entry(3, event.turnId, 'user_message');
+  const reply = entry(4);
+  const h = fixture([page([entry(1, 'older'), progress, prompt, reply, entry(21, null, 'plugin')])]);
+  assert.deepEqual(await completedTurnTimeline(h.api, event), [prompt.item, reply.item]);
+});
+
+test('plugin-only pages can precede the native turn and never count as completion evidence', async () => {
+  const prompt = entry(2, event.turnId, 'user_message');
+  const reply = entry(3);
+  const h = fixture([
+    { ...page([entry(5, null, 'plugin')]), hasOlder: true },
+    { ...page([reply]), hasOlder: true },
+    page([entry(1, null, 'plugin'), prompt]),
+  ]);
+  assert.deepEqual(await completedTurnTimeline(h.api, event), [prompt.item, reply.item]);
+  assert.equal(await completedTurnTimeline(fixture([page([entry(1, null, 'plugin')])]).api, event), undefined);
+});
+
 test('missing identity, foreign workspace, changed workspace and failed reads retain uncertainty', async () => {
   const h = fixture([]);
   assert.equal(await completedTurnTimeline(h.api, { ...event, turnId: null }), undefined);

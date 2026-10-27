@@ -91,6 +91,7 @@ The **Team** pill in a Team Auto thread shows the team and who has control.
 - **Tests.** In the default mode you approve the plan, including its test commands, before anything runs. In the final and autonomous modes, Plan's test commands run automatically. A plan without tests needs `/team-approve-no-tests`. Commands run on the daemon host with a minimal environment and a 10-minute timeout each.
 - **Restarts.** Missions survive plugin reloads and daemon restarts. An accepted turn is never sent twice; when an outcome is uncertain, the mission stops and says so.
 - **Long tasks.** The main thread returns to idle after accepting your message. Roles work independently; their completion hook saves the result and wakes the engine for the next step. A healthy role is not stopped by repeated one-minute waits. Explicit pauses and restart recovery choices remain in force.
+- **Missed coordinator hook.** If a read-only coordinator response is retained without its completion receipt, `/team-resume` can explicitly import its exact native response after checking the workspace, stable timeline and unchanged repository. This does not replay the prompt or manufacture a hook receipt. It does not import implementation or review results this way.
 - **Input.** Team Auto accepts text only; images and attachments are rejected.
 - **Language.** Model answers and technical logs stay in the language they were written in.
 

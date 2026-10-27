@@ -23,22 +23,25 @@ export async function completedTurnTimeline(
       if (pageNumber === 0 && page.hasNewer) return;
       if (epoch && epoch !== page.endCursor.epoch) return;
       epoch = page.endCursor.epoch;
-      if (entries.length && page.entries.at(-1)!.seqEnd >= entries[0].seqStart) return;
-      entries.unshift(...page.entries);
+      // Plugin cards are not native turn evidence. Their updated seqEnd can
+      // overlap several turns, and they legitimately have no turnId.
+      const native = page.entries.filter((entry) => entry.item.type !== 'plugin');
+      if (entries.length && native.length && native.at(-1)!.seqEnd >= entries[0].seqStart) return;
+      entries.unshift(...native);
       // A later turn makes a delayed hook ambiguous; do not borrow its output.
-      if (entries.at(-1)!.turnId !== event.turnId) return;
+      if (entries.length && entries.at(-1)!.turnId !== event.turnId) return;
       const first = entries.findIndex((entry) => entry.turnId === event.turnId);
       if (entries.slice(0, first).some((entry) => !entry.turnId)) return;
       const turn = entries.slice(first);
       if (turn.some((entry) => entry.turnId !== event.turnId)) return;
-      if (first > 0 || !page.hasOlder) {
+      if (entries.length && (first > 0 || !page.hasOlder)) {
         if (turn[0].item.type !== 'user_message' || turn.filter((e) => e.item.type === 'user_message').length !== 1)
           return;
         if (!(await agent.refresh()) || agent.workspaceId !== event.agent.workspaceId) return;
         if (agent.activeTurn && agent.activeTurn.turnId !== event.turnId) return;
         return turn.map((entry) => entry.item);
       }
-      if (!page.startCursor) return;
+      if (!page.hasOlder || !page.startCursor) return;
       const key = JSON.stringify(page.startCursor);
       if (cursors.has(key)) return;
       cursors.add(key);

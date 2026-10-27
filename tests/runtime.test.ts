@@ -48,6 +48,32 @@ function adapter(overrides: Record<string, unknown> = {}, entries: unknown[] = [
   return { runtime, counts: () => ({ sends, waits, appends }) };
 }
 const accepted = { item: { type: 'user_message', text: '[agent-teams-operation:operation] task' } };
+test('explicit coordinator recovery binds the exact operation and ignores plugin progress cards', async () => {
+  const prompt = { turnId: 'turn', item: { type: 'user_message', text: '[agent-teams-operation:operation]\ntask' } };
+  const reply = {
+    turnId: 'turn',
+    seqEnd: 12,
+    item: { type: 'assistant_message', text: '{"kind":"reply","summary":"Done"}' },
+  };
+  const progress = { item: { type: 'plugin', kind: 'agent-teams-progress' } };
+  const w = savedWorkflow();
+  w.agents.planner = 'planner';
+  w.workspaceId = 'owner';
+  w.cwd = '/repo';
+  const scope = { workspaceId: 'owner', cwd: '/repo' };
+  const h = adapter(scope, [progress, prompt, progress, reply, progress]);
+  const result = await h.runtime.coordinatorResult(w);
+  assert.equal(result.text, reply.item.text);
+  assert.deepEqual(result.source, { epoch: 'epoch', seq: 12, turnId: 'turn' });
+  assert.deepEqual(h.counts(), { sends: 0, waits: 0, appends: 0 });
+  for (const entries of [
+    [prompt, reply, { ...prompt, item: { ...prompt.item, text: 'foreign task' } }],
+    [{ ...prompt, item: { ...prompt.item, text: '[agent-teams-operation:wrong]\ntask' } }, reply],
+    [prompt, { turnId: 'foreign', item: { type: 'tool_call' } }, reply],
+  ])
+    await assert.rejects(adapter(scope, entries).runtime.coordinatorResult(w));
+  await assert.rejects(adapter({ ...scope, workspaceId: 'foreign' }, [prompt, reply]).runtime.coordinatorResult(w));
+});
 test('idle plus a previous assistant message does not prove completion', async () => {
   const h = adapter({}, [accepted, { item: { type: 'assistant_message', text: 'unproven' } }]);
   assert.equal((await h.runtime.reconcile(savedWorkflow())).status, 'uncertain');

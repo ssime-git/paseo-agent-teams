@@ -276,17 +276,28 @@ export class PaseoRuntime implements Runtime {
   async plannerAnswers(w: Workflow) {
     return this.nativeExchange(w, 'planner');
   }
-  private async nativeExchange(w: Workflow, role: Role) {
+  async coordinatorResult(w: Workflow) {
+    return this.nativeExchange(w, 'planner', w.operation!.id);
+  }
+  private async nativeExchange(w: Workflow, role: Role, operationId?: string) {
     const agent = this.api.agents.ref(w.agents[role]!);
     if (!(await agent.refresh()) || agent.status !== 'idle' || agent.activeTurn || agent.pendingPermissions?.length)
       throw new TeamError('ACTIVE_STEP', 'Native role must be idle without pending permissions');
+    if (operationId && (agent.workspaceId !== w.workspaceId || agent.cwd !== w.cwd))
+      throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Native coordinator moved outside the workflow scope');
     // Native imports are explicit and bounded. Never reconcile or resend a workflow operation here.
     const page = await agent.timeline.refetch({ direction: 'before', limit: 100, projection: 'canonical' });
-    if (page.reset || page.gap || page.staleCursor || !page.endCursor)
+    if (page.error || page.reset || page.gap || page.staleCursor || page.hasNewer || !page.endCursor)
       throw new TeamError('TIMELINE_CHANGED', 'Native timeline is incomplete or changed');
     const promptIndex = page.entries.findLastIndex((e) => e.item.type === 'user_message');
     const prompt = page.entries[promptIndex];
-    if (!prompt || prompt.item.type !== 'user_message' || prompt.item.text.includes('[agent-teams-operation:'))
+    if (
+      !prompt ||
+      prompt.item.type !== 'user_message' ||
+      (operationId
+        ? !prompt.item.text.startsWith(`[agent-teams-operation:${operationId}]\n`)
+        : prompt.item.text.includes('[agent-teams-operation:'))
+    )
       throw new TeamError(
         'NATIVE_TURN_REQUIRED',
         'The latest prompt must be a native user turn visible in the last 100 entries',
@@ -296,6 +307,8 @@ export class PaseoRuntime implements Runtime {
     if (
       !last?.turnId ||
       replies.some((e) => e.turnId !== last.turnId) ||
+      (operationId &&
+        page.entries.slice(promptIndex).some((e) => e.item.type !== 'plugin' && e.turnId !== last.turnId)) ||
       (prompt.turnId && prompt.turnId !== last.turnId)
     )
       throw new TeamError('NATIVE_RESULT_AMBIGUOUS', 'No uniquely identified native response');

@@ -770,6 +770,38 @@ test('completion receipt preserves explicit restart recovery until Resume', asyn
   assert.equal(h.fake.calls.length, 1);
 });
 
+test('Resume can import a missed read-only coordinator result without a fake receipt or another send', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  h.fake.run = async (_w, role, prompt, id) => {
+    h.fake.calls.push({ role, prompt, id });
+    return { status: 'uncertain', error: 'No durable completion receipt' };
+  };
+  w = await h.action(w, 'followup', { message: 'Explain the current state', purpose: 'message' });
+  assert.equal(w.status, 'attention');
+  const op = w.operation!;
+  const source = { epoch: 'native', seq: 12, turnId: 'native-turn' };
+  Object.assign(h.fake, {
+    coordinatorResult: async () => ({
+      text: JSON.stringify({ kind: 'reply', summary: 'The plan is awaiting approval.' }),
+      prompt: `[agent-teams-operation:${op.id}]\nRead-only consultation`,
+      source,
+    }),
+  });
+  const sends = h.fake.calls.length;
+  // A changed repository must not be treated as a read-only completion.
+  h.fake.fingerprint = async () => 'changed';
+  await assert.rejects(h.action(w, 'resume'), /Repository changed/);
+  assert.equal((await h.store.get(w.id)).operation!.id, op.id);
+  h.fake.fingerprint = async () => 'snapshot-fingerprint';
+  w = await h.action(await h.store.get(w.id), 'resume');
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(w.operation, undefined);
+  assert.equal(w.receipts?.[op.id], undefined);
+  assert.equal(h.fake.calls.length, sends);
+  assert.equal(w.events.find((e) => e.kind === 'native_operation_imported')?.text, JSON.stringify(source));
+});
+
 test('completion receipt wakes a permission-blocked workflow observed by this engine', async (t) => {
   const h = await setup(t);
   h.fake.nextRecovery = { status: 'permission' };

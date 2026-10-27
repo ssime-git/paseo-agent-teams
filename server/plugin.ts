@@ -337,7 +337,10 @@ export function contributeServer(server: PluginServerContext) {
       );
     if (!linked) return;
     const timeline = await completedTurnTimeline(context.paseo, event);
-    if (!timeline) return;
+    if (!timeline) {
+      console.warn('Agent Teams: cannot read completed native turn', event.agent.id, event.turnId);
+      return;
+    }
     await captureGraphReceipt(store.graphs, { ...event, timeline });
     return forAgent(event.agent.id, (engine) =>
       engine.receipt(

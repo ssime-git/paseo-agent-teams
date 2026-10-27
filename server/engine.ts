@@ -52,6 +52,7 @@ export interface Runtime {
     w: Workflow,
   ): Promise<{ text: string; prompt: string; source: { epoch: string; seq: number; turnId: string } }>;
   plannerAnswers?: Runtime['reviewerPlan'];
+  coordinatorResult?: Runtime['reviewerPlan'];
   tests(w: Workflow, signal: AbortSignal): Promise<TestResult[]>;
   context(w: Workflow): Promise<string>;
   skillContext?(w: Workflow, role: Role): Promise<string>;
@@ -694,6 +695,32 @@ export class Engine {
           break;
         case 'resume':
           if (w.status === 'available') break;
+          // Explicit recovery for a missed hook on a read-only coordinator turn.
+          // Import a checked native exchange; never manufacture a hook receipt.
+          if (
+            w.status === 'attention' &&
+            w.operation?.phase === 'followup' &&
+            w.operation.role === 'planner' &&
+            w.operation.readOnlyFingerprint &&
+            w.followup?.coordinating &&
+            !w.receipts?.[w.operation.id] &&
+            this.runtime.coordinatorResult
+          ) {
+            if (!(await this.runtime.canClose(w)))
+              throw new TeamError('ACTIVE_STEP', 'A native agent is still active or awaiting permissions.');
+            const native = await this.runtime.coordinatorResult(w);
+            coordinationSchema.parse(parseJson(native.text));
+            if (digest(native) !== digest(await this.runtime.coordinatorResult(w)))
+              throw new TeamError('TIMELINE_CHANGED', 'Native coordinator response changed during recovery');
+            const fingerprint = await this.runtime.fingerprint(w);
+            if (fingerprint !== w.operation.readOnlyFingerprint)
+              throw new TeamError('REPOSITORY_CHANGED', 'Repository changed since the read-only coordinator turn');
+            const op = w.operation;
+            w.cursors[op.role] = { epoch: native.source.epoch, seq: native.source.seq };
+            this.event(w, 'native_operation_imported', JSON.stringify(native.source), op.role, op.id);
+            await this.applyIdleOutcome(w, op, native.text, fingerprint);
+            break;
+          }
           if (w.operation?.readOnlyFingerprint) {
             const op = w.operation;
             const responseIndex = w.events.findLastIndex((e) => e.kind === 'assistant' && e.operationId === op.id);
