@@ -20,7 +20,7 @@ paseo plugin add git:ssime-git/paseo-agent-teams --ref main
 
 Plugins must be enabled in **Settings → Plugins**. A plugin runs with the daemon user's access to the machine.
 
-Requirements: Paseo `>=0.13.0 <0.14.0`, at least one authenticated harness on the daemon host, and a workspace that contains a Git repository, on Linux or macOS. Both the daemon and the app must meet that version range. Existing V1 workflow data is retained; see the [0.13 migration notes](docs/paseo-013-migration.md).
+Requirements: Paseo `>=0.13.0 <0.15.0`, at least one authenticated harness on the daemon host, and a workspace that contains a Git repository, on Linux or macOS. Both the daemon and the app must meet that version range. Existing V1 workflow data is retained; see the [0.13 migration notes](docs/paseo-013-migration.md).
 
 ## Run a mission
 

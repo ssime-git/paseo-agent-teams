@@ -486,3 +486,34 @@ du plugin. `npm run check` : 304 tests verts, typecheck/lint/format verts
 (`/tmp/teams-preview-check-final.log`). APIs unitaires simulées et dépôts/checkpoints
 réels sur disque. Aucun navigateur, appareil mobile, Claude ou conversation modèle
 revendiqué : interface inchangée, lanceur visuel et NATIVE-IDLE-001 encore ouverts.
+
+## 29 octobre 2026 — compatibilité Paseo 0.14
+
+L’application 0.14 rejetait le manifeste `>=0.13.0 <0.14.0` avant de charger
+le client. La borne supérieure passe à `<0.15.0` ; les SDK restent en 0.13,
+car les API utilisées sont conservées dans les paquets officiels 0.14 installés.
+Les différences inspectées ajoutent notamment `session.can_stop_runtime`
+(capacité non annoncée par Team), des champs aux hooks d’ouverture et
+`agent.reload` ; aucun changement de données persistées n’est nécessaire.
+Le test de compatibilité couvre les deux runtimes app/daemon en 0.13 et 0.14,
+et refuse toujours 0.12, 0.15 et 1.0.
+
+`npm run check` réussit : typecheck, lint, format et **346 tests**.
+Log : `/tmp/teams-014-check-unsandboxed.log`. Une première exécution dans le
+sandbox échouait sur trois tests de sous-processus ; la suite complète hors
+sandbox passe sans modification de ces tests ni du moteur.
+
+Essai réel : daemon officiel **0.14.0**, home, état du plugin et dépôt jetable
+sous `/tmp/teams-014-compat`, port loopback 6914, relais désactivé. Le client
+0.14 vérifie les exigences officielles app/daemon ; le SDK 0.13 du plugin
+exécute le RPC `teams.workflow_index`, ouvre le workspace et une session native
+`agent-teams/auto`, puis récupère commandes et timeline. **Zéro tour de modèle** :
+il s’agit d’une preuve de chargement/intégration, pas d’un workflow de modèles
+complet. Script `smoke.mjs`, preuve `smoke-proof.json` dans ce répertoire.
+
+L’application web officielle 0.14 affiche la session Team et sa carte « Team
+Auto » à **1440 × 1050** et **390 × 844**, sans exception JavaScript ni
+débordement horizontal. Le navigateur ouvre d’abord la session sur desktop,
+puis applique chaque viewport (pas de validation de la navigation mobile).
+Preuves : `browser.mjs`, `ui-proof.json`, `ui-{desktop,mobile}.{txt,png}`.
+Seul le daemon isolé a été redémarré pour activer son interface web.
