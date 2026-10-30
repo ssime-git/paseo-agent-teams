@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { graphListRpc, graphResponseRpc, graphAdvanceRpc } from '../shared/graph-actions';
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { useT } from './i18n';
+import { GraphLauncher } from './graph-launcher';
 
 export const graphInboxSchema = z
   .object({
@@ -174,6 +175,19 @@ export function GraphInbox({
         <Text style={{ color: c.foregroundMuted }}>
           {t('Choisissez le workflow par son nom. Aucun identifiant à recopier.')}
         </Text>
+      ) : null}
+      {!data.graphId ? (
+        <GraphLauncher
+          key={`${data.workspaceId}:${agentId}`}
+          workspaceId={data.workspaceId}
+          ownerAgentId={agentId}
+          colors={c}
+          onAdmitted={(next) => {
+            setStates((all) => [...all.filter((s) => s.id !== next.id), next]);
+            setSelected(next.id);
+            setLoaded(true);
+          }}
+        />
       ) : null}
       {button(t('Actualiser les attentes'), () => {
         void refresh();

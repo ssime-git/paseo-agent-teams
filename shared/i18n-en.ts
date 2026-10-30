@@ -1,5 +1,14 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Lancer un workflow sauvegardé': 'Launch a saved workflow',
+  'Aucun workflow sauvegardé dans cet espace.': 'No saved workflow in this workspace.',
+  'Objectif du workflow': 'Workflow objective',
+  'Prévisualiser ce workflow': 'Preview this workflow',
+  'Définition exacte à confirmer': 'Exact definition to confirm',
+  'La confirmation réserve le dépôt. Elle ne démarre aucune étape.':
+    'Confirmation reserves the repository. It does not start any step.',
+  'Confirmer cette définition et réserver le dépôt': 'Confirm this definition and reserve the repository',
+
   'Équipe disponible': 'Team available',
   'L’orchestrateur est disponible pour vos messages.': 'The orchestrator is ready for your messages.',
   'Message reçu ; l’orchestrateur le traitera après le tour courant.':
