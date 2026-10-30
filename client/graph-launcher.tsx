@@ -7,6 +7,7 @@ import { listDefinitionsRpc, type DefinitionRecord } from '../shared/definition-
 import { graphPreviewRpc, graphConfirmRpc } from '../shared/graph-actions';
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { useT } from './i18n';
+import { GraphDefinition } from './graph-definition';
 
 type Preview = z.infer<typeof graphPreviewRpc.output>;
 // An idempotency identity, not a security token; works on native hosts without Web Crypto.
@@ -141,6 +142,7 @@ export function GraphLauncher({
               </Text>
               <Text style={{ color: c.foreground }}>{pending.value.repository.root}</Text>
               <Text style={{ color: c.foreground }}>{pending.value.task}</Text>
+              <GraphDefinition definition={pending.value.source.definition} colors={c} />
               <Text selectable style={{ color: c.foreground, flexShrink: 1 }}>
                 {JSON.stringify(pending.value.source.definition, null, 2)}
               </Text>

@@ -526,3 +526,26 @@ Seul le daemon isolé a été redémarré pour activer son interface web.
 - Chromium réel : commande native `/team-graphs`, sélection d’une définition sauvegardée par RPC, saisie d’objectif, prévisualisation à **1440 × 1050** et **390 × 844**, puis confirmation mobile. Pas de débordement horizontal ni d’exception JavaScript ; admission persistée **ready**, zéro activation, révision exacte. Relecture identique après rechargement du plugin isolé. Scripts `launcher-{setup,open,browser,verify}.mjs`, preuves `launcher-{proof,ui-proof,admission-proof}.json` et captures `launcher-ui-{desktop,mobile}.png`, `launcher-admitted-mobile.png` sous `/tmp/teams-014-compat`.
 - Limites : ouverture de la session en desktop avant redimensionnement ; navigation initiale mobile non vérifiée. Un changement de taille peut remonter la carte et effacer son formulaire temporaire ; une nouvelle prévisualisation explicite est nécessaire. Affichage complet de définition en JSON lisible, éditeur et représentation visuelle du graphe encore à faire. Ce parcours n’atteste ni NATIVE-IDLE-001 ni une boucle de modèles personnalisée.
 - Incident de harnais : démarrage initial sans variables d’isolation complètes, arrêté puis corrigé avant admission. Le premier envoi CLI de `/team-graphs` était un message texte, et a lancé un tour réel Claude Planner V1 dans le dépôt isolé ; il a demandé une clarification. Session interrompue, workflow de fixture clôturé par RPC officiel avec workspace/révision avant admission. Les commandes natives ont ensuite été sélectionnées dans l’UI. Ne pas annoncer « zéro tour de modèle » pour l’ensemble de cet essai ; seule l’admission n’en lance aucun.
+
+### 30 octobre 2026 — lecture structurée du graphe avant confirmation
+
+Le lanceur rend maintenant une carte par étape depuis la définition exacte reçue
+par `teams.graph_preview` : entrée, budget global d'activations (répétitions et
+étapes humaines incluses), contrat, accès, provider/mode, instruction, commandes
+et délais de tests, sorties étiquetées et destination ou fin du parcours. La
+projection ne modifie aucune définition ; le JSON exact reste disponible.
+
+Preuve réelle bornée sur le daemon officiel 0.14 isolé existant, port 6914,
+home/état/dépôt sous `/tmp/teams-014-compat`, relais désactivé. La révision 2 de
+la fixture sauvegardée contient Code → Revue → Décision humaine, une branche de
+correction vers Code et un test explicitement configuré. Le navigateur Chromium
+vérifie le budget de six activations, les branches et la fin humaine à 1440 × 1050
+et 390 × 844, sans exception JS ni débordement horizontal. Navigation initiale
+ouverte en desktop avant redimensionnement mobile ; aucun appareil physique ni
+parcours initial mobile revendiqué. Aucune admission ni activation supplémentaire,
+aucun tour de modèle. Scripts `definition-setup.mjs`, `definition-browser.mjs`,
+réponses `definition-source-proof.json`, `definition-ui-proof.json`, textes et
+captures `definition-ui-{desktop,mobile}.{txt,png}` dans ce répertoire temporaire.
+Le test de composant `tests/graph-definition.test.ts` couvre aussi français et
+anglais, conservation des commandes/identifiants/instructions et absence de
+mutation de la définition ; son transport hôte est simulé.

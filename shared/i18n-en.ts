@@ -1,5 +1,20 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  Planification: 'Planning',
+  Construction: 'Build',
+  Refus: 'Rejection',
+  'Lecture seule': 'Read only',
+  Approbation: 'Approval',
+  Réussite: 'Success',
+  'Décision humaine': 'Human decision',
+  'Fin du parcours': 'End of path',
+  'Aucun test configuré pour cette étape.': 'No tests configured for this step.',
+  'Délai du test : {ms} ms': 'Test timeout: {ms} ms',
+  'Écriture autorisée': 'Write access',
+  'Budget global : {count} activations, étapes humaines et répétitions comprises.':
+    'Global budget: {count} activations, including human steps and repetitions.',
+  'Entrée : {entry}': 'Entry: {entry}',
+  'Parcours et limites': 'Path and limits',
   'Lancer un workflow sauvegardé': 'Launch a saved workflow',
   'Aucun workflow sauvegardé dans cet espace.': 'No saved workflow in this workspace.',
   'Objectif du workflow': 'Workflow objective',
