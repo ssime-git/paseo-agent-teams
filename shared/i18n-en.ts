@@ -1,5 +1,16 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Créer Code ↔ Review': 'Create Code ↔ Review',
+  'Nom du workflow': 'Workflow name',
+  'La revue utilise uniquement les permissions natives de lecture seule vérifiées.':
+    'Review uses only verified native read-only permissions.',
+  'Budget global : {count} activations, code et revues inclus.':
+    'Global budget: {count} activations, including code and reviews.',
+  'Commande de test explicite': 'Explicit test command',
+  'Délai de test': 'Test timeout',
+  'Une commande est requise ici. Elle sera exécutée après chaque étape Code, avant la revue.':
+    'A command is required here. It will run after each Code step, before review.',
+  'Sauvegarder ce preset': 'Save this preset',
   Planification: 'Planning',
   Construction: 'Build',
   Refus: 'Rejection',

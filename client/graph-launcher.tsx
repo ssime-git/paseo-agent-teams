@@ -8,6 +8,7 @@ import { graphPreviewRpc, graphConfirmRpc } from '../shared/graph-actions';
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { useT } from './i18n';
 import { GraphDefinition } from './graph-definition';
+import { GraphPreset } from './graph-preset';
 
 type Preview = z.infer<typeof graphPreviewRpc.output>;
 // An idempotency identity, not a security token; works on native hosts without Web Crypto.
@@ -69,6 +70,16 @@ export function GraphLauncher({
   );
   return (
     <View style={{ gap: 12 }}>
+      <GraphPreset
+        workspaceId={workspaceId}
+        colors={c}
+        onSaved={(record) => {
+          setRecords((items) => [...items.filter((item) => item.id !== record.id), record]);
+          setSelected(record);
+          setPending(undefined);
+          setOpened(true);
+        }}
+      />
       {button(t('Lancer un workflow sauvegardé'), () => {
         void run(async () => {
           setRecords(await list({ workspaceId }));

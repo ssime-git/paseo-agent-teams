@@ -32,7 +32,7 @@ export async function loadResponseUi(t: { after(fn: () => unknown): void }, entr
                 : args.path === './markdown'
                   ? `export const Markdown='Markdown';`
                   : args.path.endsWith('/ui')
-                    ? `export const TextInput='TextInput'; export function Modal(){throw new Error('Response controls must remain inline');}`
+                    ? `export const TextInput='TextInput',SettingsSelect='SettingsSelect'; export function Modal(){throw new Error('Response controls must remain inline');}`
                     : `export function useRpc(c){return ${host}.rpc(c.name);} export function useSettings(){return {status:'ready',values:{language:${host}.language??'fr'}};}`,
           }));
         },

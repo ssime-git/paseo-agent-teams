@@ -549,3 +549,45 @@ captures `definition-ui-{desktop,mobile}.{txt,png}` dans ce répertoire temporai
 Le test de composant `tests/graph-definition.test.ts` couvre aussi français et
 anglais, conservation des commandes/identifiants/instructions et absence de
 mutation de la définition ; son transport hôte est simulé.
+
+### 30 octobre 2026, 23:40 — création inline du preset Code ↔ Review
+
+Le rapport `/team-graphs` propose **Créer Code ↔ Review** : nom, modèles et
+permissions détectés dans le workspace par `teams.catalog`, commande de test
+explicite, délai (1–30 secondes) et limite de corrections (0–100, choix proposés).
+Le budget affiché compte Code et Revue, soit `2 × (limite + 1)` activations.
+La revue propose uniquement Codex `read-only` et Claude `plan`, les permissions
+natives vérifiées par le moteur. La commande est attachée à l'étape Code.
+La sauvegarde via `teams.save_definition` sélectionne la révision retournée pour
+le lanceur existant ; ni admission ni exécution implicite. Le formulaire exige
+une commande ; les exceptions sans tests et l'édition arbitraire restent à faire.
+
+Essais réels sur le daemon officiel **0.14.0**, home/état/dépôt jetables existants
+`/tmp/teams-014-compat`, port loopback **6914**, relais et voix désactivés :
+
+- Chromium **1440 × 1050** : création et prévisualisation de `Preset isolé desktop`.
+- Chromium **390 × 844** : création et prévisualisation de `Preset isolé mobile`,
+  menus de modèles, limite de deux corrections, délai de cinq secondes et
+  commande `node --test`. Captures du formulaire et des sélecteurs inspectées.
+- Les deux définitions ont une révision 1, un budget de six activations et les
+  sélections exactes `codex/gpt-6.1-sol` (`auto`) et `claude/claude-opus-5-5`
+  (`plan`). Les commandes sont uniquement sauvegardées, jamais exécutées ici.
+- Aucun clic sur la confirmation : les checkpoints de graphes sont profondément
+  identiques avant/après, dont le graphe préexistant ready avec zéro activation.
+  Définitions et checkpoints relus identiques après reload du plugin isolé.
+- Aucun débordement horizontal ou exception JS dans les parcours réussis. Le
+  premier essai de navigation initiale mobile s'est arrêté sur l'écran hôte
+  d'ouverture du projet : le parcours mobile réussi ouvre l'espace en desktop
+  puis redimensionne avant de créer le preset. Aucun démarrage mobile autonome,
+  appareil physique ou parcours de modèle revendiqué.
+
+Preuves locales : `preset-{before,after,reloaded,persistence-proof}.json`,
+`preset-ui-desktop.txt`, `preset-ui-mobile.txt`, `preset-mobile-proof.json`,
+`preset-form-{desktop,mobile}.png`, `preset-preview-{desktop,mobile}.png`,
+`preset-selectors-mobile.png`. Scripts `preset-browser.mjs`, `preset-rpc.mjs`,
+`preset-selectors.mjs` ; daemon isolé arrêté normalement après vérification.
+Le test de composant `tests/graph-preset.test.ts` utilise un transport simulé et
+vérifie séparément FR/EN, modèles détectés, exclusion des permissions de revue
+non prises en charge, absence de sauvegarde avant saisie complète, budget sans
+correction, conservation des identifiants/commande, double clic et absence
+d'admission. Il ne constitue pas un essai réel de modèle.
