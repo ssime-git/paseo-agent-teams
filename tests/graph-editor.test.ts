@@ -82,3 +82,55 @@ test('saved definition editing retains draft on conflicts, validates budgets and
   assert.ok(button('Save a new revision'));
   assert.equal(field('Workflow name').props.value, 'Cycle révisé');
 });
+
+test('test editing supports removal, explicit empty commands and bounded lists without mutating saved definitions', async (t) => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  const { GraphEditor } = await loadResponseUi(t, 'client/graph-editor.tsx', '__testsEditor');
+  const definition = codeReviewPreset({
+    code: { provider: 'codex/model', modeId: 'auto' },
+    review: { provider: 'claude/model', modeId: 'plan' },
+  });
+  definition.steps[0].tests = [{ command: 'original', timeoutMs: 1000 }];
+  const original = structuredClone(definition);
+  let saved: typeof definition | undefined;
+  (globalThis as Record<string, unknown>).__testsEditor = {
+    rpc: () => async (input: { definition: typeof definition }) => {
+      saved = input.definition;
+      return input;
+    },
+  };
+  t.after(() => {
+    delete (globalThis as Record<string, unknown>).__testsEditor;
+  });
+  let tree!: ReturnType<typeof create>;
+  await act(async () => {
+    tree = create(
+      React.createElement(GraphEditor, {
+        record: { id: 'saved', workspaceId: 'owner', revision: 1, definition },
+        colors: {},
+        onSaved: () => {},
+        onCancel: () => {},
+      }),
+    );
+  });
+  t.after(() => act(() => tree.unmount()));
+  const button = (label: string) =>
+    tree.root.findAllByType('Pressable' as never).find((n) => n.props.accessibilityLabel === label)!;
+  const click = async (label: string) => act(async () => button(label).props.onPress());
+  await click('Supprimer le test : code / 1');
+  assert.match(JSON.stringify(tree.toJSON()), /décision humaine explicite/);
+  await click('Sauvegarder une nouvelle révision');
+  assert.equal(Object.hasOwn(saved!.steps[0], 'tests'), false);
+  await click('Ajouter un test : code');
+  assert.equal(button('Sauvegarder une nouvelle révision').props.disabled, true);
+  const field = () =>
+    tree.root.findAllByType('TextInput' as never).find((n) => n.props.accessibilityLabel === 'Commande : code / 1')!;
+  await act(async () => field().props.onChangeText('node --test'));
+  assert.equal(button('Sauvegarder une nouvelle révision').props.disabled, false);
+  for (let i = 1; i < 10; i++) await click('Ajouter un test : code');
+  assert.equal(button('Ajouter un test : code').props.disabled, true);
+  for (let i = 10; i > 1; i--) await click(`Supprimer le test : code / ${i}`);
+  await click('Sauvegarder une nouvelle révision');
+  assert.deepEqual(saved!.steps[0].tests, [{ command: 'node --test', timeoutMs: 1000 }]);
+  assert.deepEqual(definition, original);
+});

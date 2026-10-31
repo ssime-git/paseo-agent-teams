@@ -1,5 +1,9 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Ajouter un test : {step}': 'Add a test: {step}',
+  'Supprimer le test : {step} / {index}': 'Remove test: {step} / {index}',
+  'Sans tests configurés, une décision humaine explicite sera nécessaire à l’exécution.':
+    'Without configured tests, an explicit human decision will be required during execution.',
   'Modifier cette définition': 'Edit this definition',
   'Budget global d’activations': 'Global activation budget',
   'Consignes : {step}': 'Instructions: {step}',

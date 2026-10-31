@@ -107,8 +107,31 @@ export function GraphEditor({
                   }),
                 6,
               )}
+              {button(t('Supprimer le test : {step} / {index}', { step: step.id, index: testIndex + 1 }), () =>
+                updateStep(index, (s) => {
+                  s.tests!.splice(testIndex, 1);
+                  if (!s.tests!.length) delete s.tests;
+                }),
+              )}
             </View>
           ))}
+          {step.contract !== 'human' ? (
+            <>
+              {button(
+                t('Ajouter un test : {step}', { step: step.id }),
+                () =>
+                  updateStep(index, (s) => {
+                    s.tests = [...(s.tests ?? []), { command: '', timeoutMs: 1000 }];
+                  }),
+                busy || (step.tests?.length ?? 0) >= 10,
+              )}
+              {!step.tests?.length && step.contract === 'build' ? (
+                <Text style={{ color: c.foreground }}>
+                  {t('Sans tests configurés, une décision humaine explicite sera nécessaire à l’exécution.')}
+                </Text>
+              ) : null}
+            </>
+          ) : null}
         </View>
       ))}
       {parsed.success ? (
