@@ -659,3 +659,27 @@ de succès desktop/mobile de cet incrément, aucun appareil physique ni essai
 anglais réel revendiqué. La cause du chargement hôte n’est pas établie.
 Le rechargement du plugin principal est différé jusqu’au contrôle visuel réussi.
 Le daemon isolé est arrêté en fin de passage ; daemon principal inchangé.
+
+### 31 octobre — rechargement explicite après conflit de définition
+
+Daemon officiel 0.14.0 isolé, `/tmp/teams-014-compat/home`, état et dépôt jetables
+associés, port 6914 ; variables de données et URL explicitement isolées.
+Chromium desktop 1440 × 1050 puis mobile 390 × 844 : lecture d'une définition,
+édition, sauvegarde concurrente par RPC officiel, refus de la sauvegarde périmée,
+brouillon conservé, abandon/relecture explicites puis sauvegarde à la nouvelle
+révision. Historique relu : deux nouvelles révisions exactes ; graphes admis
+inchangés. Les contrôles ajout/suppression de tests du passage précédent ont aussi
+été exercés : retrait du dernier test, avertissement humain, commande vide bloquée,
+commande saisie autorisant la sauvegarde. Pas de débordement horizontal ni exception
+JS ; capture mobile inspectée. Navigation initiale desktop avant redimensionnement,
+aucun appareil physique, démarrage mobile autonome ou essai réel anglais revendiqué.
+
+Preuves : `reload-editor-browser.mjs`, `reload-editor-proof.json`,
+`reload-conflict-{desktop,mobile}.png` sous `/tmp/teams-014-compat`.
+Après reload du seul plugin isolé, `reload-editor-verify.mjs --compare` confirme
+les définitions et graphes profondément identiques. Aucun nouveau tour de modèle,
+commande shell de workflow, admission ou activation. Daemon isolé arrêté après
+validation. `npm run check` : 353/353, typage/lint/format réussis, log
+`/tmp/teams-roadmap-311440-check.log`. Test de composant simulé distinct des essais
+réels : pas de relecture automatique, définition disparue conservant le brouillon,
+double clic, puis utilisation de la révision relue lors de la sauvegarde.

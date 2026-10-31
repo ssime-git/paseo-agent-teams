@@ -134,3 +134,66 @@ test('test editing supports removal, explicit empty commands and bounded lists w
   assert.deepEqual(saved!.steps[0].tests, [{ command: 'node --test', timeoutMs: 1000 }]);
   assert.deepEqual(definition, original);
 });
+
+test('explicit reload keeps failed drafts and rebases only after reading the latest saved revision', async (t) => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  const { GraphEditor } = await loadResponseUi(t, 'client/graph-editor.tsx', '__reloadEditor');
+  const definition = codeReviewPreset({
+    code: { provider: 'codex/model', modeId: 'auto' },
+    review: { provider: 'claude/model', modeId: 'plan' },
+  });
+  const record = { id: 'saved', workspaceId: 'owner', revision: 1, definition };
+  const latest = structuredClone({ ...record, revision: 2 });
+  latest.definition.name = 'Concurrent revision';
+  latest.definition.maxTransitions = 8;
+  latest.definition.steps[0].instruction = 'New instructions';
+  let readable = false,
+    writable = false;
+  const calls: { name: string; input: Record<string, unknown> }[] = [];
+  (globalThis as Record<string, unknown>).__reloadEditor = {
+    rpc: (name: string) => async (input: Record<string, unknown>) => {
+      calls.push({ name, input });
+      if (name === 'teams.list_definitions') return readable ? [latest] : [];
+      if (!writable) throw new Error('Workflow definition changed; reload before saving');
+      return { ...latest, revision: 3, definition: input.definition };
+    },
+  };
+  t.after(() => {
+    delete (globalThis as Record<string, unknown>).__reloadEditor;
+  });
+  let tree!: ReturnType<typeof create>;
+  const props = { record, colors: {}, onSaved: () => {}, onCancel: () => {} };
+  await act(async () => {
+    tree = create(React.createElement(GraphEditor, props));
+  });
+  t.after(() => act(() => tree.unmount()));
+  const button = (label: string) =>
+    tree.root.findAllByType('Pressable' as never).find((n) => n.props.accessibilityLabel === label)!;
+  const field = (label: string) =>
+    tree.root.findAllByType('TextInput' as never).find((n) => n.props.accessibilityLabel === label)!;
+  const click = async (label: string) => act(async () => button(label).props.onPress());
+  const reload = 'Abandonner le brouillon et recharger la dernière révision';
+  assert.equal(button(reload), undefined);
+  await act(async () => field('Nom du workflow').props.onChangeText('My draft'));
+  await click('Sauvegarder une nouvelle révision');
+  assert.equal(calls.length, 1); // No automatic read or discard on conflict.
+  await click(reload);
+  assert.equal(field('Nom du workflow').props.value, 'My draft');
+  assert.match(JSON.stringify(tree.toJSON()), /brouillon est conservé/);
+  readable = true;
+  await act(async () => {
+    const press = button(reload).props.onPress;
+    press();
+    press();
+  });
+  assert.equal(calls.filter((c) => c.name === 'teams.list_definitions').length, 2);
+  assert.equal(field('Nom du workflow').props.value, latest.definition.name);
+  assert.equal(field('Budget global d’activations').props.value, '8');
+  assert.equal(field('Consignes : code').props.value, 'New instructions');
+  assert.equal(button(reload), undefined);
+  writable = true;
+  await click('Sauvegarder une nouvelle révision');
+  assert.equal(calls.at(-1)!.input.expectedRevision, 2);
+  assert.deepEqual(calls.at(-1)!.input.definition, latest.definition);
+  assert.equal(record.revision, 1);
+});

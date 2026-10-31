@@ -1,5 +1,7 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Abandonner le brouillon et recharger la dernière révision': 'Discard draft and reload the latest revision',
+  'Définition introuvable ; le brouillon est conservé.': 'Definition not found; the draft is retained.',
   'Ajouter un test : {step}': 'Add a test: {step}',
   'Supprimer le test : {step} / {index}': 'Remove test: {step} / {index}',
   'Sans tests configurés, une décision humaine explicite sera nécessaire à l’exécution.':

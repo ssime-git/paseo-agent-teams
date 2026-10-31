@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useRpc } from '@getpaseo/plugin/client';
 import { TextInput } from '@getpaseo/plugin/client/ui';
-import { saveDefinitionRpc, type DefinitionRecord } from '../shared/definition-catalog';
+import { listDefinitionsRpc, saveDefinitionRpc, type DefinitionRecord } from '../shared/definition-catalog';
 import { workflowDefinitionSchema, type WorkflowDefinition } from '../shared/workflow-definition';
 import { GraphDefinition } from './graph-definition';
 import { useT } from './i18n';
@@ -20,7 +20,9 @@ export function GraphEditor({
   onCancel: () => void;
 }) {
   const t = useT(),
-    save = useRpc(saveDefinitionRpc);
+    save = useRpc(saveDefinitionRpc),
+    list = useRpc(listDefinitionsRpc);
+  const [base, setBase] = useState(record);
   const [draft, setDraft] = useState<WorkflowDefinition>(() => workflowDefinitionSchema.parse(record.definition));
   const [budget, setBudget] = useState(String(record.definition.maxTransitions));
   const [busy, setBusy] = useState(false),
@@ -66,7 +68,7 @@ export function GraphEditor({
   return (
     <View style={{ gap: 12 }}>
       <Text style={{ color: c.foreground }}>
-        {record.definition.name} · {t('Révision {revision}', { revision: record.revision })}
+        {base.definition.name} · {t('Révision {revision}', { revision: base.revision })}
       </Text>
       <Text style={{ color: c.foreground }}>
         {t('La sauvegarde crée une nouvelle révision. Les workflows déjà admis conservent leur définition.')}
@@ -154,9 +156,9 @@ export function GraphEditor({
           setBusy(true);
           setError('');
           void save({
-            workspaceId: record.workspaceId,
-            id: record.id,
-            expectedRevision: record.revision,
+            workspaceId: base.workspaceId,
+            id: base.id,
+            expectedRevision: base.revision,
             definition: parsed.data,
           })
             .then(onSaved)
@@ -168,6 +170,28 @@ export function GraphEditor({
         },
         busy || !parsed.success,
       )}
+      {error
+        ? button(t('Abandonner le brouillon et recharger la dernière révision'), () => {
+            if (flight.current) return;
+            flight.current = true;
+            setBusy(true);
+            void list({ workspaceId: base.workspaceId })
+              .then((records) => {
+                const latest = records.find((item) => item.id === base.id);
+                if (!latest) throw new Error(t('Définition introuvable ; le brouillon est conservé.'));
+                const definition = workflowDefinitionSchema.parse(latest.definition);
+                setBase(latest);
+                setDraft(definition);
+                setBudget(String(definition.maxTransitions));
+                setError('');
+              })
+              .catch((e) => setError(String(e)))
+              .finally(() => {
+                flight.current = false;
+                setBusy(false);
+              });
+          })
+        : null}
       {button(t('Annuler les modifications'), onCancel)}
     </View>
   );
