@@ -88,11 +88,40 @@ export function GraphEditor({
         disabled={busy}
         onValueChange={(entry) => setDraft((current) => ({ ...current, entry }))}
       />
+      <Text style={{ color: c.foreground }}>
+        {t(
+          'Une copie conserve le contrat, le modèle, les droits et les tests. Reliez-la au parcours avant de sauvegarder. Pour supprimer une étape, retirez ses références et changez le départ si nécessaire.',
+        )}
+      </Text>
       {draft.steps.map((step, index) => (
         <View key={step.id} style={{ gap: 12 }}>
           <Text style={{ color: c.foreground }}>
             {step.id} · {step.contract} · {step.selection.provider}
           </Text>
+          {button(
+            t('Dupliquer l’étape : {step}', { step: step.id }),
+            () =>
+              setDraft((current) => {
+                let suffix = 2;
+                let id = `step-${suffix}`;
+                while (current.steps.some((candidate) => candidate.id === id)) id = `step-${++suffix}`;
+                const source = current.steps[index];
+                const copy = {
+                  ...source,
+                  id,
+                  selection: { ...source.selection },
+                  transitions: source.transitions.map((edge) => ({ ...edge })),
+                  ...(source.tests ? { tests: source.tests.map((test) => ({ ...test })) } : {}),
+                };
+                return { ...current, steps: [...current.steps, copy] };
+              }),
+            busy || draft.steps.length >= 100,
+          )}
+          {button(
+            t('Supprimer l’étape : {step}', { step: step.id }),
+            () => setDraft((current) => ({ ...current, steps: current.steps.filter((s) => s.id !== step.id) })),
+            busy || draft.entry === step.id || draft.steps.some((s) => s.transitions.some((e) => e.target === step.id)),
+          )}
           {input(
             t('Consignes : {step}', { step: step.id }),
             step.instruction,

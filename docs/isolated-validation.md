@@ -683,3 +683,26 @@ validation. `npm run check` : 353/353, typage/lint/format réussis, log
 `/tmp/teams-roadmap-311440-check.log`. Test de composant simulé distinct des essais
 réels : pas de relecture automatique, définition disparue conservant le brouillon,
 double clic, puis utilisation de la révision relue lors de la sauvegarde.
+
+### 1er novembre 2026 — duplication et suppression des étapes sauvegardées
+
+Daemon officiel 0.14.0 isolé sur 6914, home/états/dépôt sous
+`/tmp/teams-014-compat`, relais et voix désactivés, variables du plugin explicitement
+isolées. Chromium 1440 × 1050 puis 390 × 844 : duplication de Revue,
+sauvegarde bloquée tant que la copie reste inaccessible, branche de succès reliée
+explicitement, suppression d’une seconde copie sans références, consignes modifiées
+et sauvegarde versionnée. Suppression bloquée pour l’entrée et les étapes référencées.
+RPC officiels : historique précédent exact, copie conservant contrat/modèle/droits,
+et graphes admis inchangés. Relecture profondément identique après reload du seul
+plugin isolé ; daemon isolé arrêté normalement.
+
+Preuves locales : `step-editor-browser.mjs`, `step-editor-proof.json`,
+`step-editor-verify.mjs --compare` et captures `step-editor-{desktop,mobile}.png`
+dans ce répertoire. Capture mobile inspectée : bas du formulaire et prévisualisation
+lisibles, sans débordement horizontal ; les boutons de duplication/suppression sont
+exercés par le script. Zéro exception JS. Navigation ouverte en desktop avant
+redimensionnement ; aucun démarrage mobile autonome, appareil physique ou parcours
+réel anglais revendiqué. Aucun tour de modèle, test shell de workflow, admission ou
+activation supplémentaire. Le test de composant utilise un transport simulé ;
+il couvre aussi les copies indépendantes de tests, les identifiants uniques,
+la suppression après retrait d’une référence et les libellés anglais.

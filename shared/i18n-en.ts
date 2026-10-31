@@ -1,5 +1,9 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Dupliquer l’étape : {step}': 'Duplicate step: {step}',
+  'Supprimer l’étape : {step}': 'Remove step: {step}',
+  'Une copie conserve le contrat, le modèle, les droits et les tests. Reliez-la au parcours avant de sauvegarder. Pour supprimer une étape, retirez ses références et changez le départ si nécessaire.':
+    'A copy keeps the contract, model, permissions and tests. Connect it to the path before saving. To remove a step, remove its references and change the entry if necessary.',
   'Étape de départ': 'Entry step',
   'Destination : {step} / {outcome}': 'Target: {step} / {outcome}',
   'Abandonner le brouillon et recharger la dernière révision': 'Discard draft and reload the latest revision',
