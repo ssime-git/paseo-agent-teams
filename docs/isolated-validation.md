@@ -630,3 +630,32 @@ double clic, FR/EN, annulation, sélection de la nouvelle révision et impossibi
 de confirmer l'ancien aperçu. Le test a détecté une propriété optionnelle
 `tests: undefined` ajoutée à une étape intacte ; corrigé avant validation finale.
 L'édition de la structure, des modèles et des exceptions sans tests reste à faire.
+
+### 31 octobre 2026 — ajout et suppression de tests dans l’éditeur
+
+Incrément `5c038b9`. `npm run check` réussi : **352/352 tests**, typage,
+lint et format ; journal `/tmp/teams-roadmap-310940-check.log`. Deux tests
+ciblés de l’éditeur réussissent également. Le nouveau test de composant
+(transport simulé) vérifie suppression du dernier test sans tableau vide,
+commande vide bloquante, limite de dix tests, conservation des commandes et
+absence de mutation de la définition source.
+
+Intégration RPC réelle : daemon officiel **0.14.0**, port **6914**, home,
+dépôt et états isolés `/tmp/teams-014-compat`, variables de données et URL
+explicitement isolées. Suppression des tests sur une révision sauvegardée,
+refus d’une commande vide, ajout de deux commandes explicites, historique
+exact et graphe déjà admis inchangé. Après reload du seul plugin isolé,
+relecture profondément identique des définitions et graphes. Script et preuve :
+`test-editor-rpc.mjs`, `test-editor-rpc-proof.json` dans ce répertoire.
+Aucune admission, activation, exécution shell de ces commandes ou conversation
+avec un modèle déclenchée par cet essai.
+
+**Limite réelle du navigateur :** le harnais Chromium n’a pas atteint le
+formulaire. Après ouverture du workspace, le contenu des sessions reste en
+chargement ; les tentatives bornées de sélection de texte puis du bouton
+accessible n’ont pas fait apparaître le lanceur. Capture et texte de diagnostic
+`test-editor-debug.{png,txt}`, script `test-editor-browser.mjs`. Aucune preuve
+de succès desktop/mobile de cet incrément, aucun appareil physique ni essai
+anglais réel revendiqué. La cause du chargement hôte n’est pas établie.
+Le rechargement du plugin principal est différé jusqu’au contrôle visuel réussi.
+Le daemon isolé est arrêté en fin de passage ; daemon principal inchangé.
