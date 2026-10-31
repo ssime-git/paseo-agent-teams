@@ -1,5 +1,7 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Étape de départ': 'Entry step',
+  'Destination : {step} / {outcome}': 'Target: {step} / {outcome}',
   'Abandonner le brouillon et recharger la dernière révision': 'Discard draft and reload the latest revision',
   'Définition introuvable ; le brouillon est conservé.': 'Definition not found; the draft is retained.',
   'Ajouter un test : {step}': 'Add a test: {step}',

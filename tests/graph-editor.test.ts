@@ -197,3 +197,63 @@ test('explicit reload keeps failed drafts and rebases only after reading the lat
   assert.deepEqual(calls.at(-1)!.input.definition, latest.definition);
   assert.equal(record.revision, 1);
 });
+
+test('routing edits validate reachability and terminal paths while preserving outcomes and saved snapshots', async (t) => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  const { GraphEditor } = await loadResponseUi(t, 'client/graph-editor.tsx', '__routingEditor');
+  const definition = codeReviewPreset({
+    code: { provider: 'codex/model', modeId: 'auto' },
+    review: { provider: 'claude/model', modeId: 'plan' },
+  });
+  const original = structuredClone(definition);
+  let saved: typeof definition | undefined;
+  (globalThis as Record<string, unknown>).__routingEditor = {
+    rpc: () => async (input: { definition: typeof definition }) => {
+      saved = input.definition;
+      return input;
+    },
+  };
+  t.after(() => {
+    delete (globalThis as Record<string, unknown>).__routingEditor;
+  });
+  let tree!: ReturnType<typeof create>;
+  await act(async () => {
+    tree = create(
+      React.createElement(GraphEditor, {
+        record: { id: 'saved', workspaceId: 'owner', revision: 1, definition },
+        colors: {},
+        onSaved: () => {},
+        onCancel: () => {},
+      }),
+    );
+  });
+  t.after(() => act(() => tree.unmount()));
+  const select = (label: string) =>
+    tree.root.findAllByType('SettingsSelect' as never).find((n) => n.props.label === label)!;
+  const save = () =>
+    tree.root
+      .findAllByType('Pressable' as never)
+      .find((n) => n.props.accessibilityLabel === 'Sauvegarder une nouvelle révision')!;
+  const choose = async (label: string, value: string) => act(async () => select(label).props.onValueChange(value));
+  assert.deepEqual(
+    select('Destination : code / success').props.options.map((o: { value: string }) => o.value),
+    ['end', 'step:code', 'step:review'],
+  );
+  await choose('Destination : code / success', 'end');
+  assert.equal(save().props.disabled, true); // review is unreachable.
+  await choose('Destination : code / success', 'step:review');
+  await choose('Destination : code / failure', 'step:review');
+  await choose('Destination : review / success', 'step:code');
+  assert.equal(save().props.disabled, true); // no terminal path.
+  await choose('Destination : review / success', 'end');
+  await choose('Étape de départ', 'review');
+  assert.equal(save().props.disabled, false);
+  await act(async () => save().props.onPress());
+  assert.equal(saved!.entry, 'review');
+  assert.deepEqual(saved!.steps[0].transitions, [
+    { outcome: 'success', target: 'review' },
+    { outcome: 'failure', target: 'review' },
+  ]);
+  assert.deepEqual(definition, original);
+  assert.equal(saved!.maxTransitions, original.maxTransitions);
+});

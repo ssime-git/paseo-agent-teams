@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useRpc } from '@getpaseo/plugin/client';
-import { TextInput } from '@getpaseo/plugin/client/ui';
+import { SettingsSelect, TextInput } from '@getpaseo/plugin/client/ui';
 import { listDefinitionsRpc, saveDefinitionRpc, type DefinitionRecord } from '../shared/definition-catalog';
 import { workflowDefinitionSchema, type WorkflowDefinition } from '../shared/workflow-definition';
 import { GraphDefinition } from './graph-definition';
@@ -58,7 +58,13 @@ export function GraphEditor({
       const next = {
         ...current,
         steps: current.steps.map((step, i) =>
-          i === index ? { ...step, ...(step.tests ? { tests: step.tests.map((test) => ({ ...test })) } : {}) } : step,
+          i === index
+            ? {
+                ...step,
+                transitions: step.transitions.map((edge) => ({ ...edge })),
+                ...(step.tests ? { tests: step.tests.map((test) => ({ ...test })) } : {}),
+              }
+            : step,
         ),
       };
       update(next.steps[index]);
@@ -75,6 +81,13 @@ export function GraphEditor({
       </Text>
       {input(t('Nom du workflow'), draft.name, (name) => setDraft((current) => ({ ...current, name })), 200)}
       {input(t('Budget global d’activations'), budget, setBudget, 4)}
+      <SettingsSelect
+        label={t('Étape de départ')}
+        value={draft.entry}
+        options={draft.steps.map((step) => ({ value: step.id, label: step.id }))}
+        disabled={busy}
+        onValueChange={(entry) => setDraft((current) => ({ ...current, entry }))}
+      />
       {draft.steps.map((step, index) => (
         <View key={step.id} style={{ gap: 12 }}>
           <Text style={{ color: c.foreground }}>
@@ -89,6 +102,23 @@ export function GraphEditor({
               }),
             16000,
           )}
+          {step.transitions.map((edge, edgeIndex) => (
+            <SettingsSelect
+              key={edge.outcome}
+              label={t('Destination : {step} / {outcome}', { step: step.id, outcome: edge.outcome })}
+              value={edge.target === null ? 'end' : `step:${edge.target}`}
+              options={[
+                { value: 'end', label: t('Fin du parcours') },
+                ...draft.steps.map((target) => ({ value: `step:${target.id}`, label: target.id })),
+              ]}
+              disabled={busy}
+              onValueChange={(value) =>
+                updateStep(index, (s) => {
+                  s.transitions[edgeIndex].target = value === 'end' ? null : value.slice(5);
+                })
+              }
+            />
+          ))}
           {step.tests?.map((test, testIndex) => (
             <View key={testIndex} style={{ gap: 8 }}>
               {input(
