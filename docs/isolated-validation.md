@@ -591,3 +591,42 @@ vérifie séparément FR/EN, modèles détectés, exclusion des permissions de r
 non prises en charge, absence de sauvegarde avant saisie complète, budget sans
 correction, conservation des identifiants/commande, double clic et absence
 d'admission. Il ne constitue pas un essai réel de modèle.
+
+## 31 octobre 2026 — édition inline des définitions sauvegardées
+
+Daemon officiel 0.14.0 isolé sur `127.0.0.1:6914`, home/dépôt/état jetables
+`/tmp/teams-014-compat`, `PASEO_AGENT_TEAMS_DATA_DIR` et URL daemon explicitement
+isolés. Relais et voix désactivés ; aucun tour de modèle ou test shell lancé.
+
+- Chromium desktop 1440 × 1050 puis mobile 390 × 844 : sélection de chaque preset
+  sauvegardé, prévisualisation, ouverture de l'éditeur, retrait de l'ancienne
+  confirmation et prévisualisation désactivée pendant l'édition. Budget zéro
+  refusé ; nom, budget 8, consignes Code, commande littérale et délai 1000 ms
+  modifiés, sauvegardés en révision 2, puis nouvelle prévisualisation explicite.
+- Zéro débordement horizontal ou exception JS. Capture mobile inspectée. Le
+  parcours mobile ouvre l'espace en desktop puis redimensionne ; aucun démarrage
+  mobile autonome, appareil physique ou essai réel en anglais revendiqué.
+- RPC officiels : historique exactement `[révision 1, révision 2]`, refus d'une
+  écriture concurrente à révision 1 sans mutation, étape Revue et branches
+  inchangées. Définitions, historique et graphe déjà admis profondément identiques
+  après reload du seul plugin isolé ; aucune admission ou activation supplémentaire.
+- Premier démarrage isolé effectué sans les variables du plugin : arrêté avant
+  tout RPC de test, puis relancé avec répertoire/URL isolés. Les sept états
+  principaux sont byte-identiques aux empreintes du passage précédent ; aucune
+  mutation ni session de modèle déclenchée par ce démarrage.
+
+Preuves locales : `editor-browser.mjs`, `editor-verify.mjs`,
+`preset-editor-before.json`, `editor-ui-proof.json`, `editor-persistence-proof.json`,
+`editor-ui-{desktop,mobile}.txt`, `editor-form-{desktop,mobile}.png`,
+`editor-preview-{desktop,mobile}.png` sous `/tmp/teams-014-compat`.
+Le premier contrôle RPC a attendu le mot « revision » au lieu du message réel
+« Workflow definition changed; reload before saving » ; assertion corrigée et
+vérification complète réussie avant/après reload. Daemon isolé arrêté normalement.
+
+Les composants sont vérifiés séparément par transport simulé :
+`tests/graph-editor.test.ts` et `tests/graph-launcher.test.ts` couvrent budget et
+délais invalides, conflit conservant le brouillon, retry sans changement d'identité,
+double clic, FR/EN, annulation, sélection de la nouvelle révision et impossibilité
+de confirmer l'ancien aperçu. Le test a détecté une propriété optionnelle
+`tests: undefined` ajoutée à une étape intacte ; corrigé avant validation finale.
+L'édition de la structure, des modèles et des exceptions sans tests reste à faire.

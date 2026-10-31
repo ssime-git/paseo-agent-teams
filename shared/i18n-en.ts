@@ -1,5 +1,15 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Modifier cette définition': 'Edit this definition',
+  'Budget global d’activations': 'Global activation budget',
+  'Consignes : {step}': 'Instructions: {step}',
+  'Commande : {step} / {index}': 'Command: {step} / {index}',
+  'Délai en ms : {step} / {index}': 'Timeout in ms: {step} / {index}',
+  'Définition invalide : vérifiez les champs et les limites.': 'Invalid definition: check fields and limits.',
+  'Sauvegarder une nouvelle révision': 'Save a new revision',
+  'Annuler les modifications': 'Cancel edits',
+  'La sauvegarde crée une nouvelle révision. Les workflows déjà admis conservent leur définition.':
+    'Saving creates a new revision. Already admitted workflows retain their definition.',
   'Créer Code ↔ Review': 'Create Code ↔ Review',
   'Nom du workflow': 'Workflow name',
   'La revue utilise uniquement les permissions natives de lecture seule vérifiées.':

@@ -9,6 +9,7 @@ import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { useT } from './i18n';
 import { GraphDefinition } from './graph-definition';
 import { GraphPreset } from './graph-preset';
+import { GraphEditor } from './graph-editor';
 
 type Preview = z.infer<typeof graphPreviewRpc.output>;
 // An idempotency identity, not a security token; works on native hosts without Web Crypto.
@@ -41,6 +42,7 @@ export function GraphLauncher({
   const [task, setTask] = useState(''),
     [error, setError] = useState('');
   const [pending, setPending] = useState<{ value: Preview; id: string }>();
+  const [editing, setEditing] = useState<DefinitionRecord>();
   const flight = useRef(false);
   const run = async (job: () => Promise<void>) => {
     if (flight.current) return;
@@ -70,24 +72,29 @@ export function GraphLauncher({
   );
   return (
     <View style={{ gap: 12 }}>
-      <GraphPreset
-        workspaceId={workspaceId}
-        colors={c}
-        onSaved={(record) => {
-          setRecords((items) => [...items.filter((item) => item.id !== record.id), record]);
-          setSelected(record);
-          setPending(undefined);
-          setOpened(true);
-        }}
-      />
-      {button(t('Lancer un workflow sauvegardé'), () => {
-        void run(async () => {
-          setRecords(await list({ workspaceId }));
-          setOpened(true);
-          setPending(undefined);
-          setSelected(undefined);
-        });
-      })}
+      {!editing ? (
+        <GraphPreset
+          workspaceId={workspaceId}
+          colors={c}
+          onSaved={(record) => {
+            setRecords((items) => [...items.filter((item) => item.id !== record.id), record]);
+            setSelected(record);
+            setPending(undefined);
+            setOpened(true);
+          }}
+        />
+      ) : null}
+      {!editing
+        ? button(t('Lancer un workflow sauvegardé'), () => {
+            void run(async () => {
+              setRecords(await list({ workspaceId }));
+              setOpened(true);
+              setPending(undefined);
+              setSelected(undefined);
+              setEditing(undefined);
+            });
+          })
+        : null}
       {error ? (
         <Text accessibilityRole="alert" style={{ color: c.foreground }}>
           {error}
@@ -98,14 +105,40 @@ export function GraphLauncher({
           {!records.length ? (
             <Text style={{ color: c.foreground }}>{t('Aucun workflow sauvegardé dans cet espace.')}</Text>
           ) : null}
-          {records.map((record) => (
-            <View key={record.id}>
-              {button(`${record.definition.name} · ${t('Révision {revision}', { revision: record.revision })}`, () => {
+          {!editing
+            ? records.map((record) => (
+                <View key={record.id}>
+                  {button(
+                    `${record.definition.name} · ${t('Révision {revision}', { revision: record.revision })}`,
+                    () => {
+                      setSelected(record);
+                      setEditing(undefined);
+                      setPending(undefined);
+                    },
+                  )}
+                </View>
+              ))
+            : null}
+          {selected && !editing
+            ? button(t('Modifier cette définition'), () => {
+                setPending(undefined);
+                setEditing(selected);
+              })
+            : null}
+          {editing ? (
+            <GraphEditor
+              key={`${editing.id}:${editing.revision}`}
+              record={editing}
+              colors={c}
+              onCancel={() => setEditing(undefined)}
+              onSaved={(record) => {
+                setRecords((items) => items.map((item) => (item.id === record.id ? record : item)));
                 setSelected(record);
                 setPending(undefined);
-              })}
-            </View>
-          ))}
+                setEditing(undefined);
+              }}
+            />
+          ) : null}
           <TextInput
             accessibilityLabel={t('Objectif du workflow')}
             placeholder={t('Objectif du workflow')}
@@ -142,7 +175,7 @@ export function GraphLauncher({
                 setPending({ value, id: launchId() });
               });
             },
-            busy || !selected || !task.trim(),
+            busy || !!editing || !selected || !task.trim(),
           )}
           {pending ? (
             <View style={{ gap: 12 }}>
