@@ -432,3 +432,91 @@ test('human step creation requires instructions and explicit routing, retains ma
   assert.ok(button('Add a human step'));
   assert.match(JSON.stringify(tree.toJSON()), /waits for an explicit decision/);
 });
+
+test('native selection editing uses detected models and verified read-only modes without replacing saved choices', async (t) => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  const { GraphEditor } = await loadResponseUi(t, 'client/graph-editor.tsx', '__nativeEditor');
+  const definition = codeReviewPreset({
+    code: { provider: 'legacy/model', modeId: 'old' },
+    review: { provider: 'legacy/review', modeId: 'old' },
+  });
+  const original = structuredClone(definition);
+  const providers = [
+    {
+      id: 'codex',
+      family: 'codex',
+      models: [{ id: 'detected/model' }],
+      modes: [{ id: 'read-only' }, { id: 'default' }],
+    },
+    { id: 'claude', family: 'claude', models: [{ id: 'detected' }], modes: [{ id: 'plan' }, { id: 'default' }] },
+    { id: 'unknown', family: 'unknown', models: [{ id: 'model' }], modes: [{ id: 'read-only' }] },
+    { id: 'agent-teams', family: 'codex', models: [{ id: 'auto' }], modes: [{ id: 'read-only' }] },
+  ];
+  let saved: typeof definition | undefined;
+  let fail = true;
+  (globalThis as Record<string, unknown>).__nativeEditor = {
+    rpc: (name: string) => async (input: { workspaceId: string; definition: typeof definition }) => {
+      assert.equal(input.workspaceId, 'owner');
+      if (name === 'teams.catalog') {
+        if (fail) throw new Error('Catalogue unavailable');
+        return { providers };
+      }
+      saved = input.definition;
+      return input;
+    },
+  };
+  t.after(() => {
+    delete (globalThis as Record<string, unknown>).__nativeEditor;
+  });
+  let tree!: ReturnType<typeof create>;
+  const props = {
+    record: { id: 'saved', workspaceId: 'owner', revision: 1, definition },
+    colors: {},
+    onSaved: () => {},
+    onCancel: () => {},
+  };
+  await act(async () => {
+    tree = create(React.createElement(GraphEditor, props));
+  });
+  t.after(() => act(() => tree.unmount()));
+  const button = (label: string) =>
+    tree.root.findAllByType('Pressable' as never).find((n) => n.props.accessibilityLabel === label)!;
+  const select = (label: string) =>
+    tree.root.findAllByType('SettingsSelect' as never).find((n) => n.props.label === label)!;
+  const click = async (label: string) => act(async () => button(label).props.onPress());
+  const choose = async (label: string, value: string) => act(async () => select(label).props.onValueChange(value));
+  await click('Rechercher les modèles et permissions disponibles');
+  assert.match(JSON.stringify(tree.toJSON()), /Catalogue unavailable/);
+  await click('Sauvegarder une nouvelle révision');
+  assert.deepEqual(saved, original);
+  fail = false;
+  await click('Rechercher les modèles et permissions disponibles');
+  const review = () => select('Modèle : review');
+  assert.equal(review().props.value, original.steps[1].selection.provider);
+  assert.deepEqual(
+    review().props.options.map((o: { value: string }) => o.value),
+    ['legacy/review', 'codex/detected/model', 'claude/detected'],
+  );
+  await choose('Modèle : review', 'unknown/model');
+  assert.equal(review().props.value, original.steps[1].selection.provider);
+  const next = { provider: 'claude/detected', modeId: 'plan' };
+  await choose('Modèle : review', next.provider);
+  assert.equal(select('Permissions natives : review').props.value, 'old');
+  await choose('Permissions natives : review', 'default');
+  assert.equal(select('Permissions natives : review').props.value, 'old');
+  await choose('Permissions natives : review', next.modeId);
+  await choose('Modèle : code', 'codex/detected/model');
+  await choose('Permissions natives : code', 'default');
+  await choose('Accès au dépôt : code', 'read-only');
+  assert.equal(select('Permissions natives : code').props.value, 'default');
+  await choose('Permissions natives : code', 'read-only');
+  await click('Sauvegarder une nouvelle révision');
+  assert.deepEqual(saved!.steps[1], { ...original.steps[1], selection: next });
+  assert.deepEqual(definition, original);
+  await click('Ajouter une étape humaine');
+  assert.equal(select('Modèle : step-2'), undefined);
+  (globalThis as unknown as Record<string, { language?: string }>).__nativeEditor.language = 'en';
+  await act(async () => tree.update(React.createElement(GraphEditor, props)));
+  assert.ok(button('Find available models and permissions'));
+  assert.ok(select('Model: review'));
+});

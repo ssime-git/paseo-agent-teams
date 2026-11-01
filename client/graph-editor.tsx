@@ -4,6 +4,8 @@ import { useRpc } from '@getpaseo/plugin/client';
 import { SettingsSelect, TextInput } from '@getpaseo/plugin/client/ui';
 import { listDefinitionsRpc, saveDefinitionRpc, type DefinitionRecord } from '../shared/definition-catalog';
 import { workflowDefinitionSchema, type WorkflowDefinition } from '../shared/workflow-definition';
+import { catalogRpc } from '../shared/contracts';
+import type { TeamProviderChoice } from '../shared/team-composition';
 import { GraphDefinition } from './graph-definition';
 import { useT } from './i18n';
 
@@ -21,7 +23,9 @@ export function GraphEditor({
 }) {
   const t = useT(),
     save = useRpc(saveDefinitionRpc),
-    list = useRpc(listDefinitionsRpc);
+    list = useRpc(listDefinitionsRpc),
+    catalog = useRpc(catalogRpc);
+  const [providers, setProviders] = useState<TeamProviderChoice[]>();
   const [base, setBase] = useState(record);
   const [draft, setDraft] = useState<WorkflowDefinition>(() => workflowDefinitionSchema.parse(record.definition));
   const [budget, setBudget] = useState(String(record.definition.maxTransitions));
@@ -125,6 +129,24 @@ export function GraphEditor({
           'Une étape humaine attend une décision explicite, sans agent ni test. Renseignez ses consignes et reliez ses issues approve et reject. Le budget global reste inchangé.',
         )}
       </Text>
+      {button(t('Rechercher les modèles et permissions disponibles'), () => {
+        if (flight.current) return;
+        flight.current = true;
+        setBusy(true);
+        setError('');
+        void catalog({ workspaceId: base.workspaceId })
+          .then((value) => setProviders(value.providers))
+          .catch((e) => setError(String(e)))
+          .finally(() => {
+            flight.current = false;
+            setBusy(false);
+          });
+      })}
+      <Text style={{ color: c.foreground }}>
+        {t(
+          'Les sélections enregistrées sont conservées. Choisissez explicitement un modèle et ses permissions natives ; la lecture seule exige un mode natif vérifié. La disponibilité sera revérifiée avant lancement.',
+        )}
+      </Text>
       {draft.steps.map((step, index) => (
         <View key={step.id} style={{ gap: 12 }}>
           <Text style={{ color: c.foreground }}>
@@ -185,6 +207,62 @@ export function GraphEditor({
               });
             }}
           />
+          {step.contract !== 'human' && providers
+            ? (() => {
+                const eligible = providers.filter((provider) => provider.id !== 'agent-teams');
+                const modesFor = (provider: TeamProviderChoice) =>
+                  provider.modes.filter(
+                    (mode) =>
+                      step.access !== 'read-only' ||
+                      (provider.family === 'codex' && mode.id === 'read-only') ||
+                      (provider.family === 'claude' && mode.id === 'plan'),
+                  );
+                const models = eligible.flatMap((provider) =>
+                  modesFor(provider).length
+                    ? provider.models.map((model) => ({
+                        value: `${provider.id}/${model.id}`,
+                        label: `${provider.label ?? provider.id} · ${model.label ?? model.id}`,
+                      }))
+                    : [],
+                );
+                const selected = eligible.find((provider) => step.selection.provider.startsWith(`${provider.id}/`));
+                const modes = selected
+                  ? modesFor(selected).map((mode) => ({ value: mode.id, label: mode.label ?? mode.id }))
+                  : [];
+                const retain = (options: { value: string; label: string }[], value: string) =>
+                  options.some((option) => option.value === value)
+                    ? options
+                    : [{ value, label: t('Sélection conservée : {value}', { value }) }, ...options];
+                return (
+                  <>
+                    <SettingsSelect
+                      label={t('Modèle : {step}', { step: step.id })}
+                      value={step.selection.provider}
+                      options={retain(models, step.selection.provider)}
+                      disabled={busy}
+                      onValueChange={(value) => {
+                        if (!models.some((option) => option.value === value)) return;
+                        updateStep(index, (s) => {
+                          s.selection = { ...s.selection, provider: value };
+                        });
+                      }}
+                    />
+                    <SettingsSelect
+                      label={t('Permissions natives : {step}', { step: step.id })}
+                      value={step.selection.modeId}
+                      options={retain(modes, step.selection.modeId)}
+                      disabled={busy}
+                      onValueChange={(value) => {
+                        if (!modes.some((option) => option.value === value)) return;
+                        updateStep(index, (s) => {
+                          s.selection = { ...s.selection, modeId: value };
+                        });
+                      }}
+                    />
+                  </>
+                );
+              })()
+            : null}
           {input(
             t('Consignes : {step}', { step: step.id }),
             step.instruction,
