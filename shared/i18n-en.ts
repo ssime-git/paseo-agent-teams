@@ -1,5 +1,9 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Ajouter une étape humaine': 'Add a human step',
+  'Une étape humaine attend une décision explicite, sans agent ni test. Renseignez ses consignes et reliez ses issues approve et reject. Le budget global reste inchangé.':
+    'A human step waits for an explicit decision, with no agent or test. Enter its instructions and connect its approve and reject outcomes. The global budget remains unchanged.',
+
   'Contrat : {step}': 'Contract: {step}',
   'Accès au dépôt : {step}': 'Repository access: {step}',
   Écriture: 'Write',

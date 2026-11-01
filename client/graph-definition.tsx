@@ -38,9 +38,11 @@ export function GraphDefinition({
           <Text style={{ color: c.foreground }}>
             {step.access === 'read-only' ? t('Lecture seule') : t('Écriture autorisée')}
           </Text>
-          <Text selectable style={{ color: c.foreground }}>
-            {step.selection.provider} · {step.selection.modeId}
-          </Text>
+          {step.contract !== 'human' ? (
+            <Text selectable style={{ color: c.foreground }}>
+              {step.selection.provider} · {step.selection.modeId}
+            </Text>
+          ) : null}
           <Text selectable style={{ color: c.foreground }}>
             {step.instruction}
           </Text>

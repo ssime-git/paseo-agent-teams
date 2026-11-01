@@ -93,10 +93,42 @@ export function GraphEditor({
           'Une copie conserve le contrat, le modèle, les droits et les tests. Reliez-la au parcours avant de sauvegarder. Pour supprimer une étape, retirez ses références et changez le départ si nécessaire.',
         )}
       </Text>
+      {button(
+        t('Ajouter une étape humaine'),
+        () =>
+          setDraft((current) => {
+            let suffix = 2;
+            let id = `step-${suffix}`;
+            while (current.steps.some((candidate) => candidate.id === id)) id = `step-${++suffix}`;
+            return {
+              ...current,
+              steps: [
+                ...current.steps,
+                {
+                  id,
+                  contract: 'human',
+                  instruction: '',
+                  selection: { provider: 'human', modeId: 'manual' },
+                  access: 'read-only',
+                  transitions: [
+                    { outcome: 'approve', target: null },
+                    { outcome: 'reject', target: null },
+                  ],
+                },
+              ],
+            };
+          }),
+        busy || draft.steps.length >= 100,
+      )}
+      <Text style={{ color: c.foreground }}>
+        {t(
+          'Une étape humaine attend une décision explicite, sans agent ni test. Renseignez ses consignes et reliez ses issues approve et reject. Le budget global reste inchangé.',
+        )}
+      </Text>
       {draft.steps.map((step, index) => (
         <View key={step.id} style={{ gap: 12 }}>
           <Text style={{ color: c.foreground }}>
-            {step.id} · {step.contract} · {step.selection.provider}
+            {step.id} · {step.contract} · {step.contract === 'human' ? t('Décision humaine') : step.selection.provider}
           </Text>
           {button(
             t('Dupliquer l’étape : {step}', { step: step.id }),

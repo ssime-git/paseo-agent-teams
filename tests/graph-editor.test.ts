@@ -355,3 +355,80 @@ test('step copies require explicit routing and removal preserves references, con
   assert.ok(button('Duplicate step: review'));
   assert.equal(button('Remove step: code').props.disabled, true);
 });
+
+test('human step creation requires instructions and explicit routing, retains manual contracts and saved snapshots', async (t) => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  const { GraphEditor } = await loadResponseUi(t, 'client/graph-editor.tsx', '__humanEditor');
+  const definition = codeReviewPreset({
+    code: { provider: 'codex/model', modeId: 'auto' },
+    review: { provider: 'claude/model', modeId: 'plan' },
+  });
+  const original = structuredClone(definition);
+  let saved: typeof definition | undefined;
+  (globalThis as Record<string, unknown>).__humanEditor = {
+    rpc: () => async (input: { definition: typeof definition }) => {
+      saved = input.definition;
+      return input;
+    },
+  };
+  t.after(() => {
+    delete (globalThis as Record<string, unknown>).__humanEditor;
+  });
+  let tree!: ReturnType<typeof create>;
+  const props = {
+    record: { id: 'saved', workspaceId: 'owner', revision: 1, definition },
+    colors: {},
+    onSaved: () => {},
+    onCancel: () => {},
+  };
+  await act(async () => {
+    tree = create(React.createElement(GraphEditor, props));
+  });
+  t.after(() => act(() => tree.unmount()));
+  const button = (label: string) =>
+    tree.root.findAllByType('Pressable' as never).find((n) => n.props.accessibilityLabel === label)!;
+  const select = (label: string) =>
+    tree.root.findAllByType('SettingsSelect' as never).find((n) => n.props.label === label)!;
+  const click = async (label: string) => act(async () => button(label).props.onPress());
+  const choose = async (label: string, value: string) => act(async () => select(label).props.onValueChange(value));
+  await click('Ajouter une étape humaine');
+  assert.equal(button('Sauvegarder une nouvelle révision').props.disabled, true);
+  assert.equal(button('Ajouter un test : step-2'), undefined);
+  assert.equal(select('Contrat : step-2'), undefined);
+  assert.equal(select('Accès au dépôt : step-2').props.disabled, true);
+  await choose('Accès au dépôt : step-2', 'write');
+  assert.equal(select('Accès au dépôt : step-2').props.value, 'read-only');
+  await choose('Destination : review / success', 'step:step-2');
+  assert.equal(button('Sauvegarder une nouvelle révision').props.disabled, true); // Empty instructions.
+  await act(async () =>
+    tree.root
+      .findAllByType('TextInput' as never)
+      .find((n) => n.props.accessibilityLabel === 'Consignes : step-2')!
+      .props.onChangeText('Vérifier les preuves avant approbation.'),
+  );
+  await choose('Destination : step-2 / reject', 'step:code');
+  assert.equal(button('Sauvegarder une nouvelle révision').props.disabled, false);
+  assert.equal(button('Supprimer l’étape : step-2').props.disabled, true);
+  await click('Ajouter une étape humaine');
+  assert.ok(button('Supprimer l’étape : step-3'));
+  await click('Supprimer l’étape : step-3');
+  await click('Sauvegarder une nouvelle révision');
+  assert.deepEqual(saved!.steps[2], {
+    id: 'step-2',
+    contract: 'human',
+    instruction: 'Vérifier les preuves avant approbation.',
+    selection: { provider: 'human', modeId: 'manual' },
+    access: 'read-only',
+    transitions: [
+      { outcome: 'approve', target: null },
+      { outcome: 'reject', target: 'code' },
+    ],
+  });
+  assert.deepEqual(saved!.steps[0], original.steps[0]);
+  assert.equal(saved!.maxTransitions, original.maxTransitions);
+  assert.deepEqual(definition, original);
+  (globalThis as unknown as Record<string, { language?: string }>).__humanEditor.language = 'en';
+  await act(async () => tree.update(React.createElement(GraphEditor, props)));
+  assert.ok(button('Add a human step'));
+  assert.match(JSON.stringify(tree.toJSON()), /waits for an explicit decision/);
+});
