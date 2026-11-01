@@ -706,3 +706,48 @@ réel anglais revendiqué. Aucun tour de modèle, test shell de workflow, admiss
 activation supplémentaire. Le test de composant utilise un transport simulé ;
 il couvre aussi les copies indépendantes de tests, les identifiants uniques,
 la suppression après retrait d’une référence et les libellés anglais.
+
+### 1er novembre 2026, 15:40 — modèles et permissions dans l’éditeur
+
+Incrément `0ee8073`. Catalogue officiel `teams.catalog`, deux sélecteurs par
+étape automatique : modèle et permissions natives. Recherche explicite,
+conservation des choix historiques et des permissions lors d’un changement de
+modèle, sans défaut automatique. Lecture seule : seuls Codex `read-only` et
+Claude `plan` sont proposés, conformément à la validation serveur existante.
+Les humains n’ont aucun sélecteur exécutable. L’admission revérifie toujours
+la disponibilité et les permissions ; sauvegarder ne lance aucun agent.
+
+Daemon officiel **0.14.0** isolé sur 6914, home/données/dépôt sous
+`/tmp/teams-014-compat`, variables DATA_DIR/DAEMON_URL explicitement isolées,
+voix et relais désactivés. Chromium desktop 1440 × 1050 puis 390 × 844 :
+recherche, changement des deux modèles, choix des permissions, passage du Code
+à lecture seule puis sélection explicite du mode correspondant, sauvegarde et
+relecture de l’historique via RPC officiels. Les étapes, transitions et budget
+hors sélection restent identiques ; ancienne révision exacte. Définitions et
+graphes déjà admis profondément identiques après reload du seul plugin isolé.
+Aucun débordement horizontal ni exception JS ; capture mobile inspectée.
+Scripts `native-editor-{browser,verify}.mjs`, preuve `native-editor-proof.json`,
+captures `native-editor-{desktop,mobile}.png` dans cette racine ; logs
+`/tmp/roadmap-011540-browser-split.log`. Le texte de succès du script navigateur
+hérite du harnais précédent (« human editor ») ; les assertions du script et
+la preuve portent bien sur les modèles/permissions.
+
+Trois tentatives bornées du sélecteur combiné initial ont rencontré un choix
+hors viewport (30 s puis 10 s, avec et sans défilement). La version finale
+sépare modèles et permissions ; parcours réussi avec clics Playwright normaux
+après défilement, sans clic forcé sur les choix. Le lien d’ouverture de la
+conversation reprend le clic forcé du harnais existant. Aucun modèle n’a été
+lancé, aucune admission/activation ou commande shell de workflow exécutée.
+Le daemon isolé a été arrêté normalement (`forced: false`).
+
+Tests de composants : transport simulé, panne du catalogue avec brouillon
+conservé, modèles avec slash, absence de remplacement implicite, refus d’un
+choix non détecté, permissions natives filtrées, humains exclus, FR/EN.
+`npm run check` final : **357/357** tests, typage/lint/format verts ; dix tests
+éditeur/i18n ciblés verts. Logs `/tmp/roadmap-011540-{check-final,targeted-final}.log`.
+Aucun parcours navigateur anglais ni démarrage mobile autonome/appareil physique
+revendiqué ; la fenêtre mobile est ouverte en desktop avant redimensionnement.
+
+Principal : inactivité revérifiée, plugin seul rechargé avec statut `running` ;
+sept états persistés byte-identiques, PID superviseur **1923177** et worker
+**1891564** inchangés. Preuve `/tmp/roadmap-011540-reload-proof.json`.
