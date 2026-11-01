@@ -122,6 +122,37 @@ export function GraphEditor({
             () => setDraft((current) => ({ ...current, steps: current.steps.filter((s) => s.id !== step.id) })),
             busy || draft.entry === step.id || draft.steps.some((s) => s.transitions.some((e) => e.target === step.id)),
           )}
+          {step.contract !== 'human' ? (
+            <SettingsSelect
+              label={t('Contrat : {step}', { step: step.id })}
+              value={step.contract}
+              options={['plan', 'build', 'review'].map((value) => ({ value, label: value }))}
+              disabled={busy}
+              onValueChange={(value) => {
+                if (value !== 'plan' && value !== 'build' && value !== 'review') return;
+                updateStep(index, (s) => {
+                  s.contract = value;
+                  if (value !== 'build') s.access = 'read-only';
+                });
+              }}
+            />
+          ) : null}
+          <SettingsSelect
+            label={t('Accès au dépôt : {step}', { step: step.id })}
+            value={step.access}
+            options={[
+              { value: 'read-only', label: t('Lecture seule') },
+              ...(step.contract === 'build' ? [{ value: 'write', label: t('Écriture') }] : []),
+            ]}
+            disabled={busy || step.contract !== 'build'}
+            onValueChange={(value) => {
+              if (value !== 'read-only' && value !== 'write') return;
+              if (step.contract !== 'build') return;
+              updateStep(index, (s) => {
+                s.access = value;
+              });
+            }}
+          />
           {input(
             t('Consignes : {step}', { step: step.id }),
             step.instruction,

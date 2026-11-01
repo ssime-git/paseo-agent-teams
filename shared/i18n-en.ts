@@ -1,5 +1,8 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Contrat : {step}': 'Contract: {step}',
+  'Accès au dépôt : {step}': 'Repository access: {step}',
+  Écriture: 'Write',
   'Dupliquer l’étape : {step}': 'Duplicate step: {step}',
   'Supprimer l’étape : {step}': 'Remove step: {step}',
   'Une copie conserve le contrat, le modèle, les droits et les tests. Reliez-la au parcours avant de sauvegarder. Pour supprimer une étape, retirez ses références et changez le départ si nécessaire.':

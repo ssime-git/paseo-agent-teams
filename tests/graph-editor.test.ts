@@ -299,6 +299,18 @@ test('step copies require explicit routing and removal preserves references, con
         .find((n) => n.props.label === label)!
         .props.onValueChange(value),
     );
+  await choose('Contrat : code', 'review');
+  const access = () =>
+    tree.root.findAllByType('SettingsSelect' as never).find((n) => n.props.label === 'Accès au dépôt : code')!;
+  assert.equal(access().props.value, 'read-only');
+  assert.equal(access().props.disabled, true);
+  await act(async () => access().props.onValueChange('write'));
+  assert.equal(access().props.value, 'read-only');
+  await choose('Contrat : code', 'build');
+  assert.equal(access().props.value, 'read-only');
+  assert.equal(access().props.disabled, false);
+  await choose('Accès au dépôt : code', 'write');
+  assert.equal(access().props.value, 'write');
   assert.equal(button('Supprimer l’étape : code').props.disabled, true);
   assert.equal(button('Supprimer l’étape : review').props.disabled, true);
   await click('Dupliquer l’étape : review');
