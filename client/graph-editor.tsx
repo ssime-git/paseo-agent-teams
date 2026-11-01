@@ -83,6 +83,25 @@ export function GraphEditor({
       <Text style={{ color: c.foreground }}>
         {t('La sauvegarde crée une nouvelle révision. Les workflows déjà admis conservent leur définition.')}
       </Text>
+      <Text style={{ color: c.foreground }}>
+        {t(
+          'Export de la révision enregistrée : sélectionnez et copiez le JSON. Le brouillon et les identifiants locaux sont exclus.',
+        )}
+      </Text>
+      <TextInput
+        accessibilityLabel={t('Définition portable enregistrée (JSON)')}
+        value={JSON.stringify(base.definition, null, 2)}
+        editable={false}
+        multiline
+        style={{
+          height: 160,
+          padding: 12,
+          color: c.foreground,
+          borderColor: c.border,
+          borderWidth: 1,
+          borderRadius: 8,
+        }}
+      />
       {input(t('Nom du workflow'), draft.name, (name) => setDraft((current) => ({ ...current, name })), 200)}
       {input(t('Budget global d’activations'), budget, setBudget, 4)}
       <SettingsSelect

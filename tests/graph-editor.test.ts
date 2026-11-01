@@ -46,8 +46,12 @@ test('saved definition editing retains draft on conflicts, validates budgets and
   const field = (label: string) =>
     tree.root.findAllByType('TextInput' as never).find((n) => n.props.accessibilityLabel === label)!;
   const fill = async (label: string, value: string) => act(async () => field(label).props.onChangeText(value));
+  const portable = field('Définition portable enregistrée (JSON)');
+  assert.equal(portable.props.editable, false);
+  assert.deepEqual(JSON.parse(portable.props.value), original.definition);
   assert.equal(calls.length, 0);
   await fill('Nom du workflow', 'Cycle révisé');
+  assert.deepEqual(JSON.parse(field('Définition portable enregistrée (JSON)').props.value), original.definition);
   await fill('Budget global d’activations', '0');
   assert.equal(button('Sauvegarder une nouvelle révision').props.disabled, true);
   await fill('Budget global d’activations', '6');
@@ -80,6 +84,7 @@ test('saved definition editing retains draft on conflicts, validates budgets and
   ((globalThis as Record<string, unknown>).__editorTest as { language: string }).language = 'en';
   await act(async () => tree.update(React.createElement(GraphEditor, props)));
   assert.ok(button('Save a new revision'));
+  assert.deepEqual(JSON.parse(field('Saved portable definition (JSON)').props.value), original.definition);
   assert.equal(field('Workflow name').props.value, 'Cycle révisé');
 });
 

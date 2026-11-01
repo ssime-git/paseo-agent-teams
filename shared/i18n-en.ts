@@ -1,5 +1,9 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Export de la révision enregistrée : sélectionnez et copiez le JSON. Le brouillon et les identifiants locaux sont exclus.':
+    'Saved revision export: select and copy the JSON. Draft changes and local identifiers are excluded.',
+  'Définition portable enregistrée (JSON)': 'Saved portable definition (JSON)',
+
   'Rechercher les modèles et permissions disponibles': 'Find available models and permissions',
   'Les sélections enregistrées sont conservées. Choisissez explicitement un modèle et ses permissions natives ; la lecture seule exige un mode natif vérifié. La disponibilité sera revérifiée avant lancement.':
     'Saved selections are retained. Explicitly choose a model and its native permissions; read-only access requires a verified native mode. Availability will be checked again before launch.',
