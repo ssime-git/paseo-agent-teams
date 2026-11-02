@@ -672,6 +672,58 @@ test('native Planner and Reviewer imports check the refreshed workspace before r
   }
 });
 
+test('native imports read closed persisted sessions without reopening or sending, while rejecting unsafe states', async () => {
+  const w = savedWorkflow();
+  w.workspaceId = 'workspace';
+  w.cwd = '/repo';
+  w.agents.planner = 'planner';
+  w.agents.reviewer = 'reviewer';
+  const entries = [
+    { item: { type: 'user_message', text: 'Native request' }, turnId: 'turn', seqEnd: 1 },
+    { item: { type: 'assistant_message', text: '{}' }, turnId: 'turn', seqEnd: 2 },
+  ];
+  for (const method of ['plannerAnswers', 'reviewerPlan'] as const) {
+    const scope = { workspaceId: w.workspaceId, cwd: w.cwd, status: 'closed' };
+    const h = adapter(scope, entries);
+    assert.deepEqual(await h.runtime[method](w), {
+      text: '{}',
+      prompt: 'Native request',
+      source: { epoch: 'epoch', seq: 2, turnId: 'turn' },
+    });
+    assert.deepEqual(h.counts(), { sends: 0, waits: 0, appends: 0 });
+    for (const state of [
+      { status: 'running' },
+      { status: 'initializing' },
+      { status: 'error' },
+      { activeTurn: { turnId: 'unfinished' } },
+      { pendingPermissions: [{ id: 'pending' }] },
+      { refresh: async () => null },
+    ]) {
+      let reads = 0;
+      const blocked = adapter({
+        ...scope,
+        ...state,
+        timeline: {
+          refetch: async () => {
+            reads++;
+          },
+        },
+      });
+      await assert.rejects(blocked.runtime[method](w), { code: 'ACTIVE_STEP' });
+      assert.equal(reads, 0);
+      assert.deepEqual(blocked.counts(), { sends: 0, waits: 0, appends: 0 });
+    }
+    await assert.rejects(adapter({ ...scope, cwd: '/foreign' }, entries).runtime[method](w), {
+      code: 'WORKSPACE_ACCESS_DENIED',
+    });
+    await assert.rejects(adapter(scope, []).runtime[method](w), { code: 'NATIVE_TURN_REQUIRED' });
+    const restoredWithoutTurnIds = entries.map(({ item, seqEnd }) => ({ item, seqEnd }));
+    await assert.rejects(adapter(scope, restoredWithoutTurnIds).runtime[method](w), {
+      code: 'NATIVE_RESULT_AMBIGUOUS',
+    });
+  }
+});
+
 test('checkpoint inactivity checks every role including active turns with an idle status', async () => {
   const w = savedWorkflow();
   w.agents = { planner: 'planner', builder: 'builder', reviewer: 'reviewer' };

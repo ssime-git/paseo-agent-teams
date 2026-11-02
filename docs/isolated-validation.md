@@ -838,3 +838,62 @@ ne prouve pas le scénario transversal complet ni une adoption de plan. Aucun
 navigateur/mobile lancé, aucune modification d’interface. Le test unitaire
 complémentaire simule un déplacement révélé par refresh et vérifie zéro lecture
 de timeline avant le refus ; les cas workspace/cwd manquants sont aussi refusés.
+
+## 2 novembre 2026 — checkpoints natifs via le moteur et redémarrage
+
+Harnais reproductible : `scripts/smoke-native-checkpoints.mjs`. Il exige
+`PASEO_TEAMS_SMOKE_URL`, un port loopback explicite différent de 6767, crée son
+propre dépôt temporaire et utilise les RPC du plugin et le SDK officiels. Deux
+phases séparées permettent au conducteur de redémarrer uniquement le daemon
+isolé entre elles :
+
+```sh
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-checkpoints.mjs
+# Arrêter et redémarrer uniquement le daemon isolé, avec les mêmes home/data/URL.
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-checkpoints.mjs /tmp/teams-native-live-EXEMPLE/proof.json
+```
+
+Chaque attente de checkpoint est limitée à 150 secondes et chaque appel natif à
+120 secondes. Le parcours nominal utilise six tours réels au total : deux tours
+Planner du moteur, une réponse humaine native traitée par le Planner, une
+discussion Reviewer du moteur et deux propositions natives Reviewer. Aucun tour
+Builder, test shell de workflow, approbation de plan ou publication. La reprise
+`--continue proof.json` est limitée à une préparation interrompue avant le premier
+tour natif ; elle évite de recréer un workflow pour une erreur du harnais.
+
+Essai sur daemon **0.14.0**, port **6914**, home/état isolés sous
+`/tmp/teams-014-compat`, avec Codex **gpt-6.1-sol** et Claude
+**claude-opus-5-5** réellement détectés. Workflow
+`17e16618-fdc0-47ce-8736-33ae869c8dcb`, dépôt et preuve
+`/tmp/teams-native-live-WFXyzW/proof.json` :
+
+- Clarification concrète avec recommandation, puis réponse libre + choix dans le
+  JSON humain de la session native. Import réel par `teams.action` pendant la
+  pause ; résolution conservée sans approbation. Reprise Planner et plan citant
+  GUIDE.md. Les sessions des trois rôles sont précréées : l'absence de travail du
+  Builder est prouvée par `lastUserMessageAt=null`, fenêtre de timeline vide et
+  zéro message utilisateur, plutôt que par l'absence d'une session.
+- Discussion Reviewer, proposition native et import explicite : le plan initial
+  reste identique. Après arrêt normal et redémarrage du seul daemon isolé, le
+  `teams.workflow_record` est profondément identique, y compris clarification,
+  proposition, versions et événements.
+- **Limite réelle de reprise :** les sessions sont restaurées `closed` et
+  l'historique Reviewer relu ne fournit plus d'identifiant de tour unique. Le
+  runtime accepte désormais la lecture des sessions `closed` inactives, mais
+  refuse toujours cet import ambigu. Aucun identifiant synthétique, prompt caché,
+  rejeu automatique ni mutation du checkpoint. La réimportation de l'ancien
+  échange après redémarrage n'est donc **pas validée** sur cette combinaison.
+- Une **nouvelle** proposition native explicite, sur la même session et le même
+  checkpoint, est importée puis adoptée. Historique v1 Planner et v2 Reviewer,
+  provenance native conservée, commandes de test révisées. La pause subsiste ;
+  après reprise, statut `awaiting_plan`, `testsApproved=false`, aucun prompt au
+  Builder. README.md byte-identique. Aucune approbation finale revendiquée.
+
+Preuves locales : `/tmp/roadmap-022140-native{,-resume}.log`,
+`/tmp/roadmap-022140-{stop,restart}.log`, preuve JSON ci-dessus. Les premières
+exécutions du harnais ont été corrigées : valeur de politique `explicit`, état
+`attention` pour la question, sessions précréées et timeline vide signalant
+`hasOlder=true`. Un premier workflow isolé a seulement posé sa question ; le
+second a été continué sans réémettre cette question. Les refus après redémarrage
+ont été conservés comme limites, pas comptés comme réussites. Pas de navigateur,
+mobile ni appareil physique dans cet essai ; aucune modification d'interface.

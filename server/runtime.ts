@@ -281,8 +281,14 @@ export class PaseoRuntime implements Runtime {
   }
   private async nativeExchange(w: Workflow, role: Role, operationId?: string) {
     const agent = this.api.agents.ref(w.agents[role]!);
-    if (!(await agent.refresh()) || agent.status !== 'idle' || agent.activeTurn || agent.pendingPermissions?.length)
-      throw new TeamError('ACTIVE_STEP', 'Native role must be idle without pending permissions');
+    // A daemon restart restores inactive sessions as closed; their durable history remains readable.
+    if (
+      !(await agent.refresh()) ||
+      (agent.status !== 'idle' && agent.status !== 'closed') ||
+      agent.activeTurn ||
+      agent.pendingPermissions?.length
+    )
+      throw new TeamError('ACTIVE_STEP', 'Native role must be inactive without pending permissions');
     if (agent.workspaceId !== w.workspaceId || agent.cwd !== w.cwd)
       throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Native role moved outside the workflow scope');
     // Native imports are explicit and bounded. Never reconcile or resend a workflow operation here.
