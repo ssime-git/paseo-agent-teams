@@ -810,3 +810,31 @@ explicitement. Aucun faux prompt caché, reconstruction locale du ledger ou
 modification de Paseo. Tests à transport simulé : blocage actif/permission/workspace,
 double clic, erreur conservant la carte et libellés anglais ; test du provider
 confirmant le refus du steering sans découverte, création ou approbation.
+
+### 2 novembre 2026 — périmètre des imports natifs Planner et Reviewer
+
+Le runtime vérifie désormais le workspace **et** le cwd de la session rafraîchie
+avant de lire son timeline, pour tous les imports natifs. La récupération d’une
+opération conservait déjà ce contrôle. Aucun changement de contrat ou de migration.
+
+Essai réel sur le daemon officiel 0.14.0 isolé sur 6914, home/état sous
+`/tmp/teams-014-compat`, DATA_DIR/DAEMON_URL explicites, voix/relais désactivés.
+Script `native-scope.mts`, découverte `native-scope-discovery.json`, preuve
+`native-scope-proof.json` dans cette racine ; journal
+`/tmp/roadmap-021640-native.log`. Deux modèles détectés ready : Codex
+`gpt-6.1-sol` pour le Planner et Claude `claude-opus-5-5` pour le Reviewer.
+Un seul prompt réel par session, délai maximal 120 secondes par appel.
+Lecture canonique acceptée dans le périmètre attendu ; même référence de session
+refusée avec WORKSPACE_ACCESS_DENIED dans un workflow portant un autre workspace,
+puis un autre cwd. Relire dans le bon périmètre donne un résultat identique ;
+le timeline contient toujours un seul message utilisateur. README et état Git du
+dépôt jetable inchangés. Les contextes de workflow divergents sont construits
+explicitement par le script : aucun déplacement réel de session n’est revendiqué.
+Daemon isolé arrêté normalement après constat d’inactivité des deux modèles.
+
+Ce test utilise le vrai runtime et les API officielles avec des conversations
+réelles. Il ne passe pas par `teams.action`, ne crée pas d’opération persistée et
+ne prouve pas le scénario transversal complet ni une adoption de plan. Aucun
+navigateur/mobile lancé, aucune modification d’interface. Le test unitaire
+complémentaire simule un déplacement révélé par refresh et vérifie zéro lecture
+de timeline avant le refus ; les cas workspace/cwd manquants sont aussi refusés.

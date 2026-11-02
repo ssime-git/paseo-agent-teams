@@ -628,6 +628,50 @@ test('native Planner answers share canonical completeness and permission safegua
   assert.deepEqual(h.counts(), { sends: 0, waits: 0, appends: 0 });
 });
 
+test('native Planner and Reviewer imports check the refreshed workspace before reading any conversation', async () => {
+  const w = savedWorkflow();
+  w.workspaceId = 'workflow-workspace';
+  w.cwd = '/workflow-repo';
+  w.agents.planner = 'planner';
+  w.agents.reviewer = 'reviewer';
+  for (const method of ['plannerAnswers', 'reviewerPlan'] as const) {
+    for (const scope of [
+      { workspaceId: 'foreign-workspace', cwd: w.cwd },
+      { workspaceId: w.workspaceId, cwd: '/foreign-repo' },
+      { workspaceId: undefined, cwd: undefined },
+    ]) {
+      let reads = 0;
+      const handle = {
+        workspaceId: w.workspaceId,
+        cwd: w.cwd,
+        status: 'idle',
+        activeTurn: null,
+        pendingPermissions: [],
+        refresh: async () => {
+          Object.assign(handle, scope);
+          return {};
+        },
+        timeline: {
+          refetch: async () => {
+            reads++;
+            throw new Error('Must reject scope before reading the timeline');
+          },
+        },
+      };
+      const api = { agents: { ref: () => handle } } as unknown as PaseoApi;
+      await assert.rejects(new PaseoRuntime(api, '/unused')[method](w), {
+        code: 'WORKSPACE_ACCESS_DENIED',
+      });
+      assert.equal(reads, 0);
+    }
+    const prompt = { item: { type: 'user_message', text: 'Native request' }, turnId: 'turn', seqEnd: 1 };
+    const reply = { item: { type: 'assistant_message', text: '{}' }, turnId: 'turn', seqEnd: 2 };
+    const matching = adapter({ workspaceId: w.workspaceId, cwd: w.cwd }, [prompt, reply]);
+    assert.equal((await matching.runtime[method](w)).prompt, prompt.item.text);
+    assert.deepEqual(matching.counts(), { sends: 0, waits: 0, appends: 0 });
+  }
+});
+
 test('checkpoint inactivity checks every role including active turns with an idle status', async () => {
   const w = savedWorkflow();
   w.agents = { planner: 'planner', builder: 'builder', reviewer: 'reviewer' };

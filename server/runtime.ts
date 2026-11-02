@@ -283,8 +283,8 @@ export class PaseoRuntime implements Runtime {
     const agent = this.api.agents.ref(w.agents[role]!);
     if (!(await agent.refresh()) || agent.status !== 'idle' || agent.activeTurn || agent.pendingPermissions?.length)
       throw new TeamError('ACTIVE_STEP', 'Native role must be idle without pending permissions');
-    if (operationId && (agent.workspaceId !== w.workspaceId || agent.cwd !== w.cwd))
-      throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Native coordinator moved outside the workflow scope');
+    if (agent.workspaceId !== w.workspaceId || agent.cwd !== w.cwd)
+      throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Native role moved outside the workflow scope');
     // Native imports are explicit and bounded. Never reconcile or resend a workflow operation here.
     const page = await agent.timeline.refetch({ direction: 'before', limit: 100, projection: 'canonical' });
     if (page.error || page.reset || page.gap || page.staleCursor || page.hasNewer || !page.endCursor)
