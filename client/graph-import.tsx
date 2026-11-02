@@ -25,6 +25,7 @@ export function GraphImport({
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   const flight = useRef(false);
+  const creationKey = useRef<string | undefined>(undefined);
   const button = (label: string, action: () => void, disabled = busy) => (
     <Pressable
       accessibilityRole="button"
@@ -51,6 +52,7 @@ export function GraphImport({
             value={json}
             editable={!busy}
             onChangeText={(value) => {
+              creationKey.current = undefined;
               setJson(value);
               setPreview(undefined);
               setError('');
@@ -91,8 +93,10 @@ export function GraphImport({
                 flight.current = true;
                 setBusy(true);
                 setError('');
-                void save({ workspaceId, expectedRevision: 0, definition: preview })
+                creationKey.current ??= `import-${Date.now()}-${Math.random()}-${Math.random()}`;
+                void save({ workspaceId, creationKey: creationKey.current, expectedRevision: 0, definition: preview })
                   .then((record) => {
+                    creationKey.current = undefined;
                     setOpened(false);
                     setJson('');
                     setPreview(undefined);
@@ -107,6 +111,7 @@ export function GraphImport({
             </>
           ) : null}
           {button(t('Annuler l’import'), () => {
+            creationKey.current = undefined;
             setOpened(false);
             setJson('');
             setPreview(undefined);

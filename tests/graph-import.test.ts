@@ -74,9 +74,10 @@ test('import validates, invalidates preview on edits and explicitly saves a new 
   fail = false;
   await press('Confirmer l’import comme nouveau workflow');
   assert.ok(saved);
+  assert.equal(typeof calls[0].input.creationKey, 'string');
   assert.deepEqual(calls[1], {
     name: 'teams.save_definition',
-    input: { workspaceId: 'workspace', expectedRevision: 0, definition },
+    input: { workspaceId: 'workspace', creationKey: calls[0].input.creationKey, expectedRevision: 0, definition },
   });
   assert.equal(tree.root.findAllByType('TextInput' as never).length, 0);
   ((globalThis as Record<string, unknown>).__importTest as { language: string }).language = 'en';

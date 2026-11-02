@@ -22,6 +22,7 @@ export const saveDefinitionRpc = defineRpc({
     .object({
       workspaceId: z.string().min(1),
       id: z.uuid().optional(),
+      creationKey: z.string().min(1).max(200).optional(),
       expectedRevision: z.number().int().nonnegative(),
       definition: workflowDefinitionSchema,
     })

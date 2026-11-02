@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { link, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { definitionRecordSchema, saveDefinitionRpc, type DefinitionRecord } from '../shared/definition-catalog';
+import { isDeepStrictEqual } from 'node:util';
 import { TeamError } from '../shared/errors';
 
 // Separate from V1 execution files: definitions never reinterpret running workflows.
@@ -69,7 +70,29 @@ export class DefinitionCatalog {
     const input = saveDefinitionRpc.input.parse(raw);
     if (!input.id && input.expectedRevision !== 0)
       throw new TeamError('DEFINITION_CONFLICT', 'A new definition requires revision zero');
-    const id = input.id ?? randomUUID();
+    if (input.creationKey && (input.id || input.expectedRevision !== 0))
+      throw new TeamError('DEFINITION_CONFLICT', 'Creation keys require a new definition at revision zero');
+    // Stable, workspace-scoped identity: the immutable first revision is also the receipt.
+    const digest = input.creationKey
+      ? createHash('sha256')
+          .update(JSON.stringify([input.workspaceId, input.creationKey]))
+          .digest('hex')
+      : undefined;
+    const creationId = digest
+      ? `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`
+      : undefined;
+    const id = input.id ?? creationId ?? randomUUID();
+    const replay = async () => {
+      const first = (await this.records(id))[0];
+      if (!first) return undefined;
+      if (first.workspaceId !== input.workspaceId || !isDeepStrictEqual(first.definition, input.definition))
+        throw new TeamError('DEFINITION_CONFLICT', 'Creation key already used for another definition');
+      return first;
+    };
+    if (creationId) {
+      const receipt = await replay();
+      if (receipt) return receipt;
+    }
     const previous = input.id ? (await this.history(id, input.workspaceId)).at(-1)! : undefined;
     if ((previous?.revision ?? 0) !== input.expectedRevision)
       throw new TeamError('DEFINITION_CONFLICT', 'Workflow definition changed; reload before saving');
@@ -89,8 +112,10 @@ export class DefinitionCatalog {
       try {
         await link(temporary, join(directory, `${record.revision}.json`));
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+          if (creationId) return (await replay())!;
           throw new TeamError('DEFINITION_CONFLICT', 'Workflow definition changed; reload before saving');
+        }
         throw error;
       }
     } finally {

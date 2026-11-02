@@ -93,3 +93,32 @@ test('invalid imports and corrupt histories fail closed without deleting evidenc
     assert.equal(await readFile(revisionFile, 'utf8'), invalid);
   }
 });
+
+test('creation receipts survive response loss, competing writers, edits and restart', async (t) => {
+  const directory = await setup(t);
+  const a = new DefinitionCatalog(directory),
+    b = new DefinitionCatalog(directory);
+  const input = { workspaceId: 'owner', creationKey: 'lost-response', expectedRevision: 0, definition: definition() };
+  const [first, duplicate] = await Promise.all([a.save(input), b.save(input)]);
+  assert.deepEqual(duplicate, first);
+  const updated = await a.save({
+    workspaceId: 'owner',
+    id: first.id,
+    expectedRevision: 1,
+    definition: { ...definition(), name: 'Edited later' },
+  });
+  const restarted = new DefinitionCatalog(directory);
+  assert.deepEqual(await restarted.save(input), first);
+  assert.deepEqual(await restarted.list('owner'), [updated]);
+  assert.equal((await restarted.history(first.id, 'owner')).length, 2);
+  await assert.rejects(
+    b.save({ ...input, definition: { ...definition(), name: 'Conflicting retry' } }),
+    /already used/,
+  );
+  await assert.rejects(b.save({ ...input, id: first.id }), /Creation keys require/);
+  await assert.rejects(b.save({ ...input, expectedRevision: 1 }), /revision zero|Creation keys require/);
+  const other = await b.save({ ...input, workspaceId: 'other' });
+  assert.notEqual(other.id, first.id);
+  const intentionalCopy = await b.save({ ...input, creationKey: 'another-import' });
+  assert.notEqual(intentionalCopy.id, first.id);
+});
