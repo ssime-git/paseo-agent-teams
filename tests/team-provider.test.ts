@@ -672,3 +672,30 @@ test('Planner clarification cards appear automatically and old pending transcrip
   );
   assert.equal(s.calls.length, callsBeforeRestore);
 });
+
+test('workflow discovery sent as steering is rejected without starting or approving a workflow', async (t) => {
+  let discoveries = 0;
+  const s = await setup(t, 'fr', true, {
+    graphs: async () => {
+      discoveries++;
+      return [];
+    },
+  });
+  await s.open();
+  await s.connection.send({
+    type: 'session.prompt',
+    sessionId: 'session',
+    prompt: {
+      clientMessageId: 'concurrent-discovery',
+      delivery: 'steer',
+      input: { type: 'message', content: [{ type: 'text', text: '/team-graphs' }] },
+    },
+  });
+  assert.equal(discoveries, 0);
+  assert.deepEqual(s.calls, []);
+  assert.match(JSON.stringify(s.events), /Unsupported Team prompt capability/);
+  assert.equal(
+    s.events.some((e) => e.type === 'session.turn' && e.state === 'started'),
+    false,
+  );
+});

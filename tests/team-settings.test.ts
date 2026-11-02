@@ -169,6 +169,9 @@ test('the Team card shows this thread mission team, or the default team before t
     layout: { compact: false },
     close: () => actions.push('close'),
     openSettings: () => actions.push('settings'),
+    showGraphs: async () => {
+      actions.push('graphs');
+    },
   };
   let view!: ReturnType<typeof create>;
   await act(async () => {
@@ -178,6 +181,46 @@ test('the Team card shows this thread mission team, or the default team before t
   let text = JSON.stringify(view.toJSON());
   assert.match(text, /Équipe par défaut/);
   assert.match(text, /Opus 5\.5.*GPT-6\.1-Sol.*Opus 5\.5/);
+  let release!: () => void;
+  await act(async () =>
+    view.update(
+      React.createElement(TeamCard, {
+        ...props,
+        showGraphs: () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+            actions.push('pending');
+          }),
+      }),
+    ),
+  );
+  const graphButton = () =>
+    view.root
+      .findAll((n) => (n.type as unknown) === 'Pressable')
+      .find((n) => n.props.accessibilityLabel === 'Afficher les workflows de cette conversation')!;
+  await act(async () => {
+    graphButton().props.onPress();
+    graphButton().props.onPress();
+  });
+  assert.deepEqual(actions, ['pending']);
+  assert.equal(graphButton().props.disabled, true);
+  await act(async () => release());
+  assert.deepEqual(actions, ['pending', 'close']);
+  actions.length = 0;
+  await act(async () =>
+    view.update(
+      React.createElement(TeamCard, {
+        ...props,
+        showGraphs: async () => {
+          throw new Error('Offline');
+        },
+      }),
+    ),
+  );
+  await act(async () => graphButton().props.onPress());
+  assert.match(JSON.stringify(view.toJSON()), /Offline/);
+  assert.deepEqual(actions, []);
+  assert.equal(graphButton().props.disabled, false);
   host.workflows = [mission];
   await act(async () => {
     view.update(React.createElement(TeamCard, { ...props, workspaceId: 'w2' }));
@@ -187,5 +230,9 @@ test('the Team card shows this thread mission team, or the default team before t
   assert.doesNotMatch(text, /Équipe par défaut\./);
   const links = view.root.findAll((n) => (n.type as unknown) === 'Pressable' && n.props.onPress && !n.props.disabled);
   for (const link of links) await act(async () => link.props.onPress());
-  assert.deepEqual(actions, ['close', 'settings']);
+  assert.deepEqual(actions, ['graphs', 'close', 'close', 'settings']);
+  host.settings.values.language = 'en';
+  await act(async () => view.update(React.createElement(TeamCard, { ...props, workspaceId: 'english' })));
+  assert.match(JSON.stringify(view.toJSON()), /Show workflows in this conversation/);
+  assert.match(JSON.stringify(view.toJSON()), /without starting or approving a step/);
 });

@@ -1,5 +1,11 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Afficher les workflows de cette conversation': 'Show workflows in this conversation',
+  'Affiche les workflows dans le fil via /team-graphs, sans lancer ni approuver une étape.':
+    'Shows workflows in the thread via /team-graphs, without starting or approving a step.',
+  'Attendez que la conversation soit inactive et sans permission en attente.':
+    'Wait until the conversation is idle with no pending permissions.',
+
   'Importer un workflow (JSON)': 'Import a workflow (JSON)',
   'Collez une définition portable. La confirmation crée une nouvelle identité sans lancer le workflow.':
     'Paste a portable definition. Confirmation creates a new identity without starting the workflow.',

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useRpc, useSettings, type PluginButtonContentProps } from '@getpaseo/plugin/client';
 import { listRpc, teamChoicesRpc, type Workflow } from '../shared/contracts';
@@ -7,14 +7,17 @@ import { TeamRoster } from './team-roster';
 import { useT } from './i18n';
 
 /** The Team Auto composer pill: who is on the team and who has control. The mission itself is the thread. */
-export function TeamCard(props: PluginButtonContentProps & { openSettings(): void }) {
-  const { theme, workspaceId, layout, close, openSettings } = props;
+export function TeamCard(props: PluginButtonContentProps & { openSettings(): void; showGraphs(): Promise<void> }) {
+  const { theme, workspaceId, layout, close, openSettings, showGraphs } = props;
   const agentId = props.context === 'agent' ? props.agentId : undefined;
   const c = theme.colors;
   const t = useT();
   const listCall = useRpc(listRpc),
     choicesCall = useRpc(teamChoicesRpc);
   const settings = useSettings(teamSettings);
+  const flight = useRef(false);
+  const [showing, setShowing] = useState(false),
+    [error, setError] = useState('');
   const [choices, setChoices] = useState<TeamProviderChoice[]>([]);
   const [workflow, setWorkflow] = useState<Workflow>();
   useEffect(() => {
@@ -79,6 +82,42 @@ export function TeamCard(props: PluginButtonContentProps & { openSettings(): voi
         colors={c}
         compact={layout.compact}
       />
+      {agentId ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
+            {t('Affiche les workflows dans le fil via /team-graphs, sans lancer ni approuver une étape.')}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('Afficher les workflows de cette conversation')}
+            accessibilityState={{ disabled: showing }}
+            disabled={showing}
+            onPress={() => {
+              if (flight.current) return;
+              flight.current = true;
+              setShowing(true);
+              setError('');
+              void showGraphs()
+                .then(close)
+                .catch((e: unknown) => setError(String(e)))
+                .finally(() => {
+                  flight.current = false;
+                  setShowing(false);
+                });
+            }}
+            style={{ paddingVertical: 8, opacity: showing ? 0.5 : 1 }}
+          >
+            <Text style={{ color: c.accent, fontSize: 13, fontWeight: '600' }}>
+              {t('Afficher les workflows de cette conversation')}
+            </Text>
+          </Pressable>
+          {error ? (
+            <Text accessibilityRole="alert" style={{ color: c.foreground }}>
+              {error}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       <View
         style={{
           flexDirection: 'row',

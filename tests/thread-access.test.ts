@@ -20,9 +20,24 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
   }[] = [];
   const opened: unknown[] = [];
   let signal!: AbortSignal;
+  const sent: unknown[] = [];
+  const owner = {
+    workspaceId: 'w1',
+    status: 'idle',
+    activeTurn: null as unknown,
+    pendingPermissions: [] as unknown[],
+    refresh: async () => true,
+    send: async (...args: unknown[]) => {
+      sent.push(args);
+    },
+  };
   const client = {
     paseo: {
       agents: {
+        ref(id: string) {
+          assert.equal(id, 'a');
+          return owner;
+        },
         list: async (input: { signal: AbortSignal }) => {
           signal = input.signal;
           return {
@@ -69,6 +84,22 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
   assert.equal(registrations.length, 1); // Only the Team Auto thread gets the Team pill.
   assert.equal(registrations[0].button.label, 'Équipe');
   const content = registrations[0].button.behavior.Content({}) as { props: Record<string, () => void> };
+  const show = content.props.showGraphs as unknown as () => Promise<void>;
+  assert.deepEqual(sent, []); // No prompt on registration or render.
+  await show();
+  assert.deepEqual(sent, [['/team-graphs', { activeTurnBehavior: 'steer' }]]);
+  for (const change of [
+    { status: 'running' },
+    { activeTurn: { id: 'turn' } },
+    { pendingPermissions: [{}] },
+    { workspaceId: 'moved' },
+  ]) {
+    const original = { ...owner };
+    Object.assign(owner, change);
+    await assert.rejects(show(), /inactive/);
+    Object.assign(owner, original);
+  }
+  assert.equal(sent.length, 1);
   content.props.openSettings();
   assert.deepEqual(opened, [{ settings: 'agent-teams' }]);
   observer.update({

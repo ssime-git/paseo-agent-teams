@@ -775,3 +775,38 @@ Le verrou local évite le double clic simultané ; une réponse perdue après un
 sauvegarde effective peut laisser une copie enregistrée dont le client ignore
 l'identité. Une nouvelle confirmation après cette erreur peut créer une seconde
 copie ; aucun lancement ou remplacement implicite n'en découle.
+
+## 2 novembre 2026 — accès explicite au fil des graphes (NATIVE-IDLE-001)
+
+Daemon officiel 0.14.0 isolé sur 6914, home/états/dépôts jetables sous
+`/tmp/teams-014-compat`, variables DATA_DIR et DAEMON_URL explicitement isolées,
+voix/relais désactivés. Deux conversations Team créées par API et deux graphes
+humains à une étape, sans premier prompt natif. Le bouton de la carte Équipe
+**Afficher les workflows de cette conversation** envoie `/team-graphs` via
+`agents.ref(id).send`, après vérification d'inactivité, avec
+`activeTurnBehavior: 'steer'` explicite : le défaut SDK interrupt n'est pas utilisé.
+Aucun envoi au montage, aucun modèle ou commande shell de workflow.
+
+Chromium desktop 1440 × 1050 puis mobile 390 × 844 après ouverture desktop : bouton
+exercé par clics, commande visible et cartes lisibles, checkpoints profondément
+identiques, aucune exception JS ni débordement horizontal. Un essai de navigation
+mobile initiale a échoué dans le harnais (sélecteur du workspace), sans preuve de
+parcours mobile autonome. Aucun navigateur anglais ni appareil physique revendiqué.
+Les premières captures ont pris l'animation d'ouverture ; nouvelle capture stable
+séparée après attente bornée. Les captures finales montrent les graphes déjà
+terminés après le test de réponse ultérieure ; la preuve JSON conserve les états
+attendant la réponse et les timelines de restauration.
+
+Arrêt normal puis redémarrage du seul daemon isolé : timeline native relue par API
+officielle sans prompt, cartes présentes, checkpoint humain profondément identique.
+Réponse humaine explicite ultérieure, succès puis rejeu idempotent. Scripts
+`native-idle-{setup,browser,verify,captures}.mjs`, preuve `native-idle-proof.json`,
+captures `native-idle-{desktop,mobile}-{button,thread}.png` dans ce répertoire.
+
+Limite conservée : ce parcours initialise une conversation par une commande
+utilisateur visible ; il ne prétend pas restaurer automatiquement toutes les
+anciennes conversations créées seulement par API. Le même bouton peut les rouvrir
+explicitement. Aucun faux prompt caché, reconstruction locale du ledger ou
+modification de Paseo. Tests à transport simulé : blocage actif/permission/workspace,
+double clic, erreur conservant la carte et libellés anglais ; test du provider
+confirmant le refus du steering sans découverte, création ou approbation.

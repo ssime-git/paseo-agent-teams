@@ -9,11 +9,13 @@ import type { PluginClientContext, PluginButtonContentProps, PluginButtonRegistr
 /** The Team pill appears only in Team Auto threads; other harness threads stay untouched. */
 export function addThreadAccess(
   client: PluginClientContext,
-  Card: ComponentType<PluginButtonContentProps & { openSettings(): void }>,
+  Card: ComponentType<PluginButtonContentProps & { openSettings(): void; showGraphs(): Promise<void> }>,
 ) {
   const lifetime = new AbortController();
-  let label = translate('fr', 'Équipe');
-  const removeLanguage = onLanguage((language) => {
+  let language: 'fr' | 'en' = 'fr';
+  let label = translate(language, 'Équipe');
+  const removeLanguage = onLanguage((next) => {
+    language = next;
     label = translate(language, 'Équipe');
     for (const { button } of pills.values()) button.update({ title: label, label });
   });
@@ -47,6 +49,22 @@ export function addThreadAccess(
               createElement(Card, {
                 ...props,
                 openSettings: () => client.openSettings(TEAM_SETTINGS_SCREEN),
+                showGraphs: async () => {
+                  const owner = client.paseo.agents.ref(agent.id);
+                  if (
+                    !(await owner.refresh()) ||
+                    owner.workspaceId !== workspaceId ||
+                    owner.status !== 'idle' ||
+                    owner.activeTurn ||
+                    owner.pendingPermissions?.length
+                  )
+                    throw new Error(
+                      translate(language, 'Attendez que la conversation soit inactive et sans permission en attente.'),
+                    );
+                  // Explicit user command. Never use the SDK default, which interrupts
+                  // a concurrently started turn. Team rejects steering while active.
+                  await owner.send('/team-graphs', { activeTurnBehavior: 'steer' });
+                },
               }),
           },
         },
