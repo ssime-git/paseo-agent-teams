@@ -751,3 +751,27 @@ revendiqué ; la fenêtre mobile est ouverte en desktop avant redimensionnement.
 Principal : inactivité revérifiée, plugin seul rechargé avec statut `running` ;
 sept états persistés byte-identiques, PID superviseur **1923177** et worker
 **1891564** inchangés. Preuve `/tmp/roadmap-011540-reload-proof.json`.
+
+### 2 novembre 2026 — import visuel portable
+
+Daemon officiel 0.14.0 isolé, port 6914, home/données/dépôt sous
+`/tmp/teams-014-compat`, DATA_DIR et DAEMON_URL explicitement isolées,
+voix/relais désactivés. `import-editor-browser.mjs` exerce Chromium desktop
+1440 × 1050 puis mobile 390 × 844 : JSON invalide refusé sans sauvegarde,
+validation et aperçu lisible, confirmation créant une nouvelle identité en
+révision 1 et historique propre. Anciennes définitions et graphes admis inchangés.
+`import-editor-verify.mjs --compare` confirme l'égalité profonde après reload du
+seul plugin isolé. Preuve `import-editor-proof.json`, captures
+`import-editor-{desktop,mobile}.png` ; capture mobile inspectée, aucun débordement
+horizontal ni exception JS. Daemon isolé arrêté normalement. Aucun modèle,
+admission ou commande shell de workflow lancé. Mobile redimensionné depuis
+desktop ; aucun appareil physique, démarrage mobile autonome ou navigateur anglais
+revendiqué. Tests de composant à transport simulé : schéma strict, référence
+invalide, aperçu invalidé par modification, double clic, erreur conservant la
+saisie, sauvegarde sans identifiant local et libellés anglais.
+
+Limite : le RPC existant de création ne possède pas de clé d'idempotence client.
+Le verrou local évite le double clic simultané ; une réponse perdue après une
+sauvegarde effective peut laisser une copie enregistrée dont le client ignore
+l'identité. Une nouvelle confirmation après cette erreur peut créer une seconde
+copie ; aucun lancement ou remplacement implicite n'en découle.

@@ -1,5 +1,13 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Importer un workflow (JSON)': 'Import a workflow (JSON)',
+  'Collez une définition portable. La confirmation crée une nouvelle identité sans lancer le workflow.':
+    'Paste a portable definition. Confirmation creates a new identity without starting the workflow.',
+  'Définition à importer (JSON)': 'Definition to import (JSON)',
+  'Valider et prévisualiser l’import': 'Validate and preview import',
+  'Confirmer l’import comme nouveau workflow': 'Confirm import as a new workflow',
+  'Annuler l’import': 'Cancel import',
+
   'Export de la révision enregistrée : sélectionnez et copiez le JSON. Le brouillon et les identifiants locaux sont exclus.':
     'Saved revision export: select and copy the JSON. Draft changes and local identifiers are excluded.',
   'Définition portable enregistrée (JSON)': 'Saved portable definition (JSON)',

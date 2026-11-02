@@ -9,6 +9,7 @@ import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { useT } from './i18n';
 import { GraphDefinition } from './graph-definition';
 import { GraphPreset } from './graph-preset';
+import { GraphImport } from './graph-import';
 import { GraphEditor } from './graph-editor';
 
 type Preview = z.infer<typeof graphPreviewRpc.output>;
@@ -72,6 +73,18 @@ export function GraphLauncher({
   );
   return (
     <View style={{ gap: 12 }}>
+      {!editing ? (
+        <GraphImport
+          workspaceId={workspaceId}
+          colors={c}
+          onSaved={(record) => {
+            setRecords((items) => [...items, record]);
+            setSelected(record);
+            setPending(undefined);
+            setOpened(true);
+          }}
+        />
+      ) : null}
       {!editing ? (
         <GraphPreset
           workspaceId={workspaceId}
