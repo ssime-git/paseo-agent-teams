@@ -1070,3 +1070,37 @@ Deux graphes seulement, **sept tours réels au total**, aucune boucle corrective
 indéfinie. Aucun nouveau navigateur/mobile, réglage de langue d'interface,
 clarification ni révision de plan dans ce harnais : les preuves natives du
 passage précédent restent distinctes de cet essai de graphe personnalisé.
+
+## Portée des consignes par rôle — 3 novembre 2026
+
+`server/prompt.ts` identifie maintenant le rôle courant avant le briefing. Une
+interdiction explicitement adressée au Planner ou au Reviewer ne transforme pas
+le Builder en analyste. Les interdictions globales de l’utilisateur et les
+permissions natives restent applicables ; aucune autorisation supplémentaire
+n’est accordée. Les prompts de livraison, consultation et suivi conservent leurs
+contrats distincts. Aucun état ou prompt d’opération déjà persisté n’est réécrit.
+
+Harnais opt-in, lancé seulement contre un daemon isolé :
+
+```sh
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws \
+  node --import tsx scripts/smoke-role-scope.mjs
+```
+
+Le harnais crée deux dépôts jetables et deux sessions Builder avec le modèle
+Codex réellement détecté et le mode `full-access` vérifié par l’API officielle.
+Chaque appel est limité à 120 secondes, sans retry. Premier cas : consignes
+lecture seule adressées seulement aux autres rôles, création réelle de
+`RESULT.txt` contenant `ready\n`, README préexistant conservé. Second cas :
+interdiction d’éditer pour tous les rôles, malgré un plan proposant la création ;
+absence effective de nouveau fichier et état Git inchangé. Un seul prompt humain
+par session est vérifié dans la timeline canonique. Les preuves restent hors des
+dépôts testés. Ce contrôle exerce `buildPrompt`, `PaseoRuntime.agent` et deux
+vrais tours natifs ; il ne prétend pas exécuter le moteur, une revue indépendante,
+un workflow complet ou une interface mobile.
+
+Le premier essai a réussi dans `/tmp/teams-role-scope-HYQUhA`, avec les deux
+sessions dans le workspace parent commun : le modèle a trouvé le sous-dépôt
+approprié. Le harnais a ensuite été resserré pour ouvrir un workspace par dépôt,
+afin que le cwd natif corresponde exactement au workflow. Les preuves de ce
+second passage sont enregistrées séparément dans le journal planifié.
