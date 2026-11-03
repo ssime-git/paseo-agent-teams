@@ -1012,3 +1012,61 @@ Preuves : `/tmp/teams-native-live-PcGHPb/proof.json`,
 les **9 tests** du lecteur de tours incluent restauration, pagination et refus des
 identités manquantes dans le tour courant. Aucun nouveau navigateur/mobile ni
 graphe personnalisé exécuté ; la validation transversale complète reste ouverte.
+
+## 3 novembre 2026 — graphe personnalisé, refus et correction réels
+
+Harnais opt-in `scripts/smoke-custom-graph.mjs`, sur un daemon loopback isolé
+avec port explicite hors 6767. Il détecte les modèles ready et vérifie les modes
+natifs avant admission. Chaque appel `graph_advance` avance une frontière
+persistée ; attente bornée à 300 s et 340 appels par invocation, au maximum
+quatre envois natifs et cinq activations par graphe. Les erreurs ne déclenchent
+aucun renvoi. Les preuves sont écrites hors du dépôt testé.
+
+```sh
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-custom-graph.mjs
+# Si une assertion du harnais doit être corrigée : continuer le même checkpoint,
+# sans créer de workflow ni rejouer les prompts déjà envoyés.
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-custom-graph.mjs --continue /tmp/teams-custom-live-EXEMPLE-proof.json
+# Après arrêt normal et redémarrage du seul daemon isolé :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-custom-graph.mjs --resume /tmp/teams-custom-live-EXEMPLE-proof.json
+# Après reload/restart isolé, lecture seule :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-custom-graph.mjs --verify /tmp/teams-custom-live-EXEMPLE-proof.json
+```
+
+Le graphe comporte quatre étapes personnalisées : brouillon volontairement
+incorrect, inspection Claude en lecture seule, réparation Codex et décision
+humaine. Le test de contenu du brouillon doit réellement échouer. Un rejet
+explicite idempotent suit la branche failure ; la revue refuse le brouillon,
+la réparation reçoit les preuves et constats précédents, puis les tests et une
+seconde revue valident la correction. La dernière activation attend sans modèle.
+Le harnais exige un checkpoint identique après redémarrage et une approbation
+explicite rejouable avant le succès terminal. Aucun commit ou publication n'est
+autorisé dans le dépôt d'essai. Les consignes et réponses sont demandées en
+anglais ; cela ne vérifie pas le réglage de langue de l'interface.
+
+Essai final réel : daemon officiel **0.14.0** sur **6914**, home/états sous
+`/tmp/teams-014-compat`, DATA_DIR/DAEMON_URL explicites, voix/relais désactivés.
+Codex **gpt-6.1-sol** en `full-access`, Claude **claude-opus-5-5** en `plan`,
+modèles et modes détectés. Preuve : `/tmp/teams-custom-live-2ZGFAz-proof.json`.
+Les cinq activations sont `draft → inspect → repair → inspect → human` ; les
+quatre reçus natifs proviennent de quatre sessions distinctes. Test initial
+Node exit 1, décision de rejet rejouée à l'identique, première revue fail,
+réparation avec les constats et le test rejeté dans son prompt, test Node exit 0,
+seconde revue pass. Les deux inspections ont leur empreinte de lecture seule
+inchangée et des tests indépendants réussis ; README byte-identique.
+Après redémarrage normal du seul daemon isolé : checkpoint humain profondément
+identique, nouvelle continuation sans effet ni approbation ; décision humaine
+explicite, rejeu identique et succès terminal. Relecture après reload isolé
+profondément identique. Aucun commit ni publication dans le dépôt testé.
+
+Un premier graphe `/tmp/teams-custom-live-9kmdC9-proof.json` a réellement corrigé
+le fichier et réussi son test, mais terminé en échec : son Builder avait rempli
+`remaining` avec la vérification future. Le contrat interprète un tableau non
+vide comme échec. Cet essai ne compte pas comme parcours complet réussi. La
+consigne de réparation précise désormais `remaining: []` quand aucun défaut
+d'implémentation ne reste. Deux assertions initiales trop strictes sur le statut
+natif `running` ont été corrigées et le même checkpoint continué sans renvoi.
+Deux graphes seulement, **sept tours réels au total**, aucune boucle corrective
+indéfinie. Aucun nouveau navigateur/mobile, réglage de langue d'interface,
+clarification ni révision de plan dans ce harnais : les preuves natives du
+passage précédent restent distinctes de cet essai de graphe personnalisé.
