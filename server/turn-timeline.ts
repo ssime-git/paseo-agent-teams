@@ -31,7 +31,8 @@ export async function completedTurnTimeline(
       // A later turn makes a delayed hook ambiguous; do not borrow its output.
       if (entries.length && entries.at(-1)!.turnId !== event.turnId) return;
       const first = entries.findIndex((entry) => entry.turnId === event.turnId);
-      if (entries.slice(0, first).some((entry) => !entry.turnId)) return;
+      // Restored older turns may have no IDs. They are only a boundary:
+      // require exact IDs and one opening prompt throughout the current turn.
       const turn = entries.slice(first);
       if (turn.some((entry) => entry.turnId !== event.turnId)) return;
       if (entries.length && (first > 0 || !page.hasOlder)) {

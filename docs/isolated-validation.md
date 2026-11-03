@@ -952,3 +952,63 @@ Les trois préparations, dont deux corrections bornées du harnais, totalisent
 quinze tours de modèles ; aucun prompt Builder, approbation de tests, test shell
 de workflow, navigateur/mobile ou publication. Aucun code de production ou
 interface modifié ; plugin principal non rechargé et daemon principal intact.
+
+## 3 novembre 2026 — nouveau tour Reviewer après restauration et approbation native
+
+Le daemon 0.14 restaure certains anciens messages sans `turnId`. Le hook officiel
+`agent.turn_ended` d'un **nouveau** tour possède pourtant son identifiant, de même
+que son prompt, ses outils et sa réponse. `completedTurnTimeline` refusait ce tour
+uniquement parce que les échanges précédents n'avaient plus d'identifiant.
+Le lecteur ignore désormais cette ancienne portion ; le tour courant doit rester
+contigu, entièrement identifié, avec un unique prompt initial et la bonne portée.
+L'import d'un ancien échange sans identité reste refusé, sans provenance inventée.
+
+Preuve réelle : daemon officiel **0.14.0** isolé sur **6914**, home et données
+`/tmp/teams-014-compat`, variables DATA_DIR/DAEMON_URL explicites, voix/relais
+désactivés. Codex **gpt-6.1-sol** et Claude **claude-opus-5-5** détectés.
+Workflow `f4946451-103c-486b-94fe-d36496c7eb3c`, dépôt
+`/tmp/teams-native-live-PcGHPb` : clarification → réponse humaine native → plan →
+discussion Reviewer → proposition native → arrêt/redémarrage isolé → adoption
+persistée → approbation explicite et révision humaine des tests → un tour Builder
+→ deux tests indépendants réussis → revue Claude `pass` → question de livraison.
+Les trois versions Planner/Reviewer/humain et la clarification résolue restent
+conservées. Aucun accord de livraison, commit, publication ou tour de livraison.
+Après reload du seul plugin isolé : dossier complet profondément identique.
+
+Le harnais supplémentaire se lance après la préparation et l'adoption déjà
+documentées :
+
+```sh
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-approval.mjs /tmp/teams-native-live-EXEMPLE/proof.json
+# Après reload du plugin isolé : comparaison seule, sans envoi.
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-approval.mjs /tmp/teams-native-live-EXEMPLE/proof.json --verify
+```
+
+Il exige le checkpoint exact, approuve une seule fois, rejoue son reçu et attend
+au plus 240 s. `--capture` reprend uniquement les assertions après une approbation
+déjà enregistrée, sans envoyer d'action. La preuve est extérieure au dépôt testé
+(`${root}-approval-proof.json`) pour ne pas modifier l'artefact vérifié. Le test
+Node contrôle le nouveau fichier non suivi : contenu non vide, un paragraphe,
+absence d'espaces finaux et README byte-identique. `git diff --check` seul ne
+couvre pas un fichier non suivi. Quatre fixtures locales ont confirmé ces contrôles
+(un paragraphe accepté ; deux paragraphes, espaces finaux et vide refusés).
+
+Incidents conservés : le premier essai sur l'ancien checkpoint
+`94011c02-e3b5-4922-9602-27138c4def17` n'a rien implémenté car sa consigne « ne
+jamais implémenter » était ambiguë entre Planner et Builder ; test de contenu et
+revue ont échoué honnêtement. Le hook Reviewer non consommé a révélé le défaut
+corrigé ci-dessus (`/tmp/roadmap-030740-reviewer-timeline.json`). Aucune réponse
+ancienne n'a été réémise pour fabriquer un reçu. La fixture de préparation précise
+maintenant les autorisations par rôle. Sur le second essai, une assertion lisant
+stdout dans `teams.list` (projection résumée) a été corrigée pour utiliser
+`teams.workflow_record` ; `--capture` a vérifié le résultat déjà atteint sans
+nouveau tour. Le premier harnais a terminé sur une erreur RPC lors du reload
+isolé ; ce premier essai n'est pas déclaré réussi.
+
+Preuves : `/tmp/teams-native-live-PcGHPb/proof.json`,
+`/tmp/teams-native-live-PcGHPb-approval-proof.json`,
+`/tmp/roadmap-030740-{native,adopt,approval-fixed,capture,reload-verified}.log`,
+`/tmp/roadmap-030740-content-check-proof.json`. `npm run check` : **364/364** ;
+les **9 tests** du lecteur de tours incluent restauration, pagination et refus des
+identités manquantes dans le tour courant. Aucun nouveau navigateur/mobile ni
+graphe personnalisé exécuté ; la validation transversale complète reste ouverte.

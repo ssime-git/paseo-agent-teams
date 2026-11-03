@@ -122,7 +122,7 @@ try {
           },
         ],
       };
-      const task = `Read-only orchestration test. Plan documentation in a NEW file GUIDE.md; never edit README.md. No delegation, commits, network or shell execution. The human has not chosen the documentation scope. On your FIRST turn return exactly this clarification JSON: ${JSON.stringify(clarification)}. After the saved human answer, return a plan reflecting their choice with tests [{"command":"git diff --check","timeoutMs":10000}]. Never implement the plan yourself. No Builder is authorized until explicit Team approval.`;
+      const task = `Isolated orchestration test. Planner and Reviewer stay read-only. After explicit Team approval, Builder must create a NEW file GUIDE.md; never edit README.md. The instruction never implement the plan yourself applies ONLY to Planner. Local file editing by Builder and read-only local inspection/verification by all roles are authorized. No delegation, commits or network. The human has not chosen the documentation scope. On your FIRST turn return exactly this clarification JSON: ${JSON.stringify(clarification)}. After the saved human answer, return a plan reflecting their choice with tests [{"command":"git diff --check","timeoutMs":10000}]. Never implement the plan yourself. No Builder is authorized until explicit Team approval.`;
       const created = await rpc('create', { workspaceId: workspace.id, task, config, requestId: randomUUID() });
       proof = { root, url, workspaceId: workspace.id, workflowId: created.id, config, nativeTurns: [], assertions: [] };
       await save();

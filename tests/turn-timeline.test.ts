@@ -93,6 +93,24 @@ test('turn history spans bounded pages without borrowing a preceding turn', asyn
   assert.equal(h.calls(), 2);
 });
 
+test('a new identified turn after restoration does not borrow unidentified older history', async () => {
+  const prompt = entry(5, event.turnId, 'user_message');
+  const reply = entry(6);
+  for (const pages of [
+    [page([entry(1, null, 'user_message'), entry(2, null), prompt, reply])],
+    [{ ...page([reply]), hasOlder: true }, page([entry(1, null, 'user_message'), entry(2, null), prompt])],
+  ]) {
+    assert.deepEqual(await completedTurnTimeline(fixture(pages).api, event), [prompt.item, reply.item]);
+  }
+  for (const entries of [
+    [entry(1, null, 'user_message'), entry(2, null)],
+    [entry(1, null, 'user_message'), reply],
+    [entry(1, null), prompt, entry(6, null), entry(7)],
+    [entry(1, null), prompt, reply, entry(7, 'later')],
+  ])
+    assert.equal(await completedTurnTimeline(fixture([page(entries)]).api, event), undefined);
+});
+
 test('progress cards without a turn ID do not obscure completion, even with overlapping update ranges', async () => {
   const progress = { ...entry(2, null, 'plugin'), seqEnd: 20 };
   const prompt = entry(3, event.turnId, 'user_message');
