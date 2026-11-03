@@ -1621,6 +1621,73 @@ test('native Reviewer proposals retain cursor provenance, require adoption and s
   assert.equal(w.planVersions!.at(-1)!.selection, undefined);
 });
 
+test('persisted native proposal can be adopted after engine restart without reading restored history', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w.agents.reviewer = 'native-reviewer';
+  await h.store.put(w);
+  const source = { epoch: 'native', seq: 42, turnId: 'native-turn' };
+  const revised = {
+    ...plan,
+    summary: 'Persisted native proposal',
+    tests: [{ command: 'npm run check', timeoutMs: 2000 }],
+  };
+  h.fake.reviewerPlan = async () => ({
+    source,
+    prompt: 'Native user decision',
+    text: JSON.stringify({ workflowId: w.id, baseVersion: 1, kind: 'proposal', summary: 'Ready', plan: revised }),
+  });
+  w = await h.action(w, 'import_reviewer_plan');
+  w = await h.action(w, 'pause');
+  const before = structuredClone(w);
+  h.engine.close();
+  await h.engine.settle();
+  const store = new Store(h.store.directory);
+  const fake = new Fake();
+  let reads = 0;
+  fake.reviewerPlan = async () => {
+    reads++;
+    throw new Error('No uniquely identified native response');
+  };
+  const engine = new Engine(store, fake);
+  t.after(async () => {
+    engine.close();
+    await engine.settle();
+  });
+  await engine.recoverAutomatic();
+  assert.deepEqual(await store.get(w.id), before);
+  const input = {
+    id: w.id,
+    expectedRevision: w.revision,
+    requestId: 'adopt-after-restart',
+    action: 'adopt_plan' as const,
+  };
+  await engine.action(input);
+  const adopted = await store.get(w.id);
+  await engine.action(input);
+  assert.deepEqual(await store.get(w.id), adopted);
+  assert.equal(adopted.status, 'paused');
+  assert.deepEqual(adopted.plan, revised);
+  assert.deepEqual(adopted.planVersions!.slice(0, -1), before.planVersions);
+  assert.deepEqual(adopted.planVersions!.at(-1)!.nativeSource, source);
+  assert.equal(adopted.planVersions!.at(-1)!.agentId, 'native-reviewer');
+  assert.equal(adopted.testsApproved, false);
+  assert.equal(adopted.planProposal, undefined);
+  assert.equal(adopted.events.filter((e) => e.kind === 'native_plan_imported').length, 1);
+  await engine.action({
+    id: w.id,
+    expectedRevision: adopted.revision,
+    requestId: 'resume-after-adoption',
+    action: 'resume',
+  });
+  await engine.settle();
+  assert.equal((await store.get(w.id)).status, 'awaiting_plan');
+  assert.equal(reads, 0);
+  assert.equal(fake.calls.length, 0);
+  assert.equal(fake.creationCount, 0);
+  assert.equal(fake.testCount, 0);
+});
+
 test('native Reviewer import rejects stale, foreign and invalid responses without losing a pending proposal', async (t) => {
   const h = await setup(t);
   let w = await h.create();

@@ -897,3 +897,58 @@ exécutions du harnais ont été corrigées : valeur de politique `explicit`, é
 second a été continué sans réémettre cette question. Les refus après redémarrage
 ont été conservés comme limites, pas comptés comme réussites. Pas de navigateur,
 mobile ni appareil physique dans cet essai ; aucune modification d'interface.
+
+
+## 3 novembre 2026 — adoption de la proposition persistée après redémarrage
+
+Le harnais `scripts/smoke-native-checkpoints.mjs` propose désormais un chemin de
+reprise sans réimport ni nouvel appel de modèle :
+
+```sh
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-checkpoints.mjs
+# Arrêter puis redémarrer uniquement le daemon isolé avec les mêmes home/data/URL.
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-checkpoints.mjs --adopt-persisted /tmp/teams-native-live-EXEMPLE/proof.json
+```
+
+Ce chemin exige le dossier profondément identique au checkpoint de préparation.
+Il adopte la proposition native déjà importée, vérifie la provenance, les versions
+antérieures et les réponses de clarification conservées, puis rejoue exactement
+la requête d'adoption : même réponse et dossier complet inchangé. La reprise
+reste à `awaiting_plan`, sans approbation de tests. Les dates de dernier message utilisateur des trois rôles doivent rester
+identiques avant/après ; le Builder conserve zéro prompt. Le scénario utilise
+cinq tours réels lors de la préparation et aucun lors de l'adoption. La limite de
+réimport de l'historique restauré reste distincte et inchangée.
+
+Le test moteur complémentaire reconstruit Store et Engine, appelle la reprise
+automatique et fournit un runtime dont la lecture native échouerait. Adoption,
+rejeu du reçu et reprise explicite réussissent sans lecture native, création de
+session, tour de modèle ni test shell. Ce test est simulé, distinct du parcours
+réel ci-dessus.
+
+Deux assertions du harnais ont été corrigées pendant les essais : la liste Team
+masque les reçus, donc son résultat ne doit pas être comparé à la réponse complète
+d'action ; le rejeu se compare à lui-même et le dossier complet à lui-même.
+De même, les bornes du timeline peuvent évoluer pendant la restauration sans
+nouveau prompt : seules les dates des derniers messages utilisateur sont
+comparées pour ce contrôle. Les deux parcours intermédiaires ont effectivement
+adopté leur proposition ; le premier est resté en pause, le second est revenu à
+l'approbation du plan. Ils ne sont pas comptés comme harnais entièrement réussi.
+Aucune réémission d'un ancien prompt ou mutation de leur état pour forcer le
+nouvel essai ; chaque préparation corrective a créé son propre dépôt.
+
+Essai final réussi : daemon officiel **0.14.0**, port **6914**, home et états
+`/tmp/teams-014-compat`, DATA_DIR/DAEMON_URL explicites, voix/relais désactivés.
+Modèles détectés Codex **gpt-6.1-sol** et Claude **claude-opus-5-5**.
+Workflow `94011c02-e3b5-4922-9602-27138c4def17`, preuve
+`/tmp/teams-native-live-nSkIl3/proof.json`. Les cinq tours de préparation ont
+réellement été exécutés ; après arrêt normal et redémarrage du seul daemon isolé,
+le chemin `--adopt-persisted` passe entièrement avec zéro tour supplémentaire.
+Après reload du seul plugin isolé, comparaison profonde du dossier final
+identique (`/tmp/roadmap-030240-after-reload-proof.json`). Logs
+`/tmp/roadmap-030240-native-verified.log`, `adopt-verified.log`,
+`restart-verified.log`, `after-reload.log`, `final-stop.log` avec le même préfixe
+`/tmp/roadmap-030240-`. Daemon isolé arrêté normalement en fin de passage.
+Les trois préparations, dont deux corrections bornées du harnais, totalisent
+quinze tours de modèles ; aucun prompt Builder, approbation de tests, test shell
+de workflow, navigateur/mobile ou publication. Aucun code de production ou
+interface modifié ; plugin principal non rechargé et daemon principal intact.

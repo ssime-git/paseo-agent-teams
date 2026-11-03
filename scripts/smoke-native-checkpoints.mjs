@@ -16,8 +16,10 @@ if (
   endpoint.port === '6767'
 )
   throw Error('Use an explicit isolated loopback port, never primary port 6767');
+const adoptPersisted = process.argv[2] === '--adopt-persisted';
 const prepareFile = process.argv[2] === '--continue' ? process.argv[3] : undefined;
-const resumeFile = prepareFile ? undefined : process.argv[2];
+const resumeFile = prepareFile ? undefined : adoptPersisted ? process.argv[3] : process.argv[2];
+if (adoptPersisted && !resumeFile) throw Error('--adopt-persisted requires a preparation proof file');
 const existingFile = prepareFile ?? resumeFile;
 const root = existingFile
   ? JSON.parse(await readFile(existingFile, 'utf8')).root
@@ -178,54 +180,119 @@ try {
     proof = JSON.parse(await readFile(resumeFile, 'utf8'));
     assert.equal(proof.url, url);
     assert.deepEqual(await rpc('workflow_record', { id: proof.workflowId }), proof.beforeRestart);
-    try {
+    if (adoptPersisted) {
+      w = await read();
+      assert.equal(w.status, 'paused');
+      assert.ok(w.planProposal?.nativeSource, 'Persisted native provenance required');
+      const proposal = structuredClone(w.planProposal);
+      const versions = structuredClone(w.planVersions);
+      const clarifications = structuredClone(w.clarifications);
+      const imports = w.events.filter((e) => e.kind === 'native_plan_imported');
+      const beforeTurns = proof.nativeTurns.length;
+      const nativeActivity = async () => {
+        const activity = {};
+        for (const role of ['planner', 'reviewer', 'builder']) {
+          const page = await api.agents.ref(w.agents[role]).timeline.refetch({
+            direction: 'before',
+            limit: 100,
+            projection: 'canonical',
+          });
+          activity[role] = { lastUserMessageAt: page.agent.lastUserMessageAt };
+        }
+        return activity;
+      };
+      const beforeActivity = await nativeActivity();
+      proof.adoptionActivityBefore = beforeActivity;
+      await save();
+      const input = {
+        id: w.id,
+        workspaceId: proof.workspaceId,
+        expectedRevision: w.revision,
+        requestId: randomUUID(),
+        action: 'adopt_plan',
+      };
+      const adopted = await rpc('action', input);
+      assert.equal(adopted.status, 'paused');
+      assert.deepEqual(adopted.plan, proposal.plan);
+      assert.deepEqual(adopted.planVersions.slice(0, -1), versions);
+      assert.deepEqual(adopted.planVersions.at(-1).nativeSource, proposal.nativeSource);
+      assert.equal(adopted.planVersions.at(-1).agentId, proposal.agentId);
+      assert.equal(adopted.planVersions.at(-1).source, 'reviewer');
+      assert.deepEqual(adopted.clarifications, clarifications);
+      assert.deepEqual(
+        adopted.events.filter((e) => e.kind === 'native_plan_imported'),
+        imports,
+      );
+      assert.equal(adopted.testsApproved, false);
+      assert.equal(adopted.planProposal, undefined);
+      const adoptedRecord = await rpc('workflow_record', { id: w.id });
+      assert.deepEqual(await rpc('action', input), adopted, 'Lost-response replay must be identical');
+      assert.deepEqual(await rpc('workflow_record', { id: w.id }), adoptedRecord);
+      await action('resume');
+      assert.equal(w.status, 'awaiting_plan');
+      assert.equal(w.testsApproved, false);
+      await noBuilderTurns();
+      assert.equal(proof.nativeTurns.length, beforeTurns);
+      assert.deepEqual(await nativeActivity(), beforeActivity);
+      proof.adoptionActivity = beforeActivity;
+      assert.equal(await readFile(root + '/README.md', 'utf8'), 'User documentation; preserve exactly.\n');
+      delete proof.failure;
+      proof.after = await rpc('workflow_record', { id: w.id });
+      proof.assertions.push(
+        'Persisted proposal adopted after daemon restart without native reimport or prompt; provenance, versions and answers preserved; identical adoption receipt replay; approval still required; no Builder prompt',
+      );
+      await save();
+      console.log('PASS persisted proposal adoption after restart. Proof: ' + proofFile);
+    } else {
+      try {
+        await action('import_reviewer_plan');
+        proof.restartImport = 'replayed';
+      } catch (error) {
+        // Some daemon/provider versions restore history without canonical turn IDs.
+        // Keep the checkpoint intact; never invent provenance or resend the old prompt.
+        assert.match(String(error), /No uniquely identified native response/);
+        proof.restartImport = 'blocked: restored history has no unique native turn';
+      }
+      assert.deepEqual(await rpc('workflow_record', { id: w.id }), proof.beforeRestart);
+      const plan = {
+        ...w.planProposal.plan,
+        summary: 'Native revision two: preserve README.md and create GUIDE.md',
+        tests: [{ command: 'git diff --check -- README.md GUIDE.md', timeoutMs: 10000 }],
+      };
+      const envelope = {
+        workflowId: w.id,
+        baseVersion: w.planVersions.at(-1).version,
+        kind: 'proposal',
+        summary: 'Narrow verification to documentation files',
+        plan,
+      };
+      await native(
+        'reviewer',
+        `Read-only test, second revision. Do not use tools. Return exactly this JSON: ${JSON.stringify(envelope)}`,
+      );
+      const oldVersions = structuredClone(w.planVersions);
       await action('import_reviewer_plan');
-      proof.restartImport = 'replayed';
-    } catch (error) {
-      // Some daemon/provider versions restore history without canonical turn IDs.
-      // Keep the checkpoint intact; never invent provenance or resend the old prompt.
-      assert.match(String(error), /No uniquely identified native response/);
-      proof.restartImport = 'blocked: restored history has no unique native turn';
+      assert.deepEqual(w.planVersions, oldVersions);
+      assert.equal(w.events.filter((e) => e.kind === 'native_plan_imported').length, 2);
+      await action('adopt_plan');
+      assert.equal(w.status, 'paused');
+      assert.deepEqual(w.plan, plan);
+      assert.deepEqual(w.planVersions.slice(0, -1), oldVersions);
+      assert.equal(w.planVersions.at(-1).source, 'reviewer');
+      assert.ok(w.planVersions.at(-1).nativeSource);
+      assert.equal(w.testsApproved, false);
+      await action('resume');
+      assert.equal(w.status, 'awaiting_plan');
+      await noBuilderTurns();
+      assert.equal(await readFile(root + '/README.md', 'utf8'), 'User documentation; preserve exactly.\n');
+      delete proof.failure;
+      proof.after = await rpc('workflow_record', { id: w.id });
+      proof.assertions.push(
+        'Checkpoint identical after caller restart; replay result recorded separately; a new explicit native proposal adopted; versions preserved; approval still required; no Builder prompt',
+      );
+      await save();
+      console.log('PASS native checkpoints and explicit adoption; awaiting human plan approval. Proof: ' + proofFile);
     }
-    assert.deepEqual(await rpc('workflow_record', { id: w.id }), proof.beforeRestart);
-    const plan = {
-      ...w.planProposal.plan,
-      summary: 'Native revision two: preserve README.md and create GUIDE.md',
-      tests: [{ command: 'git diff --check -- README.md GUIDE.md', timeoutMs: 10000 }],
-    };
-    const envelope = {
-      workflowId: w.id,
-      baseVersion: w.planVersions.at(-1).version,
-      kind: 'proposal',
-      summary: 'Narrow verification to documentation files',
-      plan,
-    };
-    await native(
-      'reviewer',
-      `Read-only test, second revision. Do not use tools. Return exactly this JSON: ${JSON.stringify(envelope)}`,
-    );
-    const oldVersions = structuredClone(w.planVersions);
-    await action('import_reviewer_plan');
-    assert.deepEqual(w.planVersions, oldVersions);
-    assert.equal(w.events.filter((e) => e.kind === 'native_plan_imported').length, 2);
-    await action('adopt_plan');
-    assert.equal(w.status, 'paused');
-    assert.deepEqual(w.plan, plan);
-    assert.deepEqual(w.planVersions.slice(0, -1), oldVersions);
-    assert.equal(w.planVersions.at(-1).source, 'reviewer');
-    assert.ok(w.planVersions.at(-1).nativeSource);
-    assert.equal(w.testsApproved, false);
-    await action('resume');
-    assert.equal(w.status, 'awaiting_plan');
-    await noBuilderTurns();
-    assert.equal(await readFile(root + '/README.md', 'utf8'), 'User documentation; preserve exactly.\n');
-    delete proof.failure;
-    proof.after = await rpc('workflow_record', { id: w.id });
-    proof.assertions.push(
-      'Checkpoint identical after caller restart; replay result recorded separately; a new explicit native proposal adopted; versions preserved; approval still required; no Builder prompt',
-    );
-    await save();
-    console.log('PASS native checkpoints and explicit adoption; awaiting human plan approval. Proof: ' + proofFile);
   }
 } catch (error) {
   if (proof) {
