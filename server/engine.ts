@@ -41,7 +41,12 @@ export interface Outcome {
   cursor?: { epoch: string; seq: number };
   externallyContinued?: boolean;
 }
-export type PreparedScope = { cwd: string; repo: string; repositoryTargets?: RepositoryTarget[] };
+export type PreparedScope = {
+  cwd: string;
+  repo: string;
+  repositoryTargets?: RepositoryTarget[];
+  language?: Workflow['language'];
+};
 export type CheckScope = (scope: PreparedScope) => Promise<void>;
 export interface Runtime {
   prepare(workspaceId: string, config: Config, checkScope?: CheckScope): Promise<PreparedScope & { baseline: string }>;

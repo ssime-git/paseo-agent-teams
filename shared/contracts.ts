@@ -233,6 +233,8 @@ export const eventSchema = z.object({
 });
 export const workflowSchema = z.object({
   version: z.literal(1),
+  /** Host language captured at launch; absent on historical workflows. */
+  language: z.enum(['fr', 'en']).optional(),
   id: z.string(),
   revision: z.number(),
   workspaceId: z.string(),

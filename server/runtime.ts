@@ -26,7 +26,7 @@ export class PaseoRuntime implements Runtime {
     private api: PaseoApi,
     private directory: string,
     private nativeApi: () => PaseoApi | undefined = () => api,
-    /** Interface language for the role session titles shown in the subagents list. */
+    /** Host language: captured at launch for prompts; live for interface session titles. */
     private language: () => Promise<Language> = async () => 'fr',
   ) {}
   async validateSelection(w: Workflow, role: Role, selection: Config['roles'][Role]) {
@@ -70,10 +70,11 @@ export class PaseoRuntime implements Runtime {
         'The data directory must be outside the workspace repository',
       );
     await checkScope?.({ cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets });
+    const language = await this.language();
     const baseline = join(this.directory, `baseline-${randomUUID()}.snapshot`);
     const captured = JSON.stringify(await captureRepositories(targets));
     await writeFile(baseline, captured, { mode: 0o600, flush: true });
-    return { cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets, baseline };
+    return { cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets, baseline, language };
   }
   async agent(w: Workflow, role: Role) {
     const profiles = await providerProfiles(this.api);

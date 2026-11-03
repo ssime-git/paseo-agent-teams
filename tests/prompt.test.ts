@@ -141,3 +141,38 @@ test('oversized clarification history explicitly blocks rather than sending part
     assert.throws(() => buildPrompt(w, 'planner', ''), { name: 'CLARIFICATION_CONTEXT_LIMIT' });
   }
 });
+
+test('saved response language covers pipeline, follow-ups, delegation, delivery and format repair', async () => {
+  const { repairPrompt } = await import('../server/prompt');
+  const w = workflowFixture();
+  w.task = 'Keep src/api.ts and npm test unchanged';
+  for (const language of ['fr', 'en'] as const) {
+    w.language = language;
+    const expected =
+      language === 'fr' ? /Workflow response language: French \(fr\)/ : /Workflow response language: English \(en\)/;
+    for (const phase of ['planning', 'building', 'reviewing', 'followup', 'delivering'] as const) {
+      w.phase = phase;
+      for (const role of ['planner', 'builder', 'reviewer'] as const) {
+        const prompt = buildPrompt(w, role, 'src/api.ts: raw_tool_output');
+        assert.match(prompt, expected);
+        assert.match(prompt, /src\/api.ts/);
+        assert.match(prompt, /raw_tool_output/);
+      }
+    }
+    w.phase = 'followup';
+    for (const followup of [
+      { message: 'Revise', purpose: 'plan_revision' as const },
+      { message: 'Ask', coordinating: true },
+      { message: 'Consult', briefing: 'Read the evidence' },
+      { message: 'Execute', briefing: 'Inspect delivery', execution: true },
+    ]) {
+      w.followup = { purpose: 'message', returnPhase: 'planning', returnStatus: 'awaiting_plan', ...followup };
+      assert.match(buildPrompt(w, 'reviewer', ''), expected);
+    }
+    w.resultRepair = { role: 'planner', text: 'Original facts', error: 'Invalid JSON', attempts: 1 };
+    assert.match(repairPrompt(w), expected);
+    delete w.language;
+    assert.doesNotMatch(buildPrompt(w, 'reviewer', ''), /Workflow response language:/);
+    assert.doesNotMatch(repairPrompt(w), /Workflow response language:/);
+  }
+});

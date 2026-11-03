@@ -75,3 +75,26 @@ test('V1 plans gain an honest legacy version without changing approvals or pendi
   const unapproved = migrateWorkflow({ ...raw, testsApproved: false });
   assert.equal(unapproved.planVersions![0].approval, undefined);
 });
+
+test('optional workflow language survives reload without changing historical operations', async (t) => {
+  const { workflowFixture } = await import('./fixtures');
+  const dir = await mkdtemp(join(tmpdir(), 'teams-language-store-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const legacy = workflowFixture();
+  legacy.operation = {
+    id: 'pending',
+    role: 'planner',
+    phase: 'planning',
+    state: 'sent',
+    startedAt: '2026-11-03T00:00:00Z',
+  };
+  const migrated = migrateWorkflow(legacy);
+  assert.deepEqual(migrated, legacy);
+  assert.equal(Object.hasOwn(migrated, 'language'), false);
+  for (const language of [undefined, 'fr', 'en'] as const) {
+    const w = { ...legacy, ...(language ? { language } : {}) };
+    await new Store(dir).put(w);
+    assert.deepEqual(await new Store(dir).get(w.id), w);
+  }
+  assert.throws(() => migrateWorkflow({ ...legacy, language: 'de' }));
+});

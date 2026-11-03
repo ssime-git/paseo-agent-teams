@@ -2579,3 +2579,25 @@ test('an orchestrator cannot invent an authorization quote to execute a branch d
   assert.match(w.followupResult!, /ne correspond pas/);
   assert.equal(w.operation, undefined);
 });
+
+test('workflow language is captured once, persisted and replayed across host setting changes', async (t) => {
+  const h = await setup(t);
+  let language: 'fr' | 'en' = 'en';
+  let prepares = 0;
+  h.fake.prepare = async () => {
+    prepares++;
+    return { cwd: '/repo', repo: '/repo/.git', baseline: '/baseline', language };
+  };
+  const w = await h.create();
+  assert.equal(w.language, 'en');
+  assert.match(h.fake.calls[0].prompt, /Workflow response language: English/);
+  language = 'fr';
+  const replay = await h.engine.create('workspace', 'Implement OAuth2', h.config, 'create-1');
+  assert.equal(replay.language, 'en');
+  assert.equal(prepares, 1);
+  const restored = await new Store(h.store.directory).get(w.id);
+  assert.deepEqual(restored, w);
+  await h.action(restored, 'approve');
+  assert.ok(h.fake.calls.some((call) => call.role === 'builder'));
+  assert.ok(h.fake.calls.every((call) => call.prompt.includes('Workflow response language: English')));
+});

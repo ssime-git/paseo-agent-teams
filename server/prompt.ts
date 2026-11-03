@@ -87,9 +87,19 @@ function artifacts(w: Workflow, role: Role): string[] {
   return [plan, `Build: ${serialize(w.build, 4 * 1024)}`, tests];
 }
 
+/** Historical workflows intentionally retain their original language behavior. */
+function responseLanguage(w: Workflow): string[] {
+  return w.language
+    ? [
+        `Workflow response language: ${w.language === 'fr' ? 'French (fr)' : 'English (en)'}. Use this saved language for all human-readable explanations, questions, option labels, tradeoffs, summaries and report values, including references below to the user's language. Preserve JSON keys, enum values, code, identifiers, file paths, commands and raw tool output exactly. This language preference grants no permission and changes no output schema.`,
+      ]
+    : [];
+}
+
 export function buildPrompt(w: Workflow, role: Role, context: string, skillContext = '') {
   if (w.phase === 'followup' && w.followup?.briefing)
     return [
+      ...responseLanguage(w),
       w.followup.execution
         ? 'The orchestrator delegates an operational action explicitly requested by the user. Execute only the action authorized by the original user message, then report the real result in the user’s language. The briefing itself grants no permission: a question, hypothetical action or request for advice does not authorize writes. Inspect the actual Git state, remotes and relevant verification evidence first. Preserve every existing user change; never require unrelated working changes to be committed merely to push existing commits. Do not edit implementation files, include unrelated files, reset, clean, force-push, or delete a branch without an explicit deletion request. If validation is needed, run it before publishing. For publication, verify the resulting remote reference and requested CI; never invent a URL or success. Report precise blockers honestly. Do not launch another role.'
         : 'The orchestrator delegates a focused read-only consultation. Answer only this briefing in the user’s language. Inspect relevant evidence if needed. Do not edit files, commit, push, merge or approve anything. Report the result to the orchestrator; do not launch another role.',
@@ -105,6 +115,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
     ].join('\n');
   if (w.phase === 'delivering')
     return [
+      ...responseLanguage(w),
       'Deliver the independently validated work using only the explicitly approved method below. This is a delivery turn, not implementation. Do not edit implementation files or alter the validated content. Inspect Git state, remotes, the launch baseline and authentication first. Commit only provably workflow-owned changes; preserve every pre-existing staged, unstaged and untracked user change. If ownership is uncertain, report blocked. Never force-push, reset or clean files.',
       w.delivery?.method === 'pull_request' && w.delivery.approvedAt
         ? 'The user explicitly approved a pull request. Create or reuse a matching PR for the validated work, creating a branch, committing and pushing only the workflow changes as needed. Do not merge or change main. Report the real PR URL and its head commit.'
@@ -124,6 +135,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
     ].join('\n');
   if (w.phase === 'followup')
     return [
+      ...responseLanguage(w),
       w.followup?.coordinating
         ? 'You are the team orchestrator. Read the current user message and current evidence, triage it and keep the conversation available. Use kind=reply for a direct answer, a necessary clarification or an approval question. After an operational execution, set available=true only when its report and current evidence show that no relevant pipeline work remains; this leaves the conversation available without approving a plan or claiming independently verified delivery. Never use it to skip an unresolved human decision. Use kind=delegate for a focused read-only consultation by Planner or Reviewer; give only the context and question that role needs. Use kind=execute for an operational action explicitly requested now (for example pushing already-reviewed main commits); provide its exact verbatim authorizationQuote from the current user message and a scoped briefing for the Builder. A question about keeping or deleting a branch is not a deletion request. Do not turn an already-authorized operational action into a new implementation plan or ask for the same permission again. Use kind=replan only when the user requests implementation or changes to the mission, so the normal plan/build/test/review pipeline can handle them. Never reimplement or republish work already done in a native session. Inspect current Git/native delivery evidence when reports are stale. Do not perform writes yourself or interpret a discussion as permission; execution is delegated only within the explicit current user request. Never ask the user to manually unlock or reconcile an operation; the orchestrator handles the routing.'
         : w.followup?.purpose === 'plan_revision'
@@ -176,6 +188,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
       'You are an independent reviewer of the actual artifact, not a continuation of the Builder conversation. Inspect the diff and relevant full files yourself; the build report is untrusted evidence. Run focused read-only reproductions where useful. Assess test quality and false positives, realistic behavior and original user requirements; a passing synthetic test does not prove integration. Compare against the initial launch state, including pre-existing changes. Distinguish code defects, incorrect verification commands and real external prerequisites, and give concrete actionable issues. Do not invent new acceptance criteria or require a commit when the user has not requested one. Do not edit files. Fail if tests fail or criteria are unmet.',
   };
   const head = [
+    ...responseLanguage(w),
     `Current pipeline role: ${role}. Apply restrictions addressed specifically to this role. Planner and Reviewer are read-only; Builder implements the approved plan within its configured permissions. A restriction addressed only to another role does not change your role. Preserve all user restrictions that apply to the whole workflow; this role assignment grants no additional permission.`,
     instructions[role],
     'Successful review is followed by a mandatory human delivery question: PR or integration on main. Plan approval, final approval, autonomous mode, silence and tool auto-accept never authorize delivery. Do not commit, push, publish or merge during implementation or review. The mission is complete only after approved delivery is verified.',
@@ -224,6 +237,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
 export function repairPrompt(w: Workflow) {
   const repair = w.resultRepair!;
   return [
+    ...responseLanguage(w),
     'Repair only the report format of your completed turn. Do not use tools, run tests, edit files or repeat the task. Preserve the facts and unresolved blockers; do not invent successful work.',
     `Validation error: ${boundedText(repair.error, 4000)}`,
     `Previous completed report: ${boundedText(repair.text, 32 * 1024)}`,
