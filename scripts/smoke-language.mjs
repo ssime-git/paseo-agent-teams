@@ -26,6 +26,9 @@ const proof = process.argv[2]
   : { root: await mkdtemp('/tmp/teams-language-'), url, results: [] };
 assert.equal(proof.url, url);
 assert.ok(!proof.pending, 'An unverified native turn must be captured explicitly before continuation');
+const explicitPreference = process.env.PASEO_TEAMS_SMOKE_EXPLICIT_LANGUAGE === '1';
+if (proof.results.length) assert.equal(proof.explicitPreference ?? false, explicitPreference);
+proof.explicitPreference = explicitPreference;
 const root = proof.root;
 const data = root + '/state';
 await mkdir(data, { recursive: true });
@@ -48,7 +51,7 @@ try {
     await writeFile(repo + '/README.md', 'Preserve this baseline.\n');
     const before = execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' });
     const workspace = await api.workspaces.open(repo);
-    let hostLanguage = language;
+    let hostLanguage = explicitPreference ? (language === 'fr' ? 'en' : 'fr') : language;
     const runtime = new PaseoRuntime(
       api,
       data,
@@ -59,6 +62,7 @@ try {
     w.id = randomUUID();
     w.workspaceId = workspace.id;
     w.config.mode = 'auto';
+    if (explicitPreference) w.config.responseLanguage = language;
     w.config.roles.planner = { provider: 'codex/' + model.id, modeId: 'read-only' };
     w.config.roles.reviewer = w.config.roles.planner;
     w.config.roles.builder = { provider: 'codex/' + model.id, modeId: 'full-access' };
@@ -88,7 +92,17 @@ try {
     assert.equal(await readFile(repo + '/README.md', 'utf8'), 'Preserve this baseline.\n');
     assert.equal(execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' }), before);
     delete proof.pending;
-    proof.results.push({ language, changedHostLanguage: hostLanguage, id, prompt, result, parsed, timeline });
+    proof.results.push({
+      language,
+      explicitPreference,
+      config: restored.config,
+      changedHostLanguage: hostLanguage,
+      id,
+      prompt,
+      result,
+      parsed,
+      timeline,
+    });
     await writeFile(proofFile, JSON.stringify(proof, null, 2));
   }
   console.log(

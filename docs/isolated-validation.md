@@ -1172,3 +1172,40 @@ combinant tous les axes. La création V1 native utilise encore le repli hôte : 
 SDK 0.13 expose la locale au client, mais pas dans `PluginHandlerContext` ni les
 entrées du protocole provider serveur détecté. Ne pas attribuer au dernier client
 connecté une préférence globale.
+
+### 4 novembre 2026 — préférence explicite des missions V1 natives
+
+Le provider expose un réglage natif `responseLanguage` avant le premier message :
+`host` (défaut), `fr` ou `en`. Le runtime capture la préférence explicite, sinon
+le repli hôte. L’API serveur n’expose toujours pas la locale cliente native.
+Après création, le reçu du moteur prime sur les réglages natifs restaurés ;
+aucune opération commencée ne change de langue.
+
+- Régression : 371 tests via `npm run check`, 36 tests ciblés provider/prompt/Store.
+- Deux tours Planner réels Codex `gpt-6.1-sol`, read-only, 120 s maximum chacun,
+  sans retry : questions FR/EN avec préférence opposée au réglage hôte,
+  relecture Store et changement du callback hôte. Preuve
+  `/tmp/teams-language-adhMNl-proof.json` ; README et Git inchangés.
+- Configuration officielle `DaemonClient.setAgentFeature` sur deux conversations
+  natives indépendantes, sans tour de modèle, puis restauration après redémarrage
+  du seul daemon isolé 0.14.0 sur 6914 :
+  `/tmp/teams-native-language-GSKgLj-proof.json`,
+  `/tmp/roadmap-041340-native-settings-restart-final.log`.
+- Défaut révélé et corrigé par cette reprise : avant le premier prompt, la
+  configuration native peut être plus récente que le handle provider persisté.
+  À l’ouverture, relire le réglage natif validé tant qu’aucun reçu de création
+  n’existe. Un test reproduit ce handle ancien et protège la mission déjà créée.
+- Sélecteur et trois options lisibles sur navigateur desktop 1440 × 1050 :
+  `/tmp/roadmap-041340-native-desktop{,-choices}.png`, capture inspectée.
+  Essais mobile échoués sur navigation/fil remonté : aucune preuve mobile ajoutée.
+  Configuration native et tours Planner sont deux essais distincts ; aucun
+  parcours complet de création V1 par l’interface n’est revendiqué ici.
+
+Reproduction (daemon isolé à démarrer avec DATA_DIR/DAEMON_URL explicites) :
+
+```sh
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws PASEO_TEAMS_SMOKE_EXPLICIT_LANGUAGE=1 node --import tsx scripts/smoke-language.mjs
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-language-settings.mjs
+# Après arrêt normal et redémarrage isolés, vérifier le même fichier sans réécrire les choix :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-language-settings.mjs /tmp/teams-native-language-EXEMPLE-proof.json
+```

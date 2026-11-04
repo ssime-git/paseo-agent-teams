@@ -24,6 +24,8 @@ export const configSchema = z
     repositoryPaths: z.array(z.string().min(1)).min(1).max(20).optional(),
     roles: z.object({ planner: selectionSchema, builder: selectionSchema, reviewer: selectionSchema }).strict(),
     validation: z.enum(['plan', 'final', 'autonomous']).default('plan'),
+    // Explicit per-mission preference; absence preserves the host fallback.
+    responseLanguage: z.enum(['fr', 'en']).optional(),
     autoFix: z.boolean().default(true),
     goalMode: z.boolean().optional(),
     goalMaxTurns: z.number().int().min(3).max(200).optional(),

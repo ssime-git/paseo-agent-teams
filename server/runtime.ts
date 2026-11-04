@@ -70,7 +70,7 @@ export class PaseoRuntime implements Runtime {
         'The data directory must be outside the workspace repository',
       );
     await checkScope?.({ cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets });
-    const language = await this.language();
+    const language = config.responseLanguage ?? (await this.language());
     const baseline = join(this.directory, `baseline-${randomUUID()}.snapshot`);
     const captured = JSON.stringify(await captureRepositories(targets));
     await writeFile(baseline, captured, { mode: 0o600, flush: true });

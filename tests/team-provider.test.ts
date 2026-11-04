@@ -114,7 +114,7 @@ test('native Team catalog, detected role settings, explicit approval and idempot
   assert.equal(s.events[0].type, 'catalog');
   await s.open();
   const config = s.events.find((e) => e.type === 'session.config');
-  assert.equal(config?.type === 'session.config' && config.config.settings.length, 3);
+  assert.equal(config?.type === 'session.config' && config.config.settings.length, 4);
   await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Implement a feature' }] });
   assert.equal(s.calls.length, 1);
   assert.match(JSON.stringify(s.events), /team-approve/);
@@ -342,7 +342,7 @@ test('native Team catalog, modes and commands follow the language setting', asyn
   assert.ok(config?.type === 'session.config');
   assert.deepEqual(
     config.config.settings.map((setting) => setting.label),
-    ['Plan', 'Code', 'Review'],
+    ['Plan', 'Code', 'Review', 'Response language'],
   );
   assert.equal(config.config.modes.find((m) => m.id === 'plan')?.label, 'Approve the plan');
 });
@@ -698,4 +698,66 @@ test('workflow discovery sent as steering is rejected without starting or approv
     s.events.some((e) => e.type === 'session.turn' && e.state === 'started'),
     false,
   );
+});
+
+test('native response language is explicit, durable, validated and frozen before mission creation', async (t) => {
+  const s = await setup(t, 'fr');
+  await s.open();
+  const configure = (requestId: string, settings: Record<string, string>) =>
+    s.connection.send({
+      type: 'session.configure',
+      sessionId: 'session',
+      requestId,
+      changes: { settings },
+    });
+  await configure('english', { responseLanguage: 'en' });
+  const persistence = s.events.findLast((e) => e.type === 'session.persistence');
+  assert.ok(persistence?.type === 'session.persistence');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  await s.open(persistence.persistence);
+  const restored = s.events.findLast((e) => e.type === 'session.config');
+  assert.ok(restored?.type === 'session.config');
+  assert.equal(restored.config.settings.find((x) => x.id === 'responseLanguage')?.value, 'en');
+  await configure('invalid', { responseLanguage: 'de' });
+  assert.ok(s.events.some((e) => e.type === 'request.failed' && e.requestId === 'invalid'));
+  await configure('atomic', { responseLanguage: 'fr', planner: 'unknown/model' });
+  assert.ok(s.events.some((e) => e.type === 'request.failed' && e.requestId === 'atomic'));
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Implement a feature' }] });
+  assert.equal(s.workflow().config.responseLanguage, 'en');
+  await configure('late', { responseLanguage: 'fr' });
+  assert.ok(s.events.some((e) => e.type === 'request.failed' && e.requestId === 'late'));
+  assert.equal(s.workflow().config.responseLanguage, 'en');
+  const fallback = await setup(t, 'en');
+  await fallback.open();
+  await fallback.connection.send({
+    type: 'session.configure',
+    sessionId: 'session',
+    requestId: 'explicit',
+    changes: { settings: { responseLanguage: 'fr' } },
+  });
+  await fallback.connection.send({
+    type: 'session.configure',
+    sessionId: 'session',
+    requestId: 'host',
+    changes: { settings: { responseLanguage: 'host' } },
+  });
+  await fallback.prompt('fallback', { type: 'message', content: [{ type: 'text', text: 'Use host fallback' }] });
+  assert.equal(Object.hasOwn(fallback.workflow().config, 'responseLanguage'), false);
+});
+
+test('native restore recovers the core language setting from an older handle but never overrides a mission receipt', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  const opened = s.events.find((e) => e.type === 'session.opened');
+  assert.ok(opened?.type === 'session.opened' && opened.persistence);
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  await s.open(opened.persistence, { settings: { responseLanguage: 'en' } });
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Keep this language' }] });
+  assert.equal(s.workflow().config.responseLanguage, 'en');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close-again' });
+  await s.open(opened.persistence, { settings: { responseLanguage: 'fr' } });
+  const config = s.events.findLast((e) => e.type === 'session.config');
+  assert.ok(config?.type === 'session.config');
+  assert.equal(config.config.settings.find((x) => x.id === 'responseLanguage')?.value, 'en');
+  assert.equal(s.calls.filter((c) => c.kind === 'create').length, 1);
 });

@@ -1,5 +1,7 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Langue des réponses': 'Response language',
+  'Repli hôte (figé au lancement)': 'Host fallback (saved at launch)',
   'Langue des réponses : {language}': 'Response language: {language}',
   'Afficher les workflows de cette conversation': 'Show workflows in this conversation',
   'Affiche les workflows dans le fil via /team-graphs, sans lancer ni approuver une étape.':
@@ -225,8 +227,8 @@ export const en: Record<string, string> = {
     'Number of returns to Code after a failed review or failed tests.',
   Aucune: 'None',
   'Agent Teams · Équipe par défaut': 'Agent Teams · Default team',
-  'La composition est figée pour cette mission. Créez une nouvelle conversation pour changer les rôles.':
-    'The team is fixed for this mission. Start a new conversation to change the roles.',
+  'Les réglages sont figés pour cette mission. Créez une nouvelle conversation pour changer les rôles ou la langue des réponses.':
+    'Settings are fixed for this mission. Start a new conversation to change the roles or response language.',
   'L’équipe travaille déjà. Attendez la fin du tour, ou arrêtez-le pour mettre l’équipe en pause.':
     'The team is already working. Wait for the turn to end, or stop it to pause the team.',
   'Team Auto accepte actuellement les messages texte uniquement.': 'Team Auto currently accepts text messages only.',

@@ -156,17 +156,30 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           models: models.map((m) => ({ ...m, description: t(m.description) })),
           modes: modes.map((m) => ({ ...m, label: t(m.label) })),
           thinkingOptions: [],
-          settings: roles.map((role) => ({
-            type: 'select',
-            id: role,
-            label: t(roleTitle[role]),
-            value: session.saved.config.roles[role].provider,
-            options: session.choices
-              .filter((p) => p.modes.some((m) => role === 'builder' || readOnlyMode(p.family, m.id)))
-              .flatMap((p) =>
-                p.models.map((m) => ({ label: `${p.label ?? p.id} · ${m.label ?? m.id}`, value: `${p.id}/${m.id}` })),
-              ),
-          })),
+          settings: [
+            ...roles.map((role) => ({
+              type: 'select' as const,
+              id: role,
+              label: t(roleTitle[role]),
+              value: session.saved.config.roles[role].provider,
+              options: session.choices
+                .filter((p) => p.modes.some((m) => role === 'builder' || readOnlyMode(p.family, m.id)))
+                .flatMap((p) =>
+                  p.models.map((m) => ({ label: `${p.label ?? p.id} · ${m.label ?? m.id}`, value: `${p.id}/${m.id}` })),
+                ),
+            })),
+            {
+              type: 'select' as const,
+              id: 'responseLanguage',
+              label: t('Langue des réponses'),
+              value: session.saved.config.responseLanguage ?? 'host',
+              options: [
+                { value: 'host', label: t('Repli hôte (figé au lancement)') },
+                { value: 'fr', label: 'Français' },
+                { value: 'en', label: 'English' },
+              ],
+            },
+          ],
         };
         emit({ type: 'session.config', sessionId, config: state });
       };
@@ -419,6 +432,13 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             saved.workflowId = existing.id;
             saved.config = existing.config;
           } else if (saved.workflowId) throw new Error('Team persistence does not match a workflow receipt');
+          // Before the first prompt, core may retain an older provider handle while
+          // persisting the latest native setting separately. Never override a mission receipt.
+          if (!existing && input.config.settings.responseLanguage !== undefined) {
+            const language = z.enum(['host', 'fr', 'en']).parse(input.config.settings.responseLanguage);
+            if (language === 'host') delete saved.config.responseLanguage;
+            else saved.config.responseLanguage = language;
+          }
           sessions.set(input.sessionId, {
             saved,
             agentId: z.string().min(1).parse(input.config.env.PASEO_AGENT_TEAMS_AGENT_ID),
@@ -454,13 +474,21 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         if (input.type === 'session.configure') {
           if (session.saved.workflowId)
             throw new Error(
-              t('La composition est figée pour cette mission. Créez une nouvelle conversation pour changer les rôles.'),
+              t(
+                'Les réglages sont figés pour cette mission. Créez une nouvelle conversation pour changer les rôles ou la langue des réponses.',
+              ),
             );
           if ((input.changes.model && input.changes.model !== 'auto') || input.changes.thinkingOption)
             throw new Error('Unsupported Team configuration');
           const next = structuredClone(session.saved.config);
           if (input.changes.mode) next.validation = z.enum(['plan', 'final', 'autonomous']).parse(input.changes.mode);
           for (const [key, value] of Object.entries(input.changes.settings ?? {})) {
+            if (key === 'responseLanguage') {
+              const language = z.enum(['host', 'fr', 'en']).parse(value);
+              if (language === 'host') delete next.responseLanguage;
+              else next.responseLanguage = language;
+              continue;
+            }
             const role = z.enum(roles).parse(key);
             const provider = session.choices.find((p) => p.models.some((m) => `${p.id}/${m.id}` === value));
             const mode = provider?.modes.find((m) =>
