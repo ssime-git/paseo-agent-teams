@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { onLanguage } from './language-signal';
-import { translate } from '../shared/i18n';
+import { interfaceLanguage, translate } from '../shared/i18n';
 import { TEAM_PROVIDER_ID } from '../shared/team-composition';
 import { TEAM_SETTINGS_SCREEN } from './routes';
 import type { ComponentType } from 'react';
@@ -12,7 +12,7 @@ export function addThreadAccess(
   Card: ComponentType<PluginButtonContentProps & { openSettings(): void; showGraphs(): Promise<void> }>,
 ) {
   const lifetime = new AbortController();
-  let language: 'fr' | 'en' = 'fr';
+  let language = interfaceLanguage(client.i18n?.locale);
   let label = translate(language, 'Équipe');
   const removeLanguage = onLanguage((next) => {
     language = next;

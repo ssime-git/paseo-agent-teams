@@ -1117,3 +1117,21 @@ Exécution réelle : daemon officiel 0.14.0 sur 6914, home `/tmp/teams-014-compa
 Preuve `/tmp/teams-language-1fZhhL-proof.json`, sessions `25f6af73-c047-4fbe-817c-22977b6139e0` (FR), seconde session dans la preuve EN. Premier harnais : mauvais ordre des arguments de `parseResult` après réception FR, donc échec du harnais. Récupération en lecture seule de cette même réponse (`/tmp/roadmap-032240-capture-fr.mjs`), sans nouveau prompt FR, puis continuation EN réussie. Logs `/tmp/roadmap-032240-language-{live,resumed}.log`. Deux tours réels au total. Premier démarrage isolé avec noms de variables erronés corrigé après arrêt normal, avant les tours natifs ; sept états principaux byte-identiques avant/après. Aucune simulation présentée comme réponse réelle.
 
 Limites : test du runtime natif et du stockage, pas de parcours complet via Team, de réponse humaine ultérieure, d'approbation ni de redémarrage daemon pendant la question. Aucun nouveau navigateur/mobile ni appareil physique testé. Le branchement des graphes personnalisés reste à faire. Audit du SDK **0.13.0 installé** : `PluginClientContext.i18n.locale`, `useTranslation` et `PluginLocaleSource.subscribe` existent dans les déclarations officielles du package. L'ancien constat d'absence d'API en SDK 0.11.2 ne doit plus être étendu au SDK actuel. Ces API côté client ne sont pas encore raccordées à l'interface ni transmises au serveur ; le réglage hôte reste la source effective de cet incrément.
+
+### 4 novembre 2026 — langue officielle de l’interface cliente
+
+Le SDK 0.13 expose `useTranslation(...).locale` (abonnement à la locale de l’application) et `PluginClientContext.i18n.locale`. Team utilise désormais cette locale pour son interface FR/EN. Une locale absente ou non prise en charge utilise le réglage hôte, puis le français. Ce réglage reste la source de langue des nouvelles missions V1 ; la transmission de la locale cliente à l’admission et aux graphes reste à couvrir. Aucun état commencé ni réglage partagé n’est réécrit par la connexion d’un client.
+
+Harnais navigateur opt-in, avec Playwright installé séparément et un daemon **isolé** déjà lancé :
+
+```bash
+PLAYWRIGHT_MODULE=/chemin/absolu/playwright-core/index.mjs \
+TEAMS_SMOKE_URL=http://127.0.0.1:6914 \
+TEAMS_SMOKE_SERVER_ID=identifiant-du-daemon-isole \
+TEAMS_SMOKE_OUTPUT=/tmp/teams-client-language-proof \
+node scripts/smoke-client-language.mjs
+```
+
+Le harnais refuse le port principal 6767 et les hôtes hors loopback, garde deux contextes navigateur FR/EN ouverts simultanément, ouvre la vraie surface de réglages Team, vérifie les libellés à 1440 × 1050 et 390 × 844, l’absence de débordement horizontal et d’erreur JavaScript, puis sauvegarde captures et `proof.json`. Il initialise la préférence d’application dans le stockage de chacun de ses propres contextes ; il ne change aucun réglage hôte, ne lance aucun modèle et ne constitue pas une preuve de changement à chaud, de réponse d’agent ou d’admission dans Team.
+
+Preuve réelle sur Paseo 0.14.0, port 6914 : `/tmp/roadmap-040340-client-language/{proof.json,fr-desktop.png,fr-mobile.png,en-desktop.png,en-mobile.png}` ; quatre rendus réussis, deux clients de langues différentes sur le même hôte, réglage hôte français conservé. Capture anglaise mobile inspectée visuellement. Premier essai refusé par le SDK pour catalogue de traductions vide : remplacé par une ressource anglaise valide avant les essais réussis. Les anciens tests React sans API de traduction continuent de vérifier le repli. Aucun appareil physique testé.

@@ -208,9 +208,9 @@ export const en: Record<string, string> = {
   'Réglages illisibles': 'Unreadable settings',
   'Les réglages enregistrés ne sont plus valides.': 'The saved settings are no longer valid.',
   Réinitialiser: 'Reset',
-  'Langue de l’interface': 'Interface language',
-  'Équipe, réglages et messages de l’orchestrateur dans le thread.':
-    'Team, settings and orchestrator messages in the thread.',
+  'Langue de repli et des nouvelles missions': 'Fallback and new mission language',
+  'La langue de l’application est prioritaire pour l’interface ; ce réglage sert de repli.':
+    'The app language takes priority for the interface; this setting is the fallback.',
   'Équipe par défaut': 'Default team',
   'Chaque nouvelle conversation Team Auto part de cette équipe. Pour une mission précise, ajustez les rôles avec les réglages du composer avant le premier message.':
     'Every new Team Auto conversation starts from this team. For a specific mission, adjust the roles with the composer settings before the first message.',

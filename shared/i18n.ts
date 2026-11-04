@@ -19,3 +19,9 @@ export const translator =
   (language: Language): Translate =>
   (source, params) =>
     translate(language, source, params);
+
+/** Only supported app locales override the explicit host fallback. */
+export function interfaceLanguage(locale: string | undefined, fallback: Language = 'fr'): Language {
+  const base = locale?.trim().toLowerCase().split(/[-_]/)[0];
+  return base === 'fr' || base === 'en' ? base : fallback;
+}

@@ -116,7 +116,14 @@ test('settings list eligible models per role and save a complete document agains
   const selects = view.root.findAll((n) => (n.type as unknown) === 'Select');
   assert.deepEqual(
     selects.map((s) => s.props.label),
-    ['Langue de l’interface', 'Plan', 'Code', 'Revue', 'Mode par défaut', 'Corrections automatiques'],
+    [
+      'Langue de repli et des nouvelles missions',
+      'Plan',
+      'Code',
+      'Revue',
+      'Mode par défaut',
+      'Corrections automatiques',
+    ],
   );
   const [language, plan, code] = selects;
   // Read-only roles only offer read-only capable harnesses; the Builder only write-capable ones.

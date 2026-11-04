@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { en } from '../shared/i18n-en';
-import { translate } from '../shared/i18n';
+import { interfaceLanguage, translate } from '../shared/i18n';
 import { roleTitle } from '../shared/team-composition';
 
 const files = [
@@ -103,4 +103,20 @@ test('translation keeps French as source and fills placeholders in both language
     en['Plan validé. {builder} implémente.'].replace('{builder}', 'Codex'),
   );
   assert.equal(translate('en', 'Texte inconnu'), 'Texte inconnu');
+});
+
+test('app locale takes precedence per client with explicit supported fallback', () => {
+  for (const locale of ['fr', 'fr-FR', 'FR_ca']) assert.equal(interfaceLanguage(locale, 'en'), 'fr');
+  for (const locale of ['en', 'en-US', ' EN_gb ']) assert.equal(interfaceLanguage(locale, 'fr'), 'en');
+  for (const locale of [undefined, '', 'de-DE', 'english', 'french']) {
+    assert.equal(interfaceLanguage(locale, 'fr'), 'fr');
+    assert.equal(interfaceLanguage(locale, 'en'), 'en');
+  }
+  assert.equal(interfaceLanguage(undefined), 'fr');
+  // Two clients resolve independently from the same host fallback.
+  const fallback = 'fr';
+  assert.deepEqual(
+    ['fr-FR', 'en-GB'].map((locale) => interfaceLanguage(locale, fallback)),
+    ['fr', 'en'],
+  );
 });

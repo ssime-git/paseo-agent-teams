@@ -13,7 +13,7 @@ import {
   type TeamSettings as Values,
 } from '../shared/team-composition';
 import { errorMessage } from './errors';
-import { announceLanguage, useT } from './i18n';
+import { useT } from './i18n';
 import { hint, validation } from './texts';
 
 const AUTO = 'auto';
@@ -63,8 +63,8 @@ export function TeamSettings({ theme: { colors: c } }: PluginSurfaceProps) {
       ) : null}
       <SettingsSection title="Langue · Language">
         <SettingsSelect
-          label={t('Langue de l’interface')}
-          hint={t('Équipe, réglages et messages de l’orchestrateur dans le thread.')}
+          label={t('Langue de repli et des nouvelles missions')}
+          hint={t('La langue de l’application est prioritaire pour l’interface ; ce réglage sert de repli.')}
           value={values.language}
           options={[
             { value: 'fr', label: 'Français' },
@@ -73,7 +73,6 @@ export function TeamSettings({ theme: { colors: c } }: PluginSurfaceProps) {
           disabled={settings.saving}
           onValueChange={(language) => {
             save({ ...values, language });
-            announceLanguage(language);
           }}
         />
       </SettingsSection>
