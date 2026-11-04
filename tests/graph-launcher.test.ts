@@ -23,6 +23,7 @@ test('launcher binds explicit confirmation to the displayed revision and retains
         return {
           source: record,
           task: input.task,
+          language: input.language,
           repository: { root: '/isolated/repo' },
           confirmation: 'a'.repeat(64),
         };
@@ -58,6 +59,7 @@ test('launcher binds explicit confirmation to the displayed revision and retains
   assert.equal(button(preview).props.disabled, true);
   await act(async () => tree.root.findByType('TextInput' as never).props.onChangeText('Build it'));
   await click(preview);
+  assert.equal(calls.at(-1)!.input.language, 'fr');
   assert.match(JSON.stringify(tree.toJSON()), /maxTransitions/);
   assert.match(JSON.stringify(tree.toJSON()), /isolated\/repo/);
   assert.equal(calls.filter((c) => c.name === 'teams.graph_confirm').length, 0);
@@ -67,6 +69,9 @@ test('launcher binds explicit confirmation to the displayed revision and retains
   await click(confirm);
   assert.match(JSON.stringify(tree.toJSON()), /Transport disconnected/);
   const failed = calls.at(-1)!;
+  assert.equal(failed.input.language, 'fr');
+  // Changing this client's language after preview must not reinterpret its confirmation.
+  ((globalThis as Record<string, unknown>).__launchTest as { language?: string }).language = 'en';
   reject = false;
   await click(confirm);
   assert.deepEqual(calls.at(-1), failed);

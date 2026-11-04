@@ -59,6 +59,7 @@ export class Store {
           if (
             existing.repo !== input.repo ||
             existing.task !== input.task ||
+            existing.language !== input.language ||
             !isDeepStrictEqual(existing.source, input.source) ||
             !isDeepStrictEqual(existing.admission, input.admission)
           )

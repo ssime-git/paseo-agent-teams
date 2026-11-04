@@ -88,7 +88,7 @@ function artifacts(w: Workflow, role: Role): string[] {
 }
 
 /** Historical workflows intentionally retain their original language behavior. */
-function responseLanguage(w: Workflow): string[] {
+export function responseLanguage(w: { language?: Workflow['language'] }): string[] {
   return w.language
     ? [
         `Workflow response language: ${w.language === 'fr' ? 'French (fr)' : 'English (en)'}. Use this saved language for all human-readable explanations, questions, option labels, tradeoffs, summaries and report values, including references below to the user's language. Preserve JSON keys, enum values, code, identifiers, file paths, commands and raw tool output exactly. This language preference grants no permission and changes no output schema.`,

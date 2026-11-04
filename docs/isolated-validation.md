@@ -1135,3 +1135,40 @@ node scripts/smoke-client-language.mjs
 Le harnais refuse le port principal 6767 et les hôtes hors loopback, garde deux contextes navigateur FR/EN ouverts simultanément, ouvre la vraie surface de réglages Team, vérifie les libellés à 1440 × 1050 et 390 × 844, l’absence de débordement horizontal et d’erreur JavaScript, puis sauvegarde captures et `proof.json`. Il initialise la préférence d’application dans le stockage de chacun de ses propres contextes ; il ne change aucun réglage hôte, ne lance aucun modèle et ne constitue pas une preuve de changement à chaud, de réponse d’agent ou d’admission dans Team.
 
 Preuve réelle sur Paseo 0.14.0, port 6914 : `/tmp/roadmap-040340-client-language/{proof.json,fr-desktop.png,fr-mobile.png,en-desktop.png,en-mobile.png}` ; quatre rendus réussis, deux clients de langues différentes sur le même hôte, réglage hôte français conservé. Capture anglaise mobile inspectée visuellement. Premier essai refusé par le SDK pour catalogue de traductions vide : remplacé par une ressource anglaise valide avant les essais réussis. Les anciens tests React sans API de traduction continuent de vérifier le repli. Aucun appareil physique testé.
+
+## Langue figée des graphes depuis Team (4 novembre 2026)
+
+Le lanceur utilise la locale officielle cliente, avec le repli hôte déjà défini par
+`useLanguage`. La prévisualisation annonce `FR` ou `EN` et lie cette langue à son
+empreinte. La confirmation réutilise cette valeur, même si le client change de
+langue entre-temps. Le checkpoint et toutes les futures consignes du graphe
+conservent cette langue ; les contrats JSON, permissions et sorties brutes restent
+inchangés. Réutiliser un identifiant d’admission avec une autre langue échoue.
+Les anciens appels/checkpoints sans langue gardent leur comportement et leurs
+empreintes historiques, sans migration implicite ni réécriture des prompts liés.
+
+Harnais réel opt-in, sur daemon et dépôts isolés uniquement :
+
+```bash
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws \
+  node scripts/smoke-graph-language.mjs
+# Après arrêt normal/redémarrage du seul daemon isolé :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws \
+  node scripts/smoke-graph-language.mjs /tmp/teams-graph-language-IDENTIFIANT-proof.json
+```
+
+Le premier appel borne l’essai à deux tours Codex read-only (modèle détecté,
+120 secondes par langue, sans réémission automatique). Il passe par les RPC
+réelles sauvegarde/prévisualisation/confirmation/continuation, contrôle les reçus,
+le nombre de messages natifs, README et l’état Git. Le second appel ne lance
+aucun modèle : il compare exactement les états et le rejeu des confirmations,
+puis vérifie que le silence laisse la clarification en attente. Ne jamais relancer
+le premier appel pour récupérer un tour incertain : inspecter sa preuve pending.
+
+Preuve du passage : `/tmp/teams-graph-language-sT7QEA-proof.json`, questions CSV/JSON
+réellement françaises et anglaises, puis checkpoints identiques après redémarrage.
+Cette preuve ne couvre pas la réponse humaine ultérieure ni un parcours transversal
+combinant tous les axes. La création V1 native utilise encore le repli hôte : le
+SDK 0.13 expose la locale au client, mais pas dans `PluginHandlerContext` ni les
+entrées du protocole provider serveur détecté. Ne pas attribuer au dernier client
+connecté une préférence globale.

@@ -1,5 +1,6 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Langue des réponses : {language}': 'Response language: {language}',
   'Afficher les workflows de cette conversation': 'Show workflows in this conversation',
   'Affiche les workflows dans le fil via /team-graphs, sans lancer ni approuver une étape.':
     'Shows workflows in the thread via /team-graphs, without starting or approving a step.',

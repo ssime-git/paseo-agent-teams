@@ -8,6 +8,7 @@ import { GraphCheckpoints } from './graph-checkpoints';
 import { observeGraphDispatch } from './graph-reconciliation';
 import { repository } from './git';
 import { nativeMode, providerProfiles } from './providers';
+import { responseLanguage } from './prompt';
 
 // Preparation is not dispatch authorization. In particular, a retry that finds a
 // binding must observe it, never create a replacement session or resend a prompt.
@@ -95,6 +96,7 @@ export function graphDispatchPrompt(state: GraphCheckpoint, operationId: string)
     step.contract === 'plan' && step.access === 'read-only' ? z.union([schema, clarificationSchema]) : schema;
   const prompt = [
     `[agent-teams-operation:${operationId}]`,
+    ...responseLanguage(state),
     'Execute only this graph activation. Do not invoke Team Auto or launch other workflow steps.',
     'Return exactly one JSON document matching the result contract. Report blockers honestly. A reported test is not independent verification.',
     `Result contract: ${JSON.stringify(z.toJSONSchema(resultSchema, { unrepresentable: 'any' }))}`,

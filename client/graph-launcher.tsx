@@ -6,7 +6,7 @@ import type { z } from 'zod';
 import { listDefinitionsRpc, type DefinitionRecord } from '../shared/definition-catalog';
 import { graphPreviewRpc, graphConfirmRpc } from '../shared/graph-actions';
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
-import { useT } from './i18n';
+import { useLanguage, useT } from './i18n';
 import { GraphDefinition } from './graph-definition';
 import { GraphPreset } from './graph-preset';
 import { GraphImport } from './graph-import';
@@ -33,6 +33,7 @@ export function GraphLauncher({
   onAdmitted: (state: GraphCheckpoint) => void;
 }) {
   const t = useT();
+  const language = useLanguage();
   const list = useRpc(listDefinitionsRpc),
     preview = useRpc(graphPreviewRpc),
     confirm = useRpc(graphConfirmRpc);
@@ -184,6 +185,7 @@ export function GraphLauncher({
                   definitionId: selected.id,
                   definitionRevision: selected.revision,
                   task: task.trim(),
+                  language,
                 });
                 setPending({ value, id: launchId() });
               });
@@ -199,6 +201,11 @@ export function GraphLauncher({
               </Text>
               <Text style={{ color: c.foreground }}>{pending.value.repository.root}</Text>
               <Text style={{ color: c.foreground }}>{pending.value.task}</Text>
+              {pending.value.language ? (
+                <Text style={{ color: c.foreground }}>
+                  {t('Langue des réponses : {language}', { language: pending.value.language.toUpperCase() })}
+                </Text>
+              ) : null}
               <GraphDefinition definition={pending.value.source.definition} colors={c} />
               <Text selectable style={{ color: c.foreground, flexShrink: 1 }}>
                 {JSON.stringify(pending.value.source.definition, null, 2)}
@@ -215,6 +222,7 @@ export function GraphLauncher({
                     definitionId: pending.value.source.id,
                     definitionRevision: pending.value.source.revision,
                     task: pending.value.task,
+                    ...(pending.value.language ? { language: pending.value.language } : {}),
                     confirmation: pending.value.confirmation,
                     approveDefinition: true,
                   });

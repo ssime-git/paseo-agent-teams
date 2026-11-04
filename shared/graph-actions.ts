@@ -50,6 +50,7 @@ export const graphAdmitRpc = defineRpc({
       definitionId: z.uuid(),
       definitionRevision: z.number().int().positive(),
       task: z.string().trim().min(1).max(16000),
+      language: z.enum(['fr', 'en']).optional(),
       approveDefinition: z.literal(true),
     })
     .strict(),
@@ -66,6 +67,7 @@ export const graphPreviewRpc = defineRpc({
       source: definitionRecordSchema,
       repository: z.object({ root: z.string(), lock: z.string() }).strict(),
       task: z.string(),
+      language: z.enum(['fr', 'en']).optional(),
       ownerAgentId: z.string(),
       confirmation: z.string().regex(/^[a-f0-9]{64}$/),
     })

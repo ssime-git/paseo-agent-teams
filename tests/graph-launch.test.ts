@@ -299,3 +299,46 @@ test('exact concurrent confirmations publish once and cannot bypass repository r
   await assert.rejects(confirmSavedGraph(api, store, catalog, { ...confirm, id: randomUUID() }), /Another graph/);
   assert.equal((await store.graphs.all()).length, 1);
 });
+
+test('client graph language binds confirmation, persists on replay and leaves legacy fingerprints unchanged', async (t) => {
+  const { api, store, catalog, input, data } = await setup(t);
+  const { graphDispatchPrompt } = await import('../server/graph-preparation');
+  const { createHash } = await import('node:crypto');
+  const { id: _id, approveDefinition: _approved, ...previewInput } = input;
+  const legacy = await previewSavedGraph(api, catalog, previewInput);
+  assert.equal('language' in legacy, false);
+  const { confirmation, ...legacyValue } = legacy;
+  assert.equal(confirmation, createHash('sha256').update(JSON.stringify(legacyValue)).digest('hex'));
+  const [fr, en] = await Promise.all(
+    (['fr', 'en'] as const).map((language) => previewSavedGraph(api, catalog, { ...previewInput, language })),
+  );
+  assert.equal(fr.language, 'fr');
+  assert.equal(en.language, 'en');
+  assert.notEqual(fr.confirmation, en.confirmation);
+  assert.notEqual(fr.confirmation, legacy.confirmation);
+  const request = { ...input, language: 'en' as const, confirmation: en.confirmation };
+  await assert.rejects(confirmSavedGraph(api, store, catalog, { ...request, language: 'fr' }), /preview changed/);
+  const graph = await confirmSavedGraph(api, store, catalog, request);
+  assert.equal(graph.language, 'en');
+  const operationId = randomUUID();
+  const running = await store.graphs.reserve(graph.id, input.workspaceId, graph.revision, operationId);
+  const reloaded = new Store(data);
+  assert.deepEqual(await confirmSavedGraph(api, reloaded, catalog, request), running);
+  const prompt = graphDispatchPrompt(await reloaded.graphs.get(graph.id, input.workspaceId), operationId);
+  assert.match(prompt, /Workflow response language: English \(en\)/);
+  assert.match(prompt, /Preserve JSON keys, enum values, code/);
+  await assert.rejects(
+    confirmSavedGraph(api, reloaded, catalog, { ...request, language: 'fr', confirmation: fr.confirmation }),
+    /used differently/,
+  );
+  await assert.rejects(admitSavedGraph(api, reloaded, catalog, input), /used differently/);
+  assert.deepEqual(await reloaded.graphs.get(graph.id, input.workspaceId), running);
+  const historical = structuredClone(running);
+  delete historical.language;
+  const oldPrompt = graphDispatchPrompt(historical, operationId);
+  assert.equal(oldPrompt.includes('Workflow response language:'), false);
+  assert.equal(prompt.replace(/Workflow response language:.*\n/, ''), oldPrompt);
+  historical.language = 'fr';
+  assert.match(graphDispatchPrompt(historical, operationId), /French \(fr\)/);
+  assert.equal(graphAdmitRpc.input.safeParse({ ...input, language: 'de' }).success, false);
+});

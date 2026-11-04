@@ -31,6 +31,7 @@ export async function previewSavedGraph(
     source,
     repository: await repository(workspace.workspaceDirectory),
     task: input.task,
+    ...(input.language ? { language: input.language } : {}),
     ownerAgentId: input.ownerAgentId,
   };
   return { ...preview, confirmation: createHash('sha256').update(JSON.stringify(preview)).digest('hex') };
@@ -41,6 +42,7 @@ async function publishAdmission(store: Store, id: string, preview: z.infer<typeo
     id,
     repo: preview.repository.lock,
     task: preview.task,
+    ...(preview.language ? { language: preview.language } : {}),
     source: preview.source,
     admission: { ownerAgentId: preview.ownerAgentId, approvedDefinition: true },
   });

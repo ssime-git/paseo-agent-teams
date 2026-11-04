@@ -118,6 +118,8 @@ const checkpointShape = z
     revision: z.number().int().positive(),
     repo: z.string().min(1),
     task: z.string().trim().min(1),
+    // Frozen client language; absent on historical checkpoints.
+    language: z.enum(['fr', 'en']).optional(),
     source: definitionRecordSchema,
     admission: z
       .object({ ownerAgentId: z.string().min(1), approvedDefinition: z.literal(true) })
@@ -360,6 +362,7 @@ export function createGraphCheckpoint(input: {
   repo: string;
   task: string;
   source: DefinitionRecord;
+  language?: GraphCheckpoint['language'];
   admission?: GraphCheckpoint['admission'];
 }): GraphCheckpoint {
   return graphCheckpointSchema.parse({
