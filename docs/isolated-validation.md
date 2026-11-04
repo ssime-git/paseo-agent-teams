@@ -1209,3 +1209,31 @@ PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-language-
 # Après arrêt normal et redémarrage isolés, vérifier le même fichier sans réécrire les choix :
 PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6914/ws node scripts/smoke-native-language-settings.mjs /tmp/teams-native-language-EXEMPLE-proof.json
 ```
+
+### Régression de navigation des réglages natifs (desktop et mobile)
+
+Après `smoke-native-language-settings.mjs`, utiliser son fichier de preuve sur le
+même daemon isolé. Le navigateur attend la découverte de l’hôte via les réglages
+Team avant d’ouvrir le workspace par identifiant. Sur mobile, il utilise le
+sélecteur d’onglets natif ; aucun redimensionnement desktop ne tient lieu de
+chargement mobile. Aucun message ni changement de réglage n’est envoyé.
+
+```bash
+PLAYWRIGHT_MODULE=/chemin/vers/playwright-core/index.mjs \
+TEAMS_SMOKE_URL=http://127.0.0.1:6914 \
+TEAMS_SMOKE_SERVER_ID=ID_DU_DAEMON_ISOLE \
+TEAMS_SMOKE_OUTPUT=/tmp/native-language-ui \
+node scripts/smoke-native-language-ui.mjs /tmp/teams-native-language-EXEMPLE-proof.json
+```
+
+Le budget total est de 90 secondes. `TEAMS_SMOKE_LAYOUT=desktop` ou `mobile`
+restreint explicitement la couverture ; par défaut les deux sont requis. Chaque
+scénario terminé est enregistré dans `partial-proof.json` ; `proof.json` n’est
+écrit que si tous les scénarios demandés réussissent. Les échecs conservent
+capture, texte et contrôles natifs. Un succès desktop seul ne valide pas mobile.
+
+Le 4 novembre à 18:40, le sélecteur FR/EN et ses trois choix sont vérifiés sur
+desktop. À 390 × 844, le workspace et l’onglet sont accessibles après découverte,
+mais `Open agent features` reste absent du compositeur natif. Le harnais échoue
+explicitement sur cette assertion ; ce résultat n’est pas une validation mobile.
+La cause exacte côté client natif reste à isoler, sans modifier Paseo.
