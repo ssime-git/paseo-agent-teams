@@ -1237,3 +1237,47 @@ desktop. À 390 × 844, le workspace et l’onglet sont accessibles après déco
 mais `Open agent features` reste absent du compositeur natif. Le harnais échoue
 explicitement sur cette assertion ; ce résultat n’est pas une validation mobile.
 La cause exacte côté client natif reste à isoler, sans modifier Paseo.
+
+### 4 novembre 2026, 23:40 — compatibilité Paseo 0.15 et accès mobile natif
+
+Le daemon principal détecté est désormais 0.15.0 ; le manifeste `<0.15.0`
+empêchait le chargement du plugin. La borne devient `<0.16.0` après essais
+isolés sur le CLI/daemon officiel 0.15.0 ; les SDK restent épinglés en 0.13.0.
+Les déclarations serveur utilisées (contexte/handlers/settings) sont identiques ;
+le protocole provider conserve sa version 1 et ajoute une capacité optionnelle.
+La [référence officielle](https://paseo.sh/docs/plugins/reference#requirements)
+confirme les contrôles distincts de compatibilité app et daemon.
+
+Preuves sur `/tmp/teams-015-compat`, port 6915, home et données indépendants,
+`PASEO_AGENT_TEAMS_DATA_DIR` et `PASEO_AGENT_TEAMS_DAEMON_URL` explicites,
+voix/relais désactivés :
+
+- Chargement réel du plugin, création de deux conversations natives via SDK 0.13,
+  choix FR/EN via `setAgentFeature`, puis arrêt/redémarrage isolé et relecture sans
+  réécriture : `/tmp/teams-native-language-LFdZU1-proof.json`. Le harnais consigne
+  maintenant version et identité réelles ; `PASEO_TEAMS_SMOKE_APP_VERSION=0.15.0`
+  permet aussi d'annoncer explicitement cette version cliente au protocole.
+- Sept copies de workflows principaux terminés lues par `teams.workflow_index`
+  et `teams.workflow_record`, empreintes SHA-256 inchangées après chargement :
+  `/tmp/teams-015-compat/persisted-proof.json`. Aucun état principal modifié ;
+  cela ne prouve pas une reprise réelle d'opération en cours sur 0.15.
+- Deux tours Codex `gpt-6.1-sol`, 120 s maximum chacun sans retry, questions
+  réellement FR/EN, recommandation CSV, compromis et réponse libre :
+  `/tmp/teams-language-eoWip9-proof.json`. Préférence opposée au repli hôte,
+  relecture disque, README/Git inchangés et un message par session.
+- Quatre scénarios navigateur natif : desktop 1440 × 1050 et mobile chargé à
+  390 × 844, valeurs Français/English et trois options host/fr/en entièrement
+  dans le viewport, aucun débordement horizontal ni erreur JavaScript :
+  `/tmp/roadmap-042340-native-ui-readable/proof.json`, captures dans ce dossier.
+  Capture mobile anglaise des choix inspectée visuellement. Aucun appareil
+  physique, changement de langue à chaud ou parcours transversal complet testé.
+
+Le diagnostic mobile précédent utilisait le contrôle desktop `Open agent
+features`. Sur mobile, ouvrir `combined-model-selector` visible : ses réglages
+incluent directement `Langue des réponses`. Les panneaux de fond peuvent rester
+montés ; filtrer le bouton visible évite une sélection ambiguë. Le harnais attend
+aussi la fin d'animation de la feuille et contrôle les coordonnées des options
+avant la capture. Les premiers échecs et captures prises pendant l'animation
+restent sous `/tmp/roadmap-042340-native-ui*` et `probe*` ; seule la preuve
+`native-ui-readable` affirme cette lisibilité. Ce passage résout l'accès sur
+0.15 ; il ne transforme pas rétroactivement les essais 0.14 en succès.

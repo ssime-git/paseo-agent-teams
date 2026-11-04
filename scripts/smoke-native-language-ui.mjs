@@ -49,7 +49,10 @@ try {
         } else {
           await page.getByTestId(`workspace-tab-agent_${owner.id}`).click();
         }
-        await page.getByRole('button', { name: 'Open agent features', exact: true }).click();
+        // Compact native controls live in the combined model sheet on mobile.
+        // Background workspace panels may also be mounted: select the visible trigger only.
+        if (layout === 'mobile') await page.getByTestId('combined-model-selector').filter({ visible: true }).click();
+        else await page.getByRole('button', { name: 'Open agent features', exact: true }).click();
         const language = page.getByRole('button', { name: 'Langue des réponses', exact: true });
         await language.waitFor();
         assert.match(await language.innerText(), owner.language === 'fr' ? /Français/ : /English/);
@@ -57,6 +60,12 @@ try {
         await language.click();
         for (const label of ['Repli hôte (figé au lancement)', 'Français', 'English'])
           await page.getByText(label, { exact: true }).last().waitFor();
+        // Wait for the native sheet's opening animation before claiming readable choices.
+        await page.getByText('English', { exact: true }).last().scrollIntoViewIfNeeded();
+        for (const label of ['Repli hôte (figé au lancement)', 'Français', 'English']) {
+          const box = await page.getByText(label, { exact: true }).last().boundingBox();
+          assert.ok(box && box.y >= 0 && box.y + box.height <= height, `${label} fits the viewport`);
+        }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
         await page.screenshot({ path: join(output, `${layout}-${owner.language}-choices.png`) });
         assert.deepEqual(errors, []);

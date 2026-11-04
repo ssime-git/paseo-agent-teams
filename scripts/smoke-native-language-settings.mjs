@@ -16,7 +16,7 @@ const raw = new DaemonClient({
   url,
   clientId: 'native-language-smoke',
   clientType: 'cli',
-  appVersion: '0.14.0',
+  appVersion: process.env.PASEO_TEAMS_SMOKE_APP_VERSION ?? '0.13.0',
   reconnect: { enabled: false },
 });
 const deadline = setTimeout(() => {
@@ -26,6 +26,9 @@ const deadline = setTimeout(() => {
 try {
   await api.connect();
   await raw.connect();
+  const status = await raw.getDaemonStatus();
+  proof.daemonVersion = status.version;
+  proof.serverId = status.serverId;
   if (!proof.owners.length) {
     execFileSync('git', ['init', '-q', proof.root]);
     const workspace = await api.workspaces.open(proof.root);
