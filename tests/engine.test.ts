@@ -1688,6 +1688,92 @@ test('persisted native proposal can be adopted after engine restart without read
   assert.equal(fake.testCount, 0);
 });
 
+test('Reviewer multi-turn native revision survives model change, conflicting adoption and restart before approval', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  h.fake.responses.reviewer = [JSON.stringify({ kind: 'discussion', summary: 'Keep the callback isolated' })];
+  w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Compare callback designs' });
+  const originalHistory = structuredClone(w.planVersions);
+  w = await h.action(w, 'pause');
+  const selection = { provider: 'codex/other', modeId: 'read-only' };
+  w = await h.action(w, 'reconfigure', { role: 'reviewer', selection });
+  const revised = { ...plan, summary: 'Isolated callback', tests: [{ command: 'npm run check', timeoutMs: 2000 }] };
+  h.fake.responses.reviewer = [
+    JSON.stringify({ kind: 'proposal', summary: 'Use an isolated callback', plan: revised }),
+  ];
+  w = await h.action(w, 'followup', { purpose: 'plan_revision', message: 'Propose the isolated design' });
+  assert.match(h.fake.calls.at(-1)!.prompt, /Keep the callback isolated/);
+  assert.deepEqual(w.planProposal?.selection, selection);
+  const teamProposal = structuredClone(w.planProposal);
+  const source = { epoch: 'native', seq: 52, turnId: 'final-native-turn' };
+  const finalPlan = { ...revised, summary: 'Final native callback design' };
+  let nativeText = 'Incomplete answer';
+  h.fake.reviewerPlan = async () => ({ source, prompt: 'Finalize the isolated design', text: nativeText });
+  const beforeInvalid = await h.store.get(w.id);
+  await assert.rejects(h.action(w, 'import_reviewer_plan'));
+  assert.deepEqual(await h.store.get(w.id), beforeInvalid);
+  assert.deepEqual((await h.store.get(w.id)).planProposal, teamProposal);
+  nativeText = JSON.stringify({
+    workflowId: w.id,
+    baseVersion: 1,
+    kind: 'proposal',
+    summary: 'Final decision',
+    plan: finalPlan,
+  });
+  w = await h.action(w, 'import_reviewer_plan');
+  assert.deepEqual(w.planVersions, originalHistory);
+  assert.deepEqual(w.plan, plan);
+  const proposal = structuredClone(w.planProposal);
+  h.engine.close();
+  await h.engine.settle();
+  const store = new Store(h.store.directory);
+  const fake = new Fake();
+  fake.reviewerPlan = async () => assert.fail('Persisted adoption must not reread native history');
+  const engine = new Engine(store, fake);
+  t.after(async () => {
+    engine.close();
+    await engine.settle();
+  });
+  await engine.recoverAutomatic();
+  assert.deepEqual((await store.get(w.id)).planProposal, proposal);
+  const input = { id: w.id, expectedRevision: w.revision, requestId: 'final-adoption', action: 'adopt_plan' as const };
+  const results = await Promise.allSettled([
+    engine.action(input),
+    engine.action({ ...input, requestId: 'other-client-adoption' }),
+  ]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+  assert.equal(rejected.reason.code, 'REVISION_CONFLICT');
+  w = await store.get(w.id);
+  assert.equal(w.status, 'paused');
+  assert.equal(w.testsApproved, false);
+  assert.deepEqual(w.plan, finalPlan);
+  assert.deepEqual(w.planVersions!.slice(0, -1), originalHistory);
+  assert.deepEqual(w.planVersions!.at(-1)!.nativeSource, source);
+  assert.equal(w.planVersions!.at(-1)!.approval, undefined);
+  const adopted = structuredClone(w);
+  await engine.action(input);
+  assert.deepEqual(await store.get(w.id), adopted);
+  assert.equal(fake.calls.length, 0);
+  await engine.action({ id: w.id, expectedRevision: w.revision, requestId: 'resume-final-plan', action: 'resume' });
+  await engine.settle();
+  w = await store.get(w.id);
+  assert.equal(w.status, 'awaiting_plan');
+  assert.equal(fake.calls.length, 0);
+  await engine.action({ id: w.id, expectedRevision: w.revision, requestId: 'approve-final-plan', action: 'approve' });
+  await engine.settle();
+  w = await store.get(w.id);
+  assert.equal(w.status, 'awaiting_final');
+  assert.deepEqual(w.plan?.tests, finalPlan.tests);
+  assert.equal(w.planVersions!.at(-1)!.approval?.policy, 'human');
+  assert.deepEqual(
+    fake.calls.map((c) => c.role),
+    ['builder', 'reviewer'],
+  );
+  assert.match(fake.calls[0].prompt, /Final native callback design/);
+  assert.equal(fake.testCount, 1);
+});
+
 test('native Reviewer import rejects stale, foreign and invalid responses without losing a pending proposal', async (t) => {
   const h = await setup(t);
   let w = await h.create();

@@ -864,3 +864,64 @@ test('a later native conversation cannot invalidate or replace an exact complete
   assert.equal(result.externallyContinued, true);
   assert.equal(h.counts().sends, 0);
 });
+
+for (const role of ['planner', 'reviewer'] as const) {
+  test(`native ${role} mode denial preserves read-only access and permits later import without dispatch`, async () => {
+    const w = savedWorkflow();
+    w.agents[role] = role;
+    w.operation!.role = role;
+    const entries = [
+      { item: { type: 'user_message', text: 'Native request' }, turnId: 'native-turn', seqEnd: 1 },
+      { item: { type: 'assistant_message', text: 'Final answer' }, turnId: 'native-turn', seqEnd: 2 },
+    ];
+    const method = role === 'planner' ? 'plannerAnswers' : 'reviewerPlan';
+    for (const permission of [
+      { id: 'pending', name: 'ExitPlanMode', kind: 'plan' },
+      { id: 'pending', name: 'EnterPlanMode', kind: 'tool' },
+      { id: 'pending', name: 'ChangeMode', kind: 'mode' },
+    ]) {
+      const replies: unknown[] = [];
+      let pending = true;
+      let reads = 0;
+      const handle = {
+        workspaceId: w.workspaceId,
+        cwd: w.cwd,
+        status: 'closed',
+        activeTurn: null,
+        get pendingPermissions() {
+          return pending ? [permission] : [];
+        },
+        refresh: async () => ({}),
+        respondToPermission: async (input: unknown) => {
+          replies.push(input);
+          pending = false;
+        },
+        timeline: {
+          refetch: async () => {
+            reads++;
+            return { entries, endCursor: { epoch: 'epoch', seq: 2 }, hasOlder: false };
+          },
+        },
+        send: async () => assert.fail('No dispatch during permission resolution or native import'),
+      };
+      const runtime = new PaseoRuntime({ agents: { ref: () => handle } } as unknown as PaseoApi, '/unused');
+      await assert.rejects(runtime[method](w), { code: 'ACTIVE_STEP' });
+      assert.equal(reads, 0);
+      assert.equal((await runtime.permissions(w))[0].canAllow, false);
+      await assert.rejects(runtime.respondPermission(w, permission.id, 'allow'), { code: 'READ_ONLY_REQUIRED' });
+      assert.deepEqual(replies, []);
+      await runtime.respondPermission(w, 'obsolete-request', 'deny');
+      assert.deepEqual(replies, []);
+      await runtime.respondPermission(w, permission.id, 'deny');
+      assert.deepEqual(replies, [
+        { requestId: 'pending', response: { behavior: 'deny', selectedActionId: undefined, interrupt: true } },
+      ]);
+      const result = await runtime[method](w);
+      assert.equal(result.text, 'Final answer');
+      assert.deepEqual(result.source, { epoch: 'epoch', seq: 2, turnId: 'native-turn' });
+      await runtime.respondPermission(w, permission.id, 'deny');
+      assert.equal(replies.length, 1);
+      assert.equal(reads, 1);
+    }
+  });
+}
