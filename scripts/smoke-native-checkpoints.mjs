@@ -16,15 +16,21 @@ if (
   endpoint.port === '6767'
 )
   throw Error('Use an explicit isolated loopback port, never primary port 6767');
+const stopAtQuestion = process.argv[2] === '--question';
+const answerFile = process.argv[2] === '--answer' ? process.argv[3] : undefined;
+if (process.argv[2] === '--answer' && !answerFile) throw Error('--answer requires a question proof');
 const adoptPersisted = process.argv[2] === '--adopt-persisted';
 const prepareFile = process.argv[2] === '--continue' ? process.argv[3] : undefined;
-const resumeFile = prepareFile ? undefined : adoptPersisted ? process.argv[3] : process.argv[2];
+const resumeFile =
+  prepareFile || stopAtQuestion || answerFile ? undefined : adoptPersisted ? process.argv[3] : process.argv[2];
 if (adoptPersisted && !resumeFile) throw Error('--adopt-persisted requires a preparation proof file');
-const existingFile = prepareFile ?? resumeFile;
+const existingFile = answerFile ?? prepareFile ?? resumeFile;
 const root = existingFile
   ? JSON.parse(await readFile(existingFile, 'utf8')).root
   : await mkdtemp('/tmp/teams-native-live-');
-const proofFile = root + '/proof.json';
+// New runs keep evidence outside the repository whose fingerprint is tested.
+// Existing proof paths remain usable for already persisted runs.
+const proofFile = existingFile ?? root + '-proof.json';
 const api = createPaseoClient({ url, reconnect: { enabled: false } });
 const client = new DaemonClient({
   url,
@@ -33,6 +39,12 @@ const client = new DaemonClient({
   appVersion: '0.13.0',
   reconnect: { enabled: false },
 });
+// A disconnected RPC must not keep a scheduled passage waiting indefinitely.
+const watchdog = setTimeout(() => {
+  console.error('Global 360 s budget exceeded; inspect saved evidence and native turns, never resend blindly');
+  process.exit(1);
+}, 360000);
+watchdog.unref();
 const rpc = (name, input) => client.invokePluginRpc('paseo-agent-teams', 'teams.' + name, input);
 let proof, w;
 const save = async () => writeFile(proofFile, JSON.stringify(proof, null, 2));
@@ -65,10 +77,14 @@ try {
     throw Error('Checkpoint deadline exceeded; inspect the isolated workflow, do not resend');
   };
   const native = async (role, prompt) => {
+    assert.ok(!proof.pendingNativeTurn, 'An attempted native turn requires manual reconciliation, never resend');
+    proof.pendingNativeTurn = { role, agentId: w.agents[role], prompt, attemptedAt: new Date().toISOString() };
+    await save();
     const agent = api.agents.ref(w.agents[role]);
     const result = await agent.run(prompt, { timeoutMs: 120000, activeTurnBehavior: 'steer' });
     assert.equal(result.status, 'idle');
     proof.nativeTurns.push({ role, prompt, result });
+    delete proof.pendingNativeTurn;
     await save();
   };
   const noBuilderTurns = async () => {
@@ -80,9 +96,23 @@ try {
     assert.equal(page.entries.filter((e) => e.item.type === 'user_message').length, 0);
   };
   if (!resumeFile) {
-    if (prepareFile) {
+    if (answerFile) {
+      proof = JSON.parse(await readFile(answerFile, 'utf8'));
+      assert.equal(proof.url, url);
+      assert.ok(proof.questionCheckpoint && !proof.failure, 'Successful question checkpoint required');
+      assert.equal(proof.nativeTurns.length, 0, 'Never resend an already attempted native answer');
+      assert.ok(!proof.pendingNativeTurn, 'Reconcile the attempted native turn manually before continuing');
+      assert.deepEqual(await rpc('workflow_record', { id: proof.workflowId }), proof.questionCheckpoint);
+      w = await read();
+      assert.equal(w.status, 'paused');
+      assert.ok(w.clarifications.some((q) => !q.resolvedAt));
+      assert.equal(w.testsApproved, false);
+      await noBuilderTurns();
+      proof.assertions.push('Pending question deeply identical after isolated daemon restart; silence did not approve');
+    } else if (prepareFile) {
       proof = JSON.parse(await readFile(prepareFile, 'utf8'));
       assert.equal(proof.nativeTurns.length, 0, 'Preparation recovery only before the first native turn');
+      assert.ok(!proof.pendingNativeTurn, 'Reconcile the attempted native turn manually before continuing');
       delete proof.failure;
     } else {
       execFileSync('git', ['init', '-q', root]);
@@ -128,57 +158,67 @@ try {
       await save();
       console.log(JSON.stringify({ proofFile, workflowId: created.id }));
     }
-    await checkpoint((v) => v.status === 'attention' && v.clarifications?.some((q) => !q.resolvedAt));
-    assert.equal(w.plan, undefined);
-    await noBuilderTurns();
-    await action('pause');
-    const question = w.clarifications.find((q) => !q.resolvedAt);
-    const answer = {
-      workflowId: w.id,
-      clarificationId: question.id,
-      answers: [{ questionId: 'scope', optionId: 'small', text: 'One paragraph in GUIDE.md, preserve README.md.' }],
-    };
-    await native('planner', JSON.stringify(answer));
-    await action('import_planner_answers');
-    assert.equal(w.status, 'paused');
-    assert.ok(w.clarifications[0].resolvedAt);
-    await noBuilderTurns();
-    assert.equal(w.testsApproved, false);
-    proof.assertions.push('Native human JSON imported while paused; no Builder prompt or approval');
-    await action('resume');
-    await checkpoint((v) => v.status === 'awaiting_plan' && !!v.plan);
-    assert.match(JSON.stringify(w.plan), /GUIDE\.md/);
-    await action('followup', {
-      purpose: 'plan_revision',
-      message:
-        'Discuss the plan without proposing changes yet. Return kind discussion, summary Scope considered. Stay read-only.',
-    });
-    await checkpoint((v) => v.status === 'awaiting_plan' && v.phase !== 'followup');
-    await action('pause');
-    const plan = { ...w.plan, summary: 'Native revision one: one paragraph in GUIDE.md' };
-    const envelope = {
-      workflowId: w.id,
-      baseVersion: w.planVersions.at(-1).version,
-      kind: 'proposal',
-      summary: 'Keep scope explicit',
-      plan,
-    };
-    await native(
-      'reviewer',
-      `Read-only test. Do not use tools. Return exactly this JSON, without commentary: ${JSON.stringify(envelope)}`,
-    );
-    const original = structuredClone(w.plan);
-    await action('import_reviewer_plan');
-    assert.deepEqual(w.plan, original);
-    assert.deepEqual(w.planProposal.plan, plan);
-    assert.equal(w.testsApproved, false);
-    proof.beforeRestart = await rpc('workflow_record', { id: w.id });
-    proof.assertions.push('Reviewer proposal imported without replacing plan or approving');
-    await save();
-    console.log('PASS preparation. Restart ONLY the isolated daemon, then rerun with ' + proofFile);
+    if (!answerFile) {
+      await checkpoint((v) => v.status === 'attention' && v.clarifications?.some((q) => !q.resolvedAt));
+      assert.equal(w.plan, undefined);
+      await noBuilderTurns();
+      await action('pause');
+    }
+    if (stopAtQuestion) {
+      proof.questionCheckpoint = await rpc('workflow_record', { id: w.id });
+      proof.assertions.push('Unanswered clarification persisted while paused; no plan, approval or Builder');
+      await save();
+      console.log('PASS pending question. Restart ONLY the isolated daemon, then use --answer ' + proofFile);
+    } else {
+      const question = w.clarifications.find((q) => !q.resolvedAt);
+      const answer = {
+        workflowId: w.id,
+        clarificationId: question.id,
+        answers: [{ questionId: 'scope', optionId: 'small', text: 'One paragraph in GUIDE.md, preserve README.md.' }],
+      };
+      await native('planner', JSON.stringify(answer));
+      await action('import_planner_answers');
+      assert.equal(w.status, 'paused');
+      assert.ok(w.clarifications[0].resolvedAt);
+      await noBuilderTurns();
+      assert.equal(w.testsApproved, false);
+      proof.assertions.push('Native human JSON imported while paused; no Builder prompt or approval');
+      await action('resume');
+      await checkpoint((v) => v.status === 'awaiting_plan' && !!v.plan);
+      assert.match(JSON.stringify(w.plan), /GUIDE\.md/);
+      await action('followup', {
+        purpose: 'plan_revision',
+        message:
+          'Discuss the plan without proposing changes yet. Return kind discussion, summary Scope considered. Stay read-only.',
+      });
+      await checkpoint((v) => v.status === 'awaiting_plan' && v.phase !== 'followup');
+      await action('pause');
+      const plan = { ...w.plan, summary: 'Native revision one: one paragraph in GUIDE.md' };
+      const envelope = {
+        workflowId: w.id,
+        baseVersion: w.planVersions.at(-1).version,
+        kind: 'proposal',
+        summary: 'Keep scope explicit',
+        plan,
+      };
+      await native(
+        'reviewer',
+        `Read-only test. Do not use tools. Return exactly this JSON, without commentary: ${JSON.stringify(envelope)}`,
+      );
+      const original = structuredClone(w.plan);
+      await action('import_reviewer_plan');
+      assert.deepEqual(w.plan, original);
+      assert.deepEqual(w.planProposal.plan, plan);
+      assert.equal(w.testsApproved, false);
+      proof.beforeRestart = await rpc('workflow_record', { id: w.id });
+      proof.assertions.push('Reviewer proposal imported without replacing plan or approving');
+      await save();
+      console.log('PASS preparation. Restart ONLY the isolated daemon, then rerun with ' + proofFile);
+    }
   } else {
     proof = JSON.parse(await readFile(resumeFile, 'utf8'));
     assert.equal(proof.url, url);
+    assert.ok(!proof.pendingNativeTurn, 'Reconcile the attempted native turn manually before continuing');
     assert.deepEqual(await rpc('workflow_record', { id: proof.workflowId }), proof.beforeRestart);
     if (adoptPersisted) {
       w = await read();
@@ -301,6 +341,7 @@ try {
   }
   throw error;
 } finally {
+  clearTimeout(watchdog);
   await api.close();
   await client.close();
 }

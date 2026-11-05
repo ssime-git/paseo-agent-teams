@@ -1325,3 +1325,29 @@ Capture mobile anglaise inspectée visuellement. Les essais exploratoires
 harnais documentés : contrat de fixture incomplet, cartes historiques multiples,
 libellé natif localisé, raccourci desktop indisponible en mobile. Aucun succès
 rétrospectif ni défaut produit revendiqué.
+
+### Clarification persistante avant le parcours natif complet
+
+Le harnais `scripts/smoke-native-checkpoints.mjs` accepte deux modes supplémentaires :
+
+```bash
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-native-checkpoints.mjs --question
+# Après contrôle des agents inactifs et redémarrage du seul daemon isolé :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-native-checkpoints.mjs --answer /tmp/teams-native-live-EXEMPLE-proof.json
+```
+
+`--question` lance un seul tour Planner puis conserve la question non résolue en
+pause. `--answer` exige un checkpoint profondément identique, sans approbation ni
+message Builder ; il répond ensuite dans la session native, importe explicitement
+la réponse, reprend le Planner puis prépare une révision Reviewer native. Chaque
+attente reste bornée (150 s par checkpoint, 120 s par tour natif, 360 s par
+invocation), sans retry.
+Un marqueur est écrit **avant** chaque tentative native : une interruption exige
+une réconciliation explicite, jamais un renvoi automatique. Les nouvelles preuves
+sont placées à côté du dépôt temporaire, sans modifier son empreinte. Les chemins
+des anciennes preuves restent acceptés.
+
+Après ce deuxième checkpoint, reprendre les modes existants du même harnais
+(adoption après redémarrage), puis `smoke-native-approval.mjs`. Ces étapes ne
+prouvent pas à elles seules un graphe personnalisé ou une boucle de correction ;
+ces critères exigent leur propre continuation et leurs preuves réelles.
