@@ -1281,3 +1281,36 @@ avant la capture. Les premiers échecs et captures prises pendant l'animation
 restent sous `/tmp/roadmap-042340-native-ui*` et `probe*` ; seule la preuve
 `native-ui-readable` affirme cette lisibilité. Ce passage résout l'accès sur
 0.15 ; il ne transforme pas rétroactivement les essais 0.14 en succès.
+
+## Prévisualisation de graphe FR/EN et changement de langue natif (5 novembre 2026)
+
+Harnais opt-in, sans tour de modèle ni confirmation du graphe :
+
+```bash
+PLAYWRIGHT_MODULE=/chemin/vers/playwright-core/index.mjs \
+TEAMS_SMOKE_URL=http://127.0.0.1:6915 \
+TEAMS_SMOKE_OUTPUT=/tmp/graph-language-ui \
+node scripts/smoke-graph-language-ui.mjs /tmp/teams-native-language-EXEMPLE-proof.json
+```
+
+Prérequis : daemon et données isolés, preuve de `smoke-native-language-settings.mjs`
+correspondant exactement à son endpoint et son identité, conversations inactives.
+Le harnais détecte Codex et un modèle, sauvegarde une seule définition à étape
+humaine, puis émet uniquement la commande native `/team-graphs`. Il conserve les
+anciens rapports et cible le lanceur du dernier rapport. Aucun graphe n'est
+confirmé ; la liste des checkpoints doit rester profondément identique.
+
+Deux contextes indépendants FR/EN sont créés directement à chaque viewport,
+1440 × 1050 puis 390 × 844. Ils prévisualisent la même définition avec une langue
+différente. Le client français change ensuite vers l'anglais via les réglages
+natifs : raccourci desktop ou menu mobile. Un marqueur JavaScript confirme que le
+document n'a pas été rechargé ; une nouvelle prévisualisation reçoit EN, tandis
+que l'autre client conserve sa langue. Captures, absence de débordement horizontal
+et absence d'exception JavaScript vérifiées. Budget global de 90 secondes,
+preuves partielles et diagnostics conservés en cas d'échec ; `proof.json` est écrit
+uniquement après succès intégral. Utiliser un nouveau dossier de sortie par essai.
+
+Ce scénario ne confirme pas de workflow, ne lance pas de modèle et ne prouve pas
+la conservation d'une prévisualisation encore ouverte pendant un changement de
+langue. Les preuves de langue figée à l'admission et dans les consignes restent
+celles des harnais runtime précédents. Aucun appareil physique testé.
