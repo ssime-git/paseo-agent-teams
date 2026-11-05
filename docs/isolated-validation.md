@@ -1351,3 +1351,34 @@ Après ce deuxième checkpoint, reprendre les modes existants du même harnais
 (adoption après redémarrage), puis `smoke-native-approval.mjs`. Ces étapes ne
 prouvent pas à elles seules un graphe personnalisé ou une boucle de correction ;
 ces critères exigent leur propre continuation et leurs preuves réelles.
+
+### Approbation native avec un échec shell borné
+
+Sur un checkpoint natif adopté existant, sans preuve d’approbation antérieure :
+
+```bash
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-native-approval.mjs /tmp/teams-native-live-EXEMPLE-proof.json --fail-once
+```
+
+Ce mode exige une correction automatique déjà autorisée et un budget positif.
+Il ajoute aux contrôles de contenu une commande shell qui échoue une seule fois
+(code 17), avec un marqueur hors du dépôt jetable. Il exige ensuite deux tours
+Builder, deux séries de tests moteur, une seule correction, des tests finaux
+verts et une revue réussie. Il ne prouve pas la réparation d’un défaut du code :
+l’échec est une injection de test explicite. Si le Builder consomme le marqueur
+en exécutant lui-même les commandes avant le moteur, les assertions refusent
+la preuve de correction ; ne pas supprimer le marqueur pour recommencer.
+
+Toute preuve d’approbation préexistante interdit un nouvel envoi. Après un
+échec ou un délai dépassé, inspecter l’état et utiliser `--capture` pour reprendre
+la collecte, sans réapprobation. `--verify` compare le record après un redémarrage
+isolé. La question finale de livraison reste sans réponse : aucune publication
+ni approbation implicite ne fait partie de cet essai.
+
+Pour une tentative acceptée dont les assertions ont échoué, `--verify-attempt`
+compare exclusivement `lastRecord` après redémarrage. Ce mode ne transforme pas
+l’essai en succès et ne retire pas son champ `failure` ; il n’envoie aucun tour.
+L’essai du 6 novembre sur `/tmp/teams-native-live-iSKyIb` illustre cette limite :
+le Builder a consommé l’injection avant le moteur, une seule construction et
+une revue ont réussi jusqu’à la question de livraison. La correction moteur
+reste non vérifiée ; voir le journal pour les preuves et le point de reprise.
