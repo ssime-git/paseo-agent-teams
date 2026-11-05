@@ -1964,6 +1964,82 @@ test('native Planner answers use explicit user JSON, persist partial replies and
   assert.equal(w.testsApproved, false);
 });
 
+test('native partial answers survive restart before concurrent Team completion and persisted request replay', async (t) => {
+  const h = await setup(t, { recovery: 'automatic' });
+  h.fake.responses.planner = [JSON.stringify(clarification), JSON.stringify(plan)];
+  let w = await h.create();
+  w = await h.action(w, 'pause');
+  const clarificationId = w.clarifications![0].id;
+  h.fake.plannerAnswers = async () => ({
+    prompt: JSON.stringify({
+      workflowId: w.id,
+      clarificationId,
+      answers: [{ questionId: 'scope', text: 'Documentation seule, sans modifier le code' }],
+    }),
+    text: 'Recorded',
+    source: { epoch: 'native', seq: 3, turnId: 'partial-before-restart' },
+  });
+  w = await h.action(w, 'import_planner_answers');
+  const partial = structuredClone(w.clarifications);
+  h.engine.close();
+  await h.engine.settle();
+  const restarted = new Engine(new Store(h.store.directory), h.fake);
+  t.after(() => restarted.close());
+  await restarted.recoverAutomatic();
+  await restarted.settle();
+  w = await restarted.store.get(w.id);
+  assert.deepEqual(w.clarifications, partial);
+  assert.equal(w.status, 'paused');
+  assert.equal(h.fake.calls.length, 1);
+  const input = {
+    id: w.id,
+    expectedRevision: w.revision,
+    action: 'answer_clarification' as const,
+    clarificationId,
+    answers: [{ questionId: 'style', text: 'Conserver le style existant' }],
+  };
+  const results = await Promise.allSettled(
+    ['client-one', 'client-two'].map((requestId) => restarted.action({ ...input, requestId })),
+  );
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  const rejected = results.filter((r) => r.status === 'rejected');
+  assert.equal(rejected.length, 1);
+  assert.match(String(rejected[0].reason), /Workflow changed/);
+  const winner = results[0].status === 'fulfilled' ? 'client-one' : 'client-two';
+  w = await restarted.store.get(w.id);
+  assert.equal(w.status, 'paused');
+  assert.equal(w.resumeStatus, 'ready');
+  assert.equal(w.testsApproved, false);
+  assert.equal(w.clarifications![0].answers.length, 2);
+  assert.ok(w.clarifications![0].resolvedAt);
+  await restarted.action({ id: w.id, expectedRevision: w.revision, requestId: 'resume-mixed', action: 'resume' });
+  await restarted.settle();
+  w = await restarted.store.get(w.id);
+  assert.equal(w.status, 'awaiting_plan');
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'planner'],
+  );
+  assert.match(h.fake.calls[1].prompt, /Documentation seule, sans modifier le code/);
+  assert.match(h.fake.calls[1].prompt, /Conserver le style existant/);
+  const completed = structuredClone(w);
+  restarted.close();
+  await restarted.settle();
+  const replay = new Engine(new Store(h.store.directory), h.fake);
+  t.after(() => replay.close());
+  await replay.recoverAutomatic();
+  await replay.settle();
+  // Retry the accepted HTTP request with its original (now stale) revision after restart.
+  await replay.action({ ...input, requestId: winner });
+  await replay.settle();
+  await assert.rejects(
+    replay.action({ ...input, requestId: winner, answers: [{ questionId: 'style', text: 'Remplacer le style' }] }),
+    /Request ID reused with different input/,
+  );
+  assert.deepEqual(await replay.store.get(w.id), completed);
+  assert.equal(h.fake.calls.length, 2);
+});
+
 test('native Planner import rejects inferred answers, stale identity, conflicts and changing sources atomically', async (t) => {
   const h = await setup(t);
   h.fake.responses.planner = [JSON.stringify(clarification)];
