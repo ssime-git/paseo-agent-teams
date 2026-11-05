@@ -1314,3 +1314,14 @@ Ce scénario ne confirme pas de workflow, ne lance pas de modèle et ne prouve p
 la conservation d'une prévisualisation encore ouverte pendant un changement de
 langue. Les preuves de langue figée à l'admission et dans les consignes restent
 celles des harnais runtime précédents. Aucun appareil physique testé.
+
+Preuve réelle sur Paseo 0.15.0, port 6915 :
+`/tmp/roadmap-050940-graph-ui-verified/proof.json`, six captures dans le même dossier,
+log `/tmp/roadmap-050940-graph-ui-verified.log`. Quatre prévisualisations initiales
+et deux changements FR → EN réussis ; liste des graphes inchangée avant/après.
+Capture mobile anglaise inspectée visuellement. Les essais exploratoires
+`graph-ui.log`, `graph-ui-hot.log`, `graph-ui-hot-final.log` et
+`graph-ui-hot-readable.log` sous `/tmp/roadmap-050940-*` restent des échecs de
+harnais documentés : contrat de fixture incomplet, cartes historiques multiples,
+libellé natif localisé, raccourci desktop indisponible en mobile. Aucun succès
+rétrospectif ni défaut produit revendiqué.
