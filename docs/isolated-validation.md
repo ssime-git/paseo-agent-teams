@@ -1382,3 +1382,66 @@ L’essai du 6 novembre sur `/tmp/teams-native-live-iSKyIb` illustre cette limit
 le Builder a consommé l’injection avant le moteur, une seule construction et
 une revue ont réussi jusqu’à la question de livraison. La correction moteur
 reste non vérifiée ; voir le journal pour les preuves et le point de reprise.
+
+### Échec réservé à une opération de tests moteur (6 novembre)
+
+Le harnais distinct `scripts/smoke-engine-correction.mjs` crée un dépôt jetable
+`/tmp/teams-engine-live-*` et un seul workflow V1 avec `maxCorrections: 1`.
+Il utilise les modèles et modes du catalogue officiel. Aucun état ou reçu du
+scénario natif précédent n'est réutilisé ou reconstruit.
+
+```sh
+node --test scripts/engine-test-failure.test.mjs
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-engine-correction.mjs
+# Après arrêt/démarrage du seul daemon isolé :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-engine-correction.mjs --verify /tmp/teams-engine-live-EXEMPLE-proof.json
+```
+
+La commande approuvée appelle `scripts/engine-test-failure.mjs`, qui lit
+`teams.list` avec workspace explicite via le RPC officiel. Une projection
+sans révision ou un état running sans opération est refusé. Hors d'une opération moteur
+`testing`, elle renvoie un succès sans créer de marqueur. Dans la première
+opération moteur, elle publie atomiquement un marqueur extérieur au dépôt
+contenant les identifiants workflow/opération et renvoie **17**. Tout rejeu de
+cette même opération reste en échec ; seule une opération suivante peut réussir.
+Les autocontrôles du Builder ne peuvent donc pas consommer l'injection. Le
+marqueur n'est jamais supprimé pour rejouer un essai réel. Ce mécanisme est une
+fixture de test autorisée explicitement dans la tâche et les commandes approuvées,
+pas une panne spontanée ou une preuve de réparation d'un défaut applicatif.
+
+Le harnais exige deux tours Builder, deux tours Reviewer, deux séries de tests
+moteur identifiées, exactement une correction et une question finale de livraison
+non résolue. Le reçu d'approbation doit être idempotent. Le précontrôle sans
+approbation doit laisser le marqueur absent. Budget global **360 s**, checkpoints
+90 s puis 240 s, commande d'injection 20 s avec watchdog interne 15 s. Les
+preuves sont enregistrées avant création et approbation ; après un échec, aucun
+mode ne recrée ni ne réapprouve automatiquement le workflow. Inspecter les agents
+isolés et le record sauvegardé ; `--verify` est réservé à une preuve réussie et
+compare le checkpoint complet sans envoyer de tour. La question de livraison
+reste sans réponse : aucune publication ou clôture implicite.
+
+Le test local de la fixture couvre la concurrence de publication du marqueur,
+le refus de changement de workflow ou de dépôt, le marqueur corrompu et le
+rejeu. Il n'utilise aucun modèle ni daemon ; seul l'essai opt-in constitue une
+preuve native. Les scripts `.mjs` sont contrôlés explicitement avec Node et
+Prettier, en complément de `npm run check`.
+
+`--capture preuve.json` reprend uniquement une collecte incomplète ayant déjà
+un reçu d'approbation et un `lastRecord` exactement identique au checkpoint actuel.
+Il ne crée aucun workflow, n'envoie aucun tour et ne réapprouve rien. Les
+événements complets sont lus par `teams.history` : `teams.list` et
+`teams.workflow_record` filtrent les événements `tests`. Une collecte réussie
+conserve l'erreur antérieure dans `attemptFailures`, puis sauvegarde le rapport,
+l'état de liste et l'historique ; `--verify` compare les trois après redémarrage.
+Un refus de capture ou de vérification laisse le fichier de preuve intact.
+
+Preuve réelle : workflow `6d52b23b-db1e-4509-8699-b947ce6f5503`, dépôt
+`/tmp/teams-engine-live-MdTAfx`, fichier
+`/tmp/teams-engine-live-MdTAfx-proof.json`. Le moteur a observé l'échec 17 et
+une nouvelle opération réussie, exactement une correction et deux revues.
+La collecte a été reprise sans modèle après correction du choix de RPC pour
+l'historique. La première fixture `/tmp/teams-engine-live-RvoTVl` reste une
+preuve d'échec : la projection de rapport omettait l'opération et l'injection
+était ignorée. Aucun marqueur ni état n'a été supprimé pour refaire cet essai.
+Ce passage ne prouve ni une réparation de code défectueux ni une permission
+native réelle refusée ; le détail de reprise et les tests sont dans le journal.
