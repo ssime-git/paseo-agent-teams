@@ -8,7 +8,7 @@ versionnés dans le dépôt.
 | Critère encore ouvert | Couverture acquise | Limite et prochaine action |
 | --- | --- | --- |
 | Reviewer multi-tours, modèle, entrées invalides, concurrence, reprise | `c3c5a9d`, moteur et Store réels avec modèles simulés ; imports natifs réels des 3 et 5 novembre | Pas de changement réel de modèle pendant génération ni de permission native réellement émise/refusée. Tester séparément ces frontières avec budget explicite. |
-| Clarification partielle, doublons, refus, contexte | `cedceb6` : réponse native partielle, réponse Team concurrente, deux reconstructions et rejeu ; `c3c5a9d` : refus natif simulé | Les permissions restent simulées. Ne pas refaire la clarification persistante réelle déjà acquise. |
+| Clarification partielle, doublons, refus, contexte | `cedceb6` : réponse native partielle, réponse Team concurrente, deux reconstructions et rejeu ; `c3c5a9d` : refus natif simulé | Refus natif Claude Write réel le 6 novembre 20:40 (`/tmp/teams-permission-live-1Tn8Dc-proof.json`), sans mutation et avec reprise ; rattachement au workflow Team non couvert. Ne pas refaire la clarification persistante réelle déjà acquise. |
 | Preset historique et graphe personnalisé | Correction moteur réelle : `/tmp/teams-engine-live-MdTAfx-proof.json` ; correction graphe : `/tmp/teams-custom-live-2ZGFAz-proof.json` ; budget épuisé : `/tmp/teams-custom-live-4zafSj-proof.json` | Fixtures distinctes. Aucun scénario unique complet revendiqué ; ne pas répéter ces trois boucles. |
 | Langue officielle de l'application | `9e77a58` : API cliente officielle 0.13 ; clients FR/EN simultanés desktop/mobile le 4 novembre | Locale serveur native absente : préférence explicite de conversation, puis repli hôte. L'ancienne mention « SDK 0.11.2 sans langue » décrit l'historique, pas le SDK courant. |
 | Langue persistée et changement | `12b22a6`, `5b3b7c6`, `fe0c025` ; `/tmp/teams-language-eoWip9-proof.json`, `/tmp/teams-graph-language-sT7QEA-proof.json` avec reprise | Réponses figées à la création ; interface suit le client ; anciens états sans langue gardent leur comportement. Ne pas reprendre l'ancienne règle de changement immédiat pour les réponses d'une mission commencée. |
@@ -26,3 +26,12 @@ La fixture d'injection moteur fait désormais partie de `npm test` et donc de
 conservé, au même titre qu'un marqueur corrompu ; il ne prouve jamais une
 correction. Les harnais `smoke-*.mjs` restent opt-in et ne sont pas lancés par
 ces contrôles locaux.
+
+Le 6 novembre 20:40, `scripts/smoke-native-permission.mjs` a provoqué une vraie
+requête Claude `Write`, puis l'a refusée via le SDK officiel. Un seul tour,
+fichier inchangé, aucune permission restante ; reprise sans génération et
+contenu/identifiant natif du reçu conservés. Le daemon recharge la session en
+`closed` et régénère les enveloppes de timeline : aucune identité byte-à-byte
+de la timeline n'est revendiquée. Cette preuve concerne une session native
+isolée, pas un workflow Team ni Codex. Le refus des imports côté Team reste
+couvert par les tests runtime simulés de `c3c5a9d`.

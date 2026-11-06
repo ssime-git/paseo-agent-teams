@@ -1472,3 +1472,35 @@ action manuelle. Les intentions de définition et de lancement sont conservées
 avant leurs écritures RPC. Les résultats restent extérieurs au dépôt testé.
 Cet essai ne valide pas la correction : il complète le parcours réussi du
 3 novembre en prouvant que le budget empêche précisément cette correction.
+
+
+## Permission native réellement refusée (6 novembre 2026)
+
+Le harnais opt-in ne crée qu'une session Claude et n'envoie qu'un prompt. Il
+exige le modèle et le mode `default` dans la découverte officielle, attend au
+plus 90 s la permission Write, la refuse explicitement, puis attend 30 s la fin.
+Budget global 180 s ; aucune relance ni approbation automatique. Il conserve les
+intentions avant RPC et arrête uniquement sa propre session isolée en sortie.
+Le cycle de vie du daemon reste à la charge de l'appelant.
+
+```sh
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-native-permission.mjs
+# Après arrêt normal et redémarrage du seul daemon isolé : aucune génération.
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-native-permission.mjs --verify /tmp/teams-permission-live-EXEMPLE-proof.json
+```
+
+Preuve réelle : `/tmp/teams-permission-live-1Tn8Dc-proof.json`, agent
+`4f5726df-2b67-4b76-9e0e-212373ec0ae3`, Claude opus-5-5, Paseo 0.15.0.
+La requête Write `permission-922820a1-6e67-45d5-8ec4-e88d2211545e` a été
+refusée ; `RESULT.txt` reste `untouched`, aucune permission ni tour actif.
+Le modèle a aussi lu le fichier : un seul prompt ne signifie pas un seul outil.
+Après redémarrage, contenu des messages et reçus outils profondément identiques,
+appel natif `toolu_01PC31pW8BK17np98PdmHBf3` conservé. Les identifiants de
+messages, séquences et horodatages d'enveloppe sont régénérés par Paseo et
+ne sont pas comparés. La session restaurée est `closed`, sans la rouvrir.
+
+Premier lancement : assertions fonctionnelles réussies, mais erreur de fermeture
+`api.disconnect` ; corrigée en `api.close`. Deux vérifications initialement trop
+strictes (idle puis enveloppes exactes après redémarrage) ont échoué ; logs
+conservés, comparaison sémantique finale réussie sans nouveau modèle. Aucun
+refus Team/Codex ni permission pendant une clarification n'est prouvé ici.
