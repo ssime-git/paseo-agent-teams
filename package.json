@@ -20,7 +20,7 @@
   "scripts": {
     "hooks:install": "git config --local core.hooksPath .githooks",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --experimental-test-isolation=none tests/*.test.ts",
+    "test": "node --import tsx --test --experimental-test-isolation=none tests/*.test.ts scripts/*.test.mjs",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "lint": "eslint client server shared tests index.client.tsx index.server.ts",
     "format": "prettier --write \"{client,server,shared,tests}/**/*.{ts,tsx}\" index.client.tsx index.server.ts",

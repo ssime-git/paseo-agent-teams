@@ -29,6 +29,10 @@ export async function engineTestFailure(record, root, marker) {
     await rm(temporary, { force: true });
   }
   const saved = JSON.parse(await readFile(marker, 'utf8'));
+  assert.ok(
+    saved && typeof saved.workflowId === 'string' && typeof saved.operationId === 'string' && saved.operationId,
+    'Failure marker requires identified workflow and operation',
+  );
   assert.equal(saved.workflowId, claim.workflowId, 'Never reuse another workflow failure marker');
   return saved.operationId === claim.operationId
     ? { code: 17, message: 'Intentional isolated engine test failure; same operation always fails' }

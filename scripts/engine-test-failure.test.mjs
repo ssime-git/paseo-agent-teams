@@ -35,6 +35,11 @@ test('model self-checks cannot consume the engine failure; retries of one operat
   assert.equal(await readFile(marker, 'utf8'), first);
   await assert.rejects(engineTestFailure({ ...record, id: 'other' }, root, marker));
   await assert.rejects(engineTestFailure(record, root + '-other', marker));
+  for (const invalid of [null, {}, { workflowId: 'workflow' }, { workflowId: 'workflow', operationId: '' }]) {
+    await writeFile(marker, JSON.stringify(invalid));
+    await assert.rejects(engineTestFailure(record, root, marker));
+    assert.equal(await readFile(marker, 'utf8'), JSON.stringify(invalid));
+  }
   await writeFile(marker, 'corrupt');
   await assert.rejects(engineTestFailure(record, root, marker));
 });
