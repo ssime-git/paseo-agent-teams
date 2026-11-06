@@ -18,12 +18,21 @@ assert.ok(
   'Use an explicit isolated loopback port, never primary port 6767',
 );
 const mode = process.argv[2];
-assert.ok(!mode || ['--continue', '--resume', '--verify'].includes(mode));
-const existing = mode ? JSON.parse(await readFile(process.argv[3], 'utf8')) : undefined;
+assert.ok(!mode || ['--continue', '--resume', '--verify', '--limit'].includes(mode));
+const existing = mode && mode !== '--limit' ? JSON.parse(await readFile(process.argv[3], 'utf8')) : undefined;
 if (existing) assert.equal(existing.url, url);
 const root = existing?.root ?? (await mkdtemp('/tmp/teams-custom-live-'));
-const file = root + '-proof.json'; // Evidence must not mutate the tested repository.
+assert.match(root, /^\/tmp\/teams-custom-live-[^/]+$/);
+const file = existing ? process.argv[3] : root + '-proof.json'; // Evidence must not mutate the tested repository.
 let proof = existing ?? { root, url, boundaries: [] };
+const limit = existing?.scenario === 'limit' || mode === '--limit';
+if (!existing) proof.scenario = limit ? 'limit' : 'correction';
+let ownsAttempt = false;
+const watchdog = setTimeout(() => {
+  console.error('Global 360 s budget exceeded; inspect checkpoint, never resend');
+  process.exit(1);
+}, 360000);
+watchdog.unref();
 const api = createPaseoClient({ url, reconnect: { enabled: false } });
 const client = new DaemonClient({
   url,
@@ -50,9 +59,12 @@ try {
   if (mode === '--verify') {
     assert.ok(proof.completed && !proof.failure);
     assert.deepEqual(await record(), proof.completed);
+    const terminal = await advance(proof.completed);
+    assert.equal(terminal.status, 'terminal');
+    assert.deepEqual(terminal.state, proof.completed);
     console.log('PASS completed custom graph preserved after reload/restart: ' + file);
   } else if (mode === '--resume') {
-    assert.ok(proof.waiting && !proof.failure);
+    assert.ok(!limit && proof.waiting && !proof.failure);
     const state = await record();
     assert.deepEqual(state, proof.waiting, 'Exact human checkpoint must survive daemon restart');
     const still = await advance(state);
@@ -66,6 +78,8 @@ try {
         summary: 'Explicit approval of isolated custom graph evidence; no delivery or publication.',
       },
     });
+    assert.ok(!proof.approvalRequest, 'Approval already attempted; inspect checkpoint, never resend');
+    ownsAttempt = true;
     proof.approvalRequest = input;
     await save();
     const completed = await rpc('graph_response', input);
@@ -82,11 +96,15 @@ try {
     let state;
     if (existing) {
       state = await record();
+      assert.ok(proof.lastRecord && proof.failure && !proof.completed && !proof.waiting);
+      assert.deepEqual(state, proof.lastRecord, 'Continue only the exact saved incomplete checkpoint');
       assert.deepEqual(state.source, proof.source);
+      ownsAttempt = true;
       proof.recoveredFailures = [...(proof.recoveredFailures ?? []), proof.failure].filter(Boolean);
       delete proof.failure;
       delete proof.lastRecord;
     } else {
+      ownsAttempt = true;
       execFileSync('git', ['init', '-q', root]);
       await writeFile(root + '/README.md', 'Isolated custom graph validation.\n');
       const workspace = await api.workspaces.open(root);
@@ -101,6 +119,8 @@ try {
       assert.ok((await api.providers.listModes('codex', { cwd: root })).modes.some((m) => m.id === code.modeId));
       assert.ok((await api.providers.listModes('claude', { cwd: root })).modes.some((m) => m.id === review.modeId));
       proof.discovery = discovery;
+      proof.workspaceId = workspace.id;
+      await save();
       const owner = await api.workspaces.ref(workspace.id).agents.create({
         config: { provider: 'agent-teams/auto' },
         title: 'Isolated custom graph failure and correction',
@@ -124,7 +144,7 @@ try {
         version: 1,
         name: 'English custom graph with real failure and correction',
         entry: 'draft',
-        maxTransitions: 5,
+        maxTransitions: limit ? 2 : 5,
         steps: [
           {
             id: 'draft',
@@ -169,6 +189,8 @@ try {
           },
         ],
       };
+      proof.definitionIntent = definition;
+      await save();
       const source = await rpc('save_definition', { workspaceId: workspace.id, expectedRevision: 0, definition });
       proof.source = source;
       const launch = {
@@ -179,12 +201,14 @@ try {
         task: 'Exercise a controlled draft failure, independent tests, review rejection, repair, read-only validation and persistent human approval. All prose in English. Only RESULT.txt may change. Never commit or publish.',
       };
       const preview = await rpc('graph_preview', launch);
-      state = await rpc('graph_confirm', {
+      proof.launchRequest = {
         ...launch,
         id: proof.scope.id,
         approveDefinition: true,
         confirmation: preview.confirmation,
-      });
+      };
+      await save();
+      state = await rpc('graph_confirm', proof.launchRequest);
       proof.admitted = state;
       await save();
     }
@@ -194,7 +218,7 @@ try {
       state = result.state;
       proof.boundaries.push({ revision: state.revision, reason: result.reason, status: result.status });
       assert.ok(state.activations.length <= 5);
-      if (state.status === 'waiting_human') break;
+      if (state.status === 'waiting_human' || (limit && state.status === 'exhausted')) break;
       if (result.reason === 'GRAPH_TESTS_FAILED') {
         assert.equal(state.activations.length, 1, 'Only the intentional draft test may fail');
         assert.equal(state.activations[0].testRun.completion.results[0].exitCode, 1);
@@ -223,42 +247,70 @@ try {
       }
       await save();
     }
-    assert.equal(state.status, 'waiting_human', 'Bounded deadline exceeded; inspect checkpoint, never resend');
-    assert.deepEqual(
-      state.activations.map((a) => a.stepId),
-      ['draft', 'inspect', 'repair', 'inspect', 'human'],
-    );
-    assert.deepEqual(
-      state.activations.slice(0, 4).map((a) => a.result.outcome),
-      ['failure', 'failure', 'success', 'success'],
-    );
-    assert.ok(state.activations[0].testRejection);
-    assert.equal(new Set(state.activations.slice(0, 4).map((a) => a.dispatch.agentId)).size, 4);
-    assert.ok(state.activations.slice(0, 4).every((a) => a.receipt.outcome === 'completed' && a.receipt.turnId));
-    for (const index of [1, 3]) {
-      const a = state.activations[index];
-      assert.equal(a.integrity.unchanged, true);
-      assert.ok(a.testRun.completion.results.every((t) => t.exitCode === 0 && !t.timedOut));
+    if (limit) {
+      assert.equal(state.status, 'exhausted');
+      assert.equal(state.nextStepId, 'repair');
+      assert.deepEqual(
+        state.activations.map((a) => a.stepId),
+        ['draft', 'inspect'],
+      );
+      assert.deepEqual(
+        state.activations.map((a) => a.result.outcome),
+        ['failure', 'failure'],
+      );
+      assert.ok(state.activations[0].testRejection);
+      assert.equal(state.activations[0].testRun.completion.results[0].exitCode, 1);
+      assert.ok(state.activations.every((a) => a.receipt.turnId && a.receipt.outcome === 'completed'));
+      assert.equal(state.activations[1].integrity.unchanged, true);
+      assert.equal(await readFile(root + '/RESULT.txt', 'utf8'), 'draft\n');
+      assert.equal(await readFile(root + '/README.md', 'utf8'), 'Isolated custom graph validation.\n');
+      const terminal = await advance(state);
+      assert.equal(terminal.status, 'terminal');
+      assert.deepEqual(terminal.state, state);
+      proof.completed = state;
+      await save();
+      console.log('PASS real draft failure → review rejection → exhausted budget, no repair dispatched: ' + file);
+    } else {
+      assert.equal(state.status, 'waiting_human', 'Bounded deadline exceeded; inspect checkpoint, never resend');
+      assert.deepEqual(
+        state.activations.map((a) => a.stepId),
+        ['draft', 'inspect', 'repair', 'inspect', 'human'],
+      );
+      assert.deepEqual(
+        state.activations.slice(0, 4).map((a) => a.result.outcome),
+        ['failure', 'failure', 'success', 'success'],
+      );
+      assert.ok(state.activations[0].testRejection);
+      assert.equal(new Set(state.activations.slice(0, 4).map((a) => a.dispatch.agentId)).size, 4);
+      assert.ok(state.activations.slice(0, 4).every((a) => a.receipt.outcome === 'completed' && a.receipt.turnId));
+      for (const index of [1, 3]) {
+        const a = state.activations[index];
+        assert.equal(a.integrity.unchanged, true);
+        assert.ok(a.testRun.completion.results.every((t) => t.exitCode === 0 && !t.timedOut));
+      }
+      assert.ok(state.activations[2].dispatch.prompt.includes('testRejection'));
+      assert.ok(state.activations[2].dispatch.prompt.includes('"verdict":"fail"'));
+      assert.equal(state.activations[4].dispatch, undefined);
+      assert.equal(await readFile(root + '/RESULT.txt', 'utf8'), 'ready\n');
+      assert.equal(await readFile(root + '/README.md', 'utf8'), 'Isolated custom graph validation.\n');
+      assert.deepEqual((await advance(state)).state, state);
+      proof.waiting = state;
+      await save();
+      console.log(
+        'PASS real failed tests → explicit rejection → failed review → repair → passed review → persistent human checkpoint: ' +
+          file,
+      );
     }
-    assert.ok(state.activations[2].dispatch.prompt.includes('testRejection'));
-    assert.ok(state.activations[2].dispatch.prompt.includes('"verdict":"fail"'));
-    assert.equal(state.activations[4].dispatch, undefined);
-    assert.equal(await readFile(root + '/RESULT.txt', 'utf8'), 'ready\n');
-    assert.equal(await readFile(root + '/README.md', 'utf8'), 'Isolated custom graph validation.\n');
-    assert.deepEqual((await advance(state)).state, state);
-    proof.waiting = state;
-    await save();
-    console.log(
-      'PASS real failed tests → explicit rejection → failed review → repair → passed review → persistent human checkpoint: ' +
-        file,
-    );
   }
 } catch (error) {
-  proof.failure = String(error);
-  if (proof.scope) proof.lastRecord = await record().catch(() => null);
-  await save();
+  if (ownsAttempt) {
+    proof.failure = String(error);
+    if (proof.scope) proof.lastRecord = await record().catch(() => null);
+    await save();
+  }
   throw error;
 } finally {
+  clearTimeout(watchdog);
   await client.close();
   await api.close();
 }

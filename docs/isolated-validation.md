@@ -1445,3 +1445,30 @@ preuve d'échec : la projection de rapport omettait l'opération et l'injection
 était ignorée. Aucun marqueur ni état n'a été supprimé pour refaire cet essai.
 Ce passage ne prouve ni une réparation de code défectueux ni une permission
 native réelle refusée ; le détail de reprise et les tests sont dans le journal.
+
+### Épuisement réel du budget d'un graphe personnalisé (6 novembre)
+
+Le scénario `--limit` du harnais existant réutilise la fixture contrôlée
+`draft → inspect → repair → inspect → human`, avec `maxTransitions: 2`.
+Il exige un test indépendant en échec, son rejet explicite et rejouable,
+puis une revue native négative. Le graphe doit devenir `exhausted` avec
+`nextStepId: repair`, sans activer cette réparation. Deux tours de modèle
+au maximum ; budget global 360 s et boucle de checkpoints limitée à 300 s.
+
+```sh
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-custom-graph.mjs --limit
+# Après arrêt et démarrage du seul daemon isolé :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-custom-graph.mjs --verify /tmp/teams-custom-live-EXEMPLE-proof.json
+```
+
+La vérification compare le record complet et exige qu'une nouvelle demande
+`graph_advance` renvoie le même état terminal, sans activation supplémentaire.
+Les modes de lecture refusés n'écrasent pas la preuve existante.
+`--continue` exige désormais un essai incomplet en échec et un record
+profondément identique à `lastRecord`. Il refuse les preuves déjà achevées
+ou en attente humaine. `--resume` refuse toute nouvelle tentative si une
+intention d'approbation existe déjà ; inspecter alors son reçu avant toute
+action manuelle. Les intentions de définition et de lancement sont conservées
+avant leurs écritures RPC. Les résultats restent extérieurs au dépôt testé.
+Cet essai ne valide pas la correction : il complète le parcours réussi du
+3 novembre en prouvant que le budget empêche précisément cette correction.
