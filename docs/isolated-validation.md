@@ -1310,10 +1310,23 @@ et absence d'exception JavaScript vérifiées. Budget global de 90 secondes,
 preuves partielles et diagnostics conservés en cas d'échec ; `proof.json` est écrit
 uniquement après succès intégral. Utiliser un nouveau dossier de sortie par essai.
 
-Ce scénario ne confirme pas de workflow, ne lance pas de modèle et ne prouve pas
-la conservation d'une prévisualisation encore ouverte pendant un changement de
-langue. Les preuves de langue figée à l'admission et dans les consignes restent
-celles des harnais runtime précédents. Aucun appareil physique testé.
+Le harnais conserve une référence au champ objectif avant la navigation native.
+Il mesure sa connexion au DOM dans les réglages et au retour, puis son identité,
+sa visibilité et sa valeur. Si le formulaire reste monté, la prévisualisation
+ouverte doit garder FR malgré les libellés anglais ; aucune réouverture n'est
+permise dans cette branche. Si le routeur démonte le formulaire, le diagnostic
+le dit explicitement avant de le rouvrir. Une nouvelle prévisualisation explicite
+reçoit ensuite EN. Les fichiers `*-open-form.json` distinguent ces deux cas.
+
+L'option `--admit`, ajoutée après le chemin de preuve, confirme ensuite depuis
+le navigateur la prévisualisation EN du graphe à unique étape humaine. Une
+intention est écrite avant le clic ; un checkpoint ready sans activation est
+exigé. Le harnais avance explicitement jusqu'au point humain, vérifie l'absence
+de dispatch modèle et termine cette fixture par décision explicite via RPC,
+rejouée pour vérifier l'idempotence. Les intentions, états admis et états terminés
+sont conservés ; aucun clic automatique de reprise après erreur. Les checkpoints
+préexistants doivent rester profondément identiques. Sans cette option, aucune
+confirmation. Aucun appareil physique ni modèle lancé par ce harnais.
 
 Preuve réelle sur Paseo 0.15.0, port 6915 :
 `/tmp/roadmap-050940-graph-ui-verified/proof.json`, six captures dans le même dossier,

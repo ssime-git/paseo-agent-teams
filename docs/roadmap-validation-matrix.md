@@ -12,7 +12,7 @@ versionnés dans le dépôt.
 | Preset historique et graphe personnalisé | Correction moteur réelle : `/tmp/teams-engine-live-MdTAfx-proof.json` ; correction graphe : `/tmp/teams-custom-live-2ZGFAz-proof.json` ; budget épuisé : `/tmp/teams-custom-live-4zafSj-proof.json` | Fixtures distinctes. Aucun scénario unique complet revendiqué ; ne pas répéter ces trois boucles. |
 | Langue officielle de l'application | `9e77a58` : API cliente officielle 0.13 ; clients FR/EN simultanés desktop/mobile le 4 novembre | Locale serveur native absente : préférence explicite de conversation, puis repli hôte. L'ancienne mention « SDK 0.11.2 sans langue » décrit l'historique, pas le SDK courant. |
 | Langue persistée et changement | `12b22a6`, `5b3b7c6`, `fe0c025` ; `/tmp/teams-language-eoWip9-proof.json`, `/tmp/teams-graph-language-sT7QEA-proof.json` avec reprise | Réponses figées à la création ; interface suit le client ; anciens états sans langue gardent leur comportement. Ne pas reprendre l'ancienne règle de changement immédiat pour les réponses d'une mission commencée. |
-| Mobile et changement à chaud | `/tmp/roadmap-050940-graph-ui-verified/proof.json` : Chromium 1440 × 1050 et 390 × 844, deux clients, FR → EN, graphes inchangés | Nouvelle prévisualisation après changement couverte ; maintien d'un formulaire ouvert et admission depuis ce navigateur non couverts. Aucun appareil physique testé. |
+| Mobile et changement à chaud | `/tmp/roadmap-050940-graph-ui-verified/proof.json` : Chromium 1440 × 1050 et 390 × 844, deux clients, FR → EN, graphes inchangés | Complément réel du 7 novembre 11:40 : formulaire maintenu monté pendant les réglages, objectif et prévisualisation FR conservés, nouvelle prévisualisation EN puis admission explicite desktop/mobile ; `/tmp/roadmap-071140-open-admission-verified/proof.json`. Aucun appareil physique testé. |
 | Parcours transversal | Clarification et révision : `/tmp/teams-native-live-iSKyIb-proof.json` ; suites correction/graphe ci-dessus | Preuve composée uniquement. Construire un orchestrateur borné réutilisant les checkpoints et choix explicitement autorisés ; aucun silence ne vaut livraison. |
 
 Les cases transversales restent ouvertes. Priorité : vérifier si les modes des
@@ -46,3 +46,16 @@ implicite. Le transport RPC et les primitives natives sont simulés : ceci ne
 ferme pas le contrôle navigateur/mobile avec formulaire maintenu ouvert ni
 l’admission réelle. Le test de reprise après erreur réseau ne se contente plus
 de modifier une variable sans rendre de nouveau le composant.
+
+Le 7 novembre 11:40, le harnais navigateur mesure l'identité réelle du champ
+objectif avant et après les réglages natifs. Desktop et mobile conservent le
+nœud monté, sa valeur et la prévisualisation FR pendant le passage en anglais.
+Avec `--admit`, la nouvelle prévisualisation EN est confirmée depuis chaque
+browser : deux checkpoints ready sans activation, puis étape humaine sans
+dispatch modèle et décision RPC explicite rejouée identiquement. Les états
+préexistants restent profondément identiques. Preuve :
+`/tmp/roadmap-071140-open-admission-verified/proof.json`. Les premières tentatives
+et leur course d'observation sont conservées séparément ; elles ne constituent
+pas des succès complets. Le harnais attend désormais la réponse réussie dans
+l'interface avant de relire les checkpoints. Ceci ne couvre ni refus natif dans
+Team, ni changement de modèle pendant génération, ni parcours transversal unique.

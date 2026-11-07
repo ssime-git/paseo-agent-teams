@@ -1,5 +1,7 @@
-// Opt-in real browser preview only: no graph confirmation or model execution.
+// Opt-in browser previews; --admit adds explicit human-only admissions. No model execution.
+// Record native-route unmounts separately from in-place locale rerenders.
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createPaseoClient } from '@getpaseo/client';
@@ -26,6 +28,10 @@ const deadline = setTimeout(() => {
 }, 90000);
 let browser, currentPage;
 const results = [];
+const admit = process.argv[3] === '--admit';
+assert.ok(!process.argv[3] || admit, 'Only --admit is supported');
+const admissions = [];
+const rpc = (name, input) => raw.invokePluginRpc('paseo-agent-teams', 'teams.' + name, input);
 try {
   await api.connect();
   await raw.connect();
@@ -153,6 +159,11 @@ try {
     await changed.evaluate(() => {
       window.__teamsLanguageNavigation = 'same-document';
     });
+    const openObjective = changed.getByRole('textbox', { name: 'Objectif du workflow', exact: true }).last();
+    assert.equal(await openObjective.inputValue(), 'Preview only; preserve code and identifiers.');
+    await openObjective.evaluate((node) => {
+      window.__teamsOpenObjective = node;
+    });
     if (layout === 'mobile') {
       await changed.getByTestId('menu-button').click();
       await changed.getByTestId('sidebar-settings').click();
@@ -161,6 +172,7 @@ try {
     await changed.getByRole('button', { name: /^Français/ }).click();
     await changed.getByText('English - anglais', { exact: true }).last().click();
     await changed.getByText('App language', { exact: true }).waitFor();
+    const mountedInSettings = await changed.evaluate(() => window.__teamsOpenObjective.isConnected);
     await changed.goBack();
     if (layout === 'mobile') await changed.goBack();
     assert.equal(
@@ -168,14 +180,34 @@ try {
       'same-document',
       'Locale change uses native SPA navigation without reload',
     );
-    await changed.getByRole('button', { name: 'Launch a saved workflow', exact: true }).last().click();
-    await changed
-      .getByRole('button', { name: new RegExp(source.definition.name) })
-      .last()
-      .click();
-    await changed
-      .getByRole('textbox', { name: 'Workflow objective', exact: true })
-      .fill('Preview only; preserve code and identifiers.');
+    // Wait for the restored conversation before measuring whether native routing
+    // retained its React subtree. A same-document marker alone cannot prove this.
+    await changed.getByRole('button', { name: 'Launch a saved workflow', exact: true }).last().waitFor();
+    const retainedNode = await changed.evaluate(() => window.__teamsOpenObjective.isConnected);
+    const openAfterNavigation = changed.getByRole('textbox', { name: 'Workflow objective', exact: true }).last();
+    const formVisible = await openAfterNavigation.isVisible();
+    const retention = { layout, mountedInSettings, retainedNode, formVisible };
+    await writeFile(join(output, `${layout}-open-form.json`), JSON.stringify(retention, null, 2));
+    if (retainedNode) {
+      assert.equal(formVisible, true, 'A retained launcher stays open');
+      assert.equal(await openAfterNavigation.inputValue(), 'Preview only; preserve code and identifiers.');
+      assert.equal(await openAfterNavigation.evaluate((node) => node === window.__teamsOpenObjective), true);
+      // The existing confirmation keeps its originally announced language.
+      await changed.getByText('Response language: FR', { exact: true }).waitFor();
+      await changed.screenshot({ path: join(output, `${layout}-open-form-retained.png`) });
+    } else {
+      assert.equal(formVisible, false, 'Unmounted launcher requires an explicit reopen');
+      await changed.screenshot({ path: join(output, `${layout}-open-form-unmounted.png`) });
+      await changed.getByRole('button', { name: 'Launch a saved workflow', exact: true }).last().click();
+      await changed
+        .getByRole('button', { name: new RegExp(source.definition.name) })
+        .last()
+        .click();
+      await changed
+        .getByRole('textbox', { name: 'Workflow objective', exact: true })
+        .fill('Preview only; preserve code and identifiers.');
+    }
+    // A fresh, explicit preview reflects EN in either routing lifecycle.
     await changed.getByRole('button', { name: 'Preview this workflow', exact: true }).last().click();
     await changed.getByText('Response language: EN', { exact: true }).waitFor();
     await changed.getByText('Response language: EN', { exact: true }).scrollIntoViewIfNeeded();
@@ -188,20 +220,78 @@ try {
       transition: 'fr-to-en',
       nativeSettings: true,
       sameDocument: true,
+      openForm: retention,
       otherClientLanguage: 'en',
       previewLanguage: 'en',
       overflow: false,
     });
     await writeFile(join(output, 'partial-proof.json'), JSON.stringify(results, null, 2));
+    if (admit) {
+      const before = await rpc('graph_list', graphScope);
+      await writeFile(
+        join(output, `${layout}-admission-intent.json`),
+        JSON.stringify({ graphScope, source, before }, null, 2),
+      );
+      // Only this explicit browser click admits the displayed EN preview.
+      await changed
+        .getByRole('button', { name: 'Confirm this definition and reserve the repository', exact: true })
+        .last()
+        .click();
+      // Wait for the UI's successful RPC receipt before reading checkpoints.
+      // Listing while publish has only created its directory correctly fails closed.
+      await changed
+        .getByRole('textbox', { name: 'Workflow objective', exact: true })
+        .last()
+        .waitFor({ state: 'hidden' });
+      const added = (await rpc('graph_list', graphScope)).filter((state) => !before.some((old) => old.id === state.id));
+      assert.equal(added.length, 1, 'One confirmation admits exactly one graph');
+      const created = added[0];
+      assert.ok(created, 'Admission missing: inspect intent, never click again');
+      await writeFile(join(output, `${layout}-admitted.json`), JSON.stringify(created, null, 2));
+      assert.equal(created.language, 'en');
+      assert.equal(created.status, 'ready');
+      assert.equal(created.activations.length, 0, 'Confirmation alone never executes a step');
+      const scope = { id: created.id, workspaceId: proof.workspaceId, ownerAgentId: owner.id };
+      const waiting = await rpc('graph_advance', { ...scope, expectedRevision: created.revision });
+      assert.equal(waiting.state.status, 'waiting_human');
+      assert.equal(waiting.state.activations.length, 1);
+      assert.equal(waiting.state.activations[0].dispatch, undefined, 'Human step never invokes a model');
+      const request = {
+        ...scope,
+        expectedRevision: waiting.state.revision,
+        operationId: waiting.state.activations[0].operationId,
+        submission: {
+          action: 'decide',
+          decision: {
+            id: randomUUID(),
+            outcome: 'approve',
+            summary: 'Explicit isolated UI smoke completion; no delivery or publication.',
+          },
+        },
+      };
+      await writeFile(join(output, `${layout}-completion-intent.json`), JSON.stringify(request, null, 2));
+      const completed = await rpc('graph_response', request);
+      assert.equal(completed.status, 'succeeded');
+      assert.deepEqual(await rpc('graph_response', request), completed);
+      admissions.push({ layout, created, waiting, completed });
+      await writeFile(join(output, 'admissions.json'), JSON.stringify(admissions, null, 2));
+    }
     for (const { context } of clients) await context.close();
   }
   assert.deepEqual(
-    await raw.invokePluginRpc('paseo-agent-teams', 'teams.graph_list', graphScope),
-    graphsBefore,
-    'Preview never admits or mutates a graph',
+    (await raw.invokePluginRpc('paseo-agent-teams', 'teams.graph_list', graphScope)).sort((a, b) =>
+      a.id.localeCompare(b.id),
+    ),
+    [...graphsBefore, ...admissions.map((item) => item.completed)].sort((a, b) => a.id.localeCompare(b.id)),
+    'Only explicit confirmations admit graphs; existing checkpoints stay unchanged',
   );
-  await writeFile(join(output, 'proof.json'), JSON.stringify({ serverId: proof.serverId, source, results }, null, 2));
-  console.log('PASS graph previews FR/EN desktop/mobile, two clients, no confirmation');
+  await writeFile(
+    join(output, 'proof.json'),
+    JSON.stringify({ serverId: proof.serverId, source, results, admissions }, null, 2),
+  );
+  console.log(
+    `PASS graph previews FR/EN desktop/mobile, two clients, ${admissions.length} explicit human-only admissions`,
+  );
 } catch (error) {
   if (currentPage && !currentPage.isClosed()) {
     await currentPage.screenshot({ path: join(output, 'failure.png') });
