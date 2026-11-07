@@ -949,6 +949,80 @@ test('hot reconfiguration replaces only the chosen session, persists generation 
   assert.equal(h.fake.creationCount, 4);
 });
 
+test('model replacement waits for the running receipt even after pause and replays safely after restart', async (t) => {
+  const h = await setup(t);
+  let release!: () => void;
+  h.fake.gate = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 2000);
+    release = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+  });
+  // Bound the gate so cleanup also completes if an assertion fails.
+  t.after(() => release());
+  const first = await h.engine.create('workspace', 'Implement OAuth2', h.config, 'create-1');
+  for (let n = 0; n < 100 && !h.fake.calls.length; n++) await new Promise((resolve) => setTimeout(resolve, 2));
+  assert.equal(h.fake.calls.length, 1);
+  const creations = h.fake.creationCount;
+  let w = await h.store.get(first.id);
+  const operation = structuredClone(w.operation);
+  assert.ok(operation);
+  const selection = { provider: 'claude/replacement', modeId: 'plan' };
+  const change = (state: Workflow, requestId: string) => ({
+    id: state.id,
+    workspaceId: state.workspaceId,
+    expectedRevision: state.revision,
+    requestId,
+    action: 'reconfigure' as const,
+    role: 'planner' as const,
+    selection,
+  });
+  await assert.rejects(h.engine.action(change(w, 'running-change')), /Pause and wait/);
+  assert.deepEqual(await h.store.get(w.id), w);
+  await h.engine.action({
+    id: w.id,
+    expectedRevision: w.revision,
+    requestId: 'pause-running-planner',
+    action: 'pause',
+  });
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'paused');
+  assert.deepEqual(w.operation, operation);
+  await assert.rejects(h.engine.action(change(w, 'paused-running-change')), /Pause and wait/);
+  assert.deepEqual(await h.store.get(w.id), w);
+  assert.equal(h.fake.creationCount, creations);
+  assert.equal(h.fake.calls.length, 1);
+  h.fake.gate = undefined;
+  release();
+  await h.engine.settle();
+  w = await h.store.get(w.id);
+  assert.equal(w.status, 'paused');
+  assert.equal(w.operation, undefined);
+  assert.deepEqual(w.plan, plan);
+  const versions = structuredClone(w.planVersions);
+  const oldAgent = w.agents.planner;
+  const input = change(w, 'settled-change');
+  await h.engine.action(input);
+  const changed = await h.store.get(w.id);
+  assert.deepEqual(changed.config.roles.planner, selection);
+  assert.equal(changed.agentGenerations?.planner, 1);
+  assert.equal(changed.agents.planner, undefined);
+  assert.deepEqual(changed.planVersions, versions);
+  assert.equal(changed.planVersions?.[0].agentId, oldAgent);
+  assert.deepEqual(changed.planVersions?.[0].selection, h.config.roles.planner);
+  h.engine.close();
+  const store = new Store(h.store.directory);
+  const restarted = new Engine(store, h.fake);
+  t.after(() => restarted.close());
+  await restarted.action(input);
+  await restarted.settle();
+  assert.deepEqual(await store.get(w.id), changed);
+  assert.equal(h.fake.creationCount, creations);
+  assert.equal(h.fake.calls.length, 1);
+  assert.equal(h.fake.testCount, 0);
+});
+
 test('continuation cannot bypass checkpoints or abandon an ambiguous accepted operation', async (t) => {
   const h = await setup(t);
   let w = await h.create();
