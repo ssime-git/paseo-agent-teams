@@ -1558,7 +1558,7 @@ une preuve incomplète contenant déjà le reçu du refus ; elle ne recrée rien
 
 Après arrêt/redémarrage du seul daemon isolé, `--verify` confirme l’identité
 profonde du checkpoint Team et de son opération, le prompt unique, le reçu natif
-et le fichier intacts. Paseo restaure l’agent closed et omet le diagnostic
+et le fichier intacts. Paseo restaure ici l’agent idle et omet le diagnostic
 transitoire `[System Error] [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use`.
 Le comparateur autorise seulement cette omission exacte et les identifiants
 d’enveloppe régénérés ; aucune disparition de véritable réponse assistant n’est
