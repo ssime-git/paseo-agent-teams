@@ -1525,3 +1525,49 @@ pagination incomplète, une erreur de timeline et tout appel après le refus.
 Ses régressions locales (`scripts/native-permission-receipt.test.mjs`) sont
 incluses dans `npm run check`. Relire un reçu antérieur avec ce validateur ne
 constitue pas un nouveau test réel, ni une preuve d'intégration Team.
+
+
+## Refus natif via workflow Team — 7 novembre 2026, 16:40
+
+Harnais opt-in, deux tours réels maximum (Planner Codex puis Builder Claude),
+budget global 240 s. Daemon 0.15.0 isolé sur 6915, DATA_DIR/DAEMON_URL explicites,
+providers et modes détectés dans le catalogue Team. Aucune modification Paseo.
+
+```bash
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-team-permission.mjs
+# Relecture après redémarrage isolé ; aucun nouvel envoi :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-team-permission.mjs --verify /tmp/teams-denial-live-EXEMPLE-proof.json
+```
+
+L’intention est écrite avant chaque mutation. Le harnais attend l’approbation de
+plan puis la permission Write, vérifie sa projection Team, met explicitement le
+workflow en pause et refuse par RPC Team. Chaque action est rejouée exactement,
+sans second envoi. Le refus Team interrompt le tour : le résultat error natif est
+accepté uniquement sans tour actif ni permission et avec un reçu Write failed
+portant le refus natif, lié par toolUseId. Pas de nouvelle tentative ou Reviewer.
+La pause conserve l’opération : aucune reprise de génération n’est demandée.
+
+Preuve réelle `/tmp/teams-denial-live-BMprxx-proof.json`, workflow
+`1b464be8-96f2-4214-ae9a-da15638504d0`, Builder
+`8b8336b8-a275-43cf-a5f3-67dee9c985b7`, permission
+`permission-57f8bad9-bd0f-4c67-a79a-ca21fb013bde` : RESULT.txt intact,
+Write refusé, aucun outil après refus. L’attente initiale idle a expiré car Claude
+termine error après interrupt. `--capture` a collecté ce même essai sans génération
+ni mutation RPC ; l’échec initial reste dans attemptFailures. Cette option exige
+une preuve incomplète contenant déjà le reçu du refus ; elle ne recrée rien.
+
+Après arrêt/redémarrage du seul daemon isolé, `--verify` confirme l’identité
+profonde du checkpoint Team et de son opération, le prompt unique, le reçu natif
+et le fichier intacts. Paseo restaure l’agent closed et omet le diagnostic
+transitoire `[System Error] [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use`.
+Le comparateur autorise seulement cette omission exacte et les identifiants
+d’enveloppe régénérés ; aucune disparition de véritable réponse assistant n’est
+autorisée. Preuve relue complète dans le fichier `-proof.json-restart.json`,
+log `/tmp/roadmap-071640-team-verify-restart-final.log`. La première assertion
+exigeant ce diagnostic après reprise reste dans `-team-verify-restart.log`.
+Les régressions locales testent aussi les faux refus, retries et altérations.
+
+Ceci couvre le refus via les RPC Team, sans nouveau test navigateur/mobile,
+permission Codex, permission de mode Reviewer ni clarification native en cours.
+Le Builder interrompu reste volontairement en pause dans le dépôt isolé ; ne pas
+le relancer automatiquement. Aucun succès de génération complète revendiqué.
