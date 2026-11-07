@@ -35,3 +35,14 @@ contenu/identifiant natif du reçu conservés. Le daemon recharge la session en
 de la timeline n'est revendiquée. Cette preuve concerne une session native
 isolée, pas un workflow Team ni Codex. Le refus des imports côté Team reste
 couvert par les tests runtime simulés de `c3c5a9d`.
+
+Le 7 novembre 06:40, les régressions de `tests/graph-launcher.test.ts`
+provoquent désormais un vrai nouveau rendu React après changement de langue.
+Deux cas supplémentaires simulent l’API officielle cliente de locale : changement
+avant la prévisualisation et pendant sa requête. Objectif et sélection conservés,
+libellés anglais malgré le repli hôte français, langue de prévisualisation figée
+puis transmise seulement après confirmation explicite ; aucune continuation
+implicite. Le transport RPC et les primitives natives sont simulés : ceci ne
+ferme pas le contrôle navigateur/mobile avec formulaire maintenu ouvert ni
+l’admission réelle. Le test de reprise après erreur réseau ne se contente plus
+de modifier une variable sans rendre de nouveau le composant.

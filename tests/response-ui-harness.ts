@@ -3,7 +3,12 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Render the real response components; only native host primitives and RPC transport are simulated. */
-export async function loadResponseUi(t: { after(fn: () => unknown): void }, entry: string, hostKey: string) {
+export async function loadResponseUi(
+  t: { after(fn: () => unknown): void },
+  entry: string,
+  hostKey: string,
+  options: { appLocale?: boolean } = {},
+) {
   await mkdir('node_modules/.cache', { recursive: true });
   const dir = await mkdtemp(join(process.cwd(), 'node_modules/.cache/inline-response-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -33,7 +38,7 @@ export async function loadResponseUi(t: { after(fn: () => unknown): void }, entr
                   ? `export const Markdown='Markdown';`
                   : args.path.endsWith('/ui')
                     ? `export const TextInput='TextInput',SettingsSelect='SettingsSelect'; export function Modal(){throw new Error('Response controls must remain inline');}`
-                    : `export function useRpc(c){return ${host}.rpc(c.name);} export function useSettings(){return {status:'ready',values:{language:${host}.language??'fr'}};}`,
+                    : `export function useRpc(c){return ${host}.rpc(c.name);} export function useSettings(){return {status:'ready',values:{language:${host}.language??'fr'}};} ${options.appLocale ? `export function defineTranslations(c){return c;} export function useTranslation(){return {locale:${host}.appLocale};}` : ''}`,
           }));
         },
       },
