@@ -1504,3 +1504,11 @@ Premier lancement : assertions fonctionnelles réussies, mais erreur de fermetur
 strictes (idle puis enveloppes exactes après redémarrage) ont échoué ; logs
 conservés, comparaison sémantique finale réussie sans nouveau modèle. Aucun
 refus Team/Codex ni permission pendant une clarification n'est prouvé ici.
+
+Le validateur `scripts/native-permission-receipt.mjs` exige désormais un tour
+complet et unique, la permission Write et le reçu failed reliés par le toolUseId
+natif, le même fichier/contenu et le message exact de refus. Il refuse une
+pagination incomplète, une erreur de timeline et tout appel après le refus.
+Ses régressions locales (`scripts/native-permission-receipt.test.mjs`) sont
+incluses dans `npm run check`. Relire un reçu antérieur avec ce validateur ne
+constitue pas un nouveau test réel, ni une preuve d'intégration Team.

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createPaseoClient } from '@getpaseo/client';
+import { assertDeniedWriteReceipt } from './native-permission-receipt.mjs';
 
 // One real turn, one explicit denial. The caller owns the isolated daemon.
 const url = process.env.PASEO_TEAMS_SMOKE_URL;
@@ -22,7 +23,7 @@ if (process.argv[2] === '--verify') {
   assert.equal(saved.afterDenial.status, 'idle');
   assert.equal(saved.denialIntent.requestId, saved.request.id);
   assert.equal(saved.denialIntent.response.behavior, 'deny');
-  assert.ok(saved.timeline.entries.length > 0, 'A recorded native timeline is required');
+  assertDeniedWriteReceipt(saved);
   const check = createPaseoClient({ url, reconnect: { enabled: false } });
   try {
     await check.connect();
@@ -41,6 +42,7 @@ if (process.argv[2] === '--verify') {
         const { messageId, clientMessageId, ...rest } = item;
         return rest;
       });
+    assertDeniedWriteReceipt({ ...saved, timeline });
     assert.deepEqual(content(timeline.entries), content(saved.timeline.entries));
     assert.equal(await readFile(saved.root + '/RESULT.txt', 'utf8'), 'untouched\n');
     console.log(JSON.stringify({ verified: true, agentId: saved.agentId, newTurns: 0 }));
@@ -115,7 +117,7 @@ try {
   await agent.refresh();
   proof.finalAgent = agent.current();
   proof.timeline = await agent.timeline.refetch({ direction: 'before', limit: 100, projection: 'canonical' });
-  assert.ok(proof.timeline.entries.length > 0);
+  assertDeniedWriteReceipt(proof);
   assert.equal(proof.afterDenial.status, 'idle');
   assert.equal(agent.pendingPermissions.length, 0);
   assert.equal(await readFile(root + '/RESULT.txt', 'utf8'), 'untouched\n');
