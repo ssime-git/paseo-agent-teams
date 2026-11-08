@@ -7,7 +7,7 @@ versionnés dans le dépôt.
 
 | Critère encore ouvert | Couverture acquise | Limite et prochaine action |
 | --- | --- | --- |
-| Reviewer multi-tours, modèle, entrées invalides, concurrence, reprise | `c3c5a9d`, moteur et Store réels avec modèles simulés ; imports natifs réels des 3 et 5 novembre | Pas de changement réel de modèle pendant génération. Refus Write dans un workflow Team désormais réel (7 novembre 16:40), distinct d’une permission de mode du Reviewer ; conserver cette distinction. |
+| Reviewer multi-tours, modèle, entrées invalides, concurrence, reprise | `c3c5a9d`, moteur et Store réels avec modèles simulés ; imports natifs réels des 3 et 5 novembre | Refus de remplacement réel pendant génération puis sélection et génération effective gpt-6-astra conservées après redémarrage (8 novembre, preuves model-live-16iqnV et replacement associée). Frontière Planner, pas Reviewer. Refus Write dans un workflow Team désormais réel (7 novembre 16:40), distinct d’une permission de mode du Reviewer ; conserver cette distinction. |
 | Clarification partielle, doublons, refus, contexte | `cedceb6` : réponse native partielle, réponse Team concurrente, deux reconstructions et rejeu ; `c3c5a9d` : refus natif simulé | Refus natif Claude Write réel le 6 novembre 20:40 (`/tmp/teams-permission-live-1Tn8Dc-proof.json`), sans mutation et avec reprise ; refus Builder via RPC Team réel le 7 novembre 16:40 (`/tmp/teams-denial-live-BMprxx-proof.json`), pause et opération conservées après redémarrage. Pas de permission dans une clarification ni de mode Reviewer réellement refusée. Ne pas refaire la clarification persistante réelle déjà acquise. |
 | Preset historique et graphe personnalisé | Correction moteur réelle : `/tmp/teams-engine-live-MdTAfx-proof.json` ; correction graphe : `/tmp/teams-custom-live-2ZGFAz-proof.json` ; budget épuisé : `/tmp/teams-custom-live-4zafSj-proof.json` | Fixtures distinctes. Aucun scénario unique complet revendiqué ; ne pas répéter ces trois boucles. |
 | Langue officielle de l'application | `9e77a58` : API cliente officielle 0.13 ; clients FR/EN simultanés desktop/mobile le 4 novembre | Locale serveur native absente : préférence explicite de conversation, puis repli hôte. L'ancienne mention « SDK 0.11.2 sans langue » décrit l'historique, pas le SDK courant. |
@@ -15,8 +15,8 @@ versionnés dans le dépôt.
 | Mobile et changement à chaud | `/tmp/roadmap-050940-graph-ui-verified/proof.json` : Chromium 1440 × 1050 et 390 × 844, deux clients, FR → EN, graphes inchangés | Complément réel du 7 novembre 11:40 : formulaire maintenu monté pendant les réglages, objectif et prévisualisation FR conservés, nouvelle prévisualisation EN puis admission explicite desktop/mobile ; `/tmp/roadmap-071140-open-admission-verified/proof.json`. Aucun appareil physique testé. |
 | Parcours transversal | Clarification et révision : `/tmp/teams-native-live-iSKyIb-proof.json` ; suites correction/graphe ci-dessus | Preuve composée uniquement. Construire un orchestrateur borné réutilisant les checkpoints et choix explicitement autorisés ; aucun silence ne vaut livraison. |
 
-Les cases transversales restent ouvertes. Priorité : changement réel de modèle
-pendant génération, puis parcours transversal borné ; le refus natif Write
+Les cases transversales restent ouvertes. Priorité : parcours transversal borné
+et consolidation des frontières propres au Reviewer et aux clarifications ; le refus natif Write
 rattaché à Team est désormais couvert, sans sortie du dépôt isolé. Ne pas lancer de modèle simplement pour
 attendre une permission ou une réponse humaine.
 
@@ -74,3 +74,15 @@ Preuve `/tmp/teams-denial-live-BMprxx-proof.json` et fichier `-restart.json` ass
 Les deux premières assertions trop strictes (idle et diagnostic intégral) sont
 conservées dans les logs ; capture sans nouveau tour. Aucun parcours navigateur,
 permission Codex ou reprise effective de la génération interrompue revendiqué.
+
+
+Le 8 novembre 07:40, `scripts/smoke-replacement-turn.mjs` poursuit la preuve
+active-model existante sans rejouer les refus. Nouvelle session gpt-6-astra,
+contexte antérieur transmis, v1 conservée, v2 avec nouvelle provenance, aucun
+Builder/Reviewer et aucune approbation implicite. Deux tours réels dont une
+réparation de format due à un JSON incomplet demandé par la première version
+du harnais ; captures et assertions corrigées sans renvoi. Rejeu et timelines
+des deux sessions conservés après redémarrage isolé. Preuves
+`/tmp/teams-model-live-16iqnV-proof.json-replacement.json` et `-restart.json`.
+Ce complément ne constitue pas un parcours transversal unique ni une preuve
+spécifique du changement de modèle du Reviewer.

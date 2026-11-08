@@ -1023,6 +1023,61 @@ test('model replacement waits for the running receipt even after pause and repla
   assert.equal(h.fake.testCount, 0);
 });
 
+test('replacement Planner receives prior context once after restart and records the new provenance', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  const previous = structuredClone(w);
+  w = await h.action(w, 'pause');
+  const selection = { provider: 'codex/replacement', modeId: 'read-only' };
+  w = await h.action(w, 'reconfigure', { role: 'planner', selection });
+  h.engine.close();
+  const store = new Store(h.store.directory);
+  const engine = new Engine(store, h.fake);
+  t.after(() => engine.close());
+  const creations = h.fake.creationCount;
+  const configured: unknown[] = [];
+  h.fake.agent = async (state, role) => {
+    h.fake.creationCount++;
+    configured.push(structuredClone(state.config.roles[role]));
+    return `${state.id}-${role}-generation-${state.agentGenerations?.[role]}`;
+  };
+  const revised = { ...plan, summary: 'Revised OAuth2 plan' };
+  h.fake.responses.planner = [JSON.stringify(revised)];
+  const input = {
+    id: w.id,
+    workspaceId: w.workspaceId,
+    expectedRevision: w.revision,
+    requestId: 'replacement-continue',
+    action: 'continue' as const,
+    role: 'planner' as const,
+    message: 'Keep the callback requirement and revise the plan.',
+  };
+  await engine.action(input);
+  await engine.settle();
+  const final = await store.get(w.id);
+  assert.equal(final.status, 'awaiting_plan');
+  assert.equal(final.testsApproved, false);
+  assert.equal(h.fake.creationCount, creations + 1);
+  assert.deepEqual(configured, [selection]);
+  assert.notEqual(final.agents.planner, previous.agents.planner);
+  assert.equal(final.agents.builder, previous.agents.builder);
+  assert.equal(final.agents.reviewer, previous.agents.reviewer);
+  assert.equal(h.fake.calls.length, 2);
+  assert.equal(h.fake.calls.at(-1)!.role, 'planner');
+  assert.ok(h.fake.calls.at(-1)!.prompt.includes(plan.summary));
+  assert.ok(h.fake.calls.at(-1)!.prompt.includes(input.message));
+  assert.deepEqual(final.plan, revised);
+  assert.deepEqual(final.planVersions!.slice(0, -1), previous.planVersions);
+  assert.deepEqual(final.planVersions!.at(-1)!.selection, selection);
+  assert.equal(final.planVersions!.at(-1)!.agentId, final.agents.planner);
+  assert.deepEqual(await engine.action(input), final);
+  await engine.settle();
+  assert.deepEqual(await store.get(w.id), final);
+  assert.equal(h.fake.calls.length, 2);
+  assert.equal(h.fake.creationCount, creations + 1);
+  assert.equal(h.fake.testCount, 0);
+});
+
 test('continuation cannot bypass checkpoints or abandon an ambiguous accepted operation', async (t) => {
   const h = await setup(t);
   let w = await h.create();

@@ -24,8 +24,10 @@ export function assertModelTimelineRestored(before, after, workflowId, operation
         return item;
       });
     const prompts = items.filter((item) => item.type === 'user_message');
-    assert.equal(prompts.length, 1);
-    assert.ok(prompts[0].text.startsWith(`[agent-teams-operation:${operationId}]\n`));
+    const ids = Array.isArray(operationId) ? operationId : [operationId];
+    assert.ok(ids.length > 0 && new Set(ids).size === ids.length);
+    assert.equal(prompts.length, ids.length);
+    for (let n = 0; n < ids.length; n++) assert.ok(prompts[n].text.startsWith(`[agent-teams-operation:${ids[n]}]\n`));
     return items;
   };
   assert.deepEqual(content(after), content(before));

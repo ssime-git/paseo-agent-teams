@@ -51,3 +51,22 @@ test('model restart preserves all native content while ignoring only identified 
   ])
     assert.throws(() => assertModelTimelineRestored(before, altered, 'workflow', 'op'));
 });
+
+test('replacement restart preserves each bounded repair turn and rejects lost, duplicated or reordered prompts', () => {
+  const page = (ids) => ({
+    error: null,
+    gap: false,
+    hasOlder: false,
+    hasNewer: false,
+    entries: ids.flatMap((id) => [
+      { item: { type: 'user_message', text: `[agent-teams-operation:${id}]\nprompt ${id}` } },
+      { item: { type: 'assistant_message', text: `answer ${id}` } },
+    ]),
+  });
+  const ids = ['initial', 'repair'];
+  const before = page(ids);
+  assertModelTimelineRestored(before, page(ids), 'workflow', ids);
+  for (const altered of [['initial'], ['initial', 'repair', 'repair'], ['repair', 'initial']])
+    assert.throws(() => assertModelTimelineRestored(before, page(altered), 'workflow', ids));
+  assert.throws(() => assertModelTimelineRestored(before, before, 'workflow', ['initial', 'initial']));
+});

@@ -1604,3 +1604,47 @@ DATA_DIR temporaire explicite, car teams.list ne l'expose pas. Le comparateur na
 d'enveloppe et le préfixe exact de présentation `\n\n---\n\n` ; contenu,
 prompts et outils restent comparés. Le record complet est comparé séparément.
 Régression négative : `scripts/model-receipt.test.mjs`.
+
+### Reprise effective avec le modèle de remplacement (8 novembre)
+
+`scripts/smoke-replacement-turn.mjs` continue une preuve vérifiée de
+`smoke-active-model.mjs`, sans refaire les refus pendant génération :
+
+```bash
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-replacement-turn.mjs /tmp/teams-model-live-EXEMPLE-proof.json
+# Réconcilier un essai dont l'intention ET le reçu ont été conservés, sans nouvel envoi :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-replacement-turn.mjs --capture /tmp/teams-model-live-EXEMPLE-proof.json
+# Après arrêt/redémarrage du seul daemon isolé :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-replacement-turn.mjs --verify /tmp/teams-model-live-EXEMPLE-proof.json
+```
+
+Budget global 180 s, un seul `continue` explicite, au plus deux réparations de
+format configurées par le moteur. Une intention existante interdit un nouvel
+envoi. Le fichier source reste intact. Le harnais contrôle nouvelle session,
+génération, ancienne version, provenance des deux modèles, contexte du plan et
+message explicite dans le prompt canonique, absence d'outils et de dispatchs
+Builder/Reviewer, puis état et rejeu profondément identiques après redémarrage.
+Les formes RPC diffèrent : `teams.list` masque les reçus, `workflow_record`
+retourne une vue lisible, `action` retourne le workflow interne. Le rejeu compare
+deux réponses `action` et vérifie séparément l'absence de mutation du record.
+
+Essai réel : workflow `a3cd5068-6fda-4177-a8a5-223e5d548327`, sélection détectée
+Codex `gpt-6-astra`, session `7b303962-30ed-449e-99dd-876e1390137d`. Deux tours
+réels : la première version du harnais utilisait un champ absent de l'ancienne
+preuve et demandait un JSON incomplet ; le moteur a conservé cette réponse puis
+réparé le format une fois. Le harnais lit maintenant le plan complet dans
+`finalWorkflow.plan`. Aucun nouveau tour pour corriger ses assertions. La v2
+française, sans commandes de test, reste `awaiting_plan`, `testsApproved=false`
+: ni l'absence de tests ni la livraison ne sont approuvées. L'ancien plan v1
+et sa provenance restent profondément identiques. Aucun outil de remplacement,
+aucune écriture dans le dépôt de test, aucun Builder/Reviewer exécuté.
+
+Preuves : `/tmp/teams-model-live-16iqnV-proof.json-replacement.json` et son
+`-restart.json`, logs `/tmp/roadmap-080740-{live,capture-success,restart}.log`.
+Les premiers échecs d'observation sont conservés : texte exact trop strict,
+réparation non comptée, message JSON échappé, confusion des formes RPC.
+Le comparateur natif accepte désormais une liste ordonnée explicite d'opérations,
+avec tests négatifs sur perte, doublon et inversion ; il ne supprime aucun tour.
+Moteur/persistance simulés pour la régression locale de recréation de session ;
+daemon 0.15.0, modèle, RPC et redémarrage réels pour l'essai ci-dessus. Aucun
+nouveau navigateur/mobile ni parcours transversal complet revendiqué.
