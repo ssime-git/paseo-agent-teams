@@ -1571,3 +1571,36 @@ Ceci couvre le refus via les RPC Team, sans nouveau test navigateur/mobile,
 permission Codex, permission de mode Reviewer ni clarification native en cours.
 Le Builder interrompu reste volontairement en pause dans le dépôt isolé ; ne pas
 le relancer automatiquement. Aucun succès de génération complète revendiqué.
+
+### Remplacement de modèle pendant une génération V1
+
+Harnais opt-in `scripts/smoke-active-model.mjs` : endpoint loopback isolé obligatoire,
+un seul tour Planner, deux modèles Codex réellement découverts, aucune génération
+Builder/Reviewer ou du modèle de remplacement. Budget global 180 s, attentes 90 s.
+Les intentions sont sauvegardées avant mutation. Le changement est refusé pendant
+le tour, puis après pause avec opération retenue. Le hook conserve le reçu en pause :
+une reprise explicite consomme ce reçu au checkpoint awaiting_plan, puis une nouvelle
+pause permet le remplacement. Historique et sélection initiale restent conservés.
+`--capture` reprend un essai incomplet après les refus sans envoyer de prompt ;
+`--verify` après redémarrage compare le record, rejoue l'action exactement et contrôle
+le contenu natif et la date du dernier prompt. Ne jamais relancer le scénario initial
+pour récupérer une preuve incomplète.
+
+```sh
+PASEO_TEAMS_SMOKE_DATA_DIR=/tmp/teams-015-compat/data PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-active-model.mjs
+PASEO_TEAMS_SMOKE_DATA_DIR=/tmp/teams-015-compat/data PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-active-model.mjs --capture /tmp/teams-model-live-EXEMPLE-proof.json
+# Après arrêt/redémarrage du seul daemon isolé, agents inactifs :
+PASEO_TEAMS_SMOKE_DATA_DIR=/tmp/teams-015-compat/data PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6915/ws node scripts/smoke-active-model.mjs --verify /tmp/teams-model-live-EXEMPLE-proof.json
+```
+
+Preuve réelle du 8 novembre : workflow `a3cd5068-6fda-4177-a8a5-223e5d548327`,
+`/tmp/teams-model-live-16iqnV-proof.json` et fichier `-restart.json` adjacent.
+Un tour Codex gpt-6.1-sol, sélection gpt-6-astra validée sans génération de ce dernier.
+Les deux refus, reprise explicite du reçu, remplacement et rejeu après redémarrage
+sont réels. Le premier harnais attendait à tort la consommation du reçu en pause ;
+la capture réutilise cet essai. La lecture du reçu se fait en lecture seule dans le
+DATA_DIR temporaire explicite, car teams.list ne l'expose pas. Le comparateur natif
+écarte seulement les projections progress du workflow identifié, les identifiants
+d'enveloppe et le préfixe exact de présentation `\n\n---\n\n` ; contenu,
+prompts et outils restent comparés. Le record complet est comparé séparément.
+Régression négative : `scripts/model-receipt.test.mjs`.
