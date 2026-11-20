@@ -85,7 +85,7 @@ export function TeamCard(props: PluginButtonContentProps & { openSettings(): voi
       {agentId ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-            {t('Affiche les workflows dans le fil via /team-graphs, sans lancer ni approuver une étape.')}
+            {t('Affiche les workflows dans le fil, sans lancer ni approuver une étape.')}
           </Text>
           <Pressable
             accessibilityRole="button"

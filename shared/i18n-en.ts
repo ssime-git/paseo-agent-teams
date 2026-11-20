@@ -1,5 +1,9 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Actualisation indisponible': 'Refresh unavailable',
+  'Actualisation…': 'Refreshing…',
+  'En cours': 'In progress',
+  'Sous-tâches à traiter': 'Subtasks to address',
   'Discuter le plan avec le Reviewer : votre demande': 'Discuss the plan with the Reviewer: your request',
   'Adopter la proposition du Reviewer selon la validation configurée':
     'Adopt the Reviewer proposal under the configured validation policy',
@@ -8,16 +12,16 @@ export const en: Record<string, string> = {
   'Critères d’acceptation :': 'Acceptance criteria:',
   'Tests proposés :': 'Proposed tests:',
   'Aucun test configuré.': 'No tests configured.',
-  'Envoyez `/team-adopt` pour retenir cette version selon votre politique de validation, ou `/team-revise votre demande` pour poursuivre la discussion. Le plan actuel reste conservé.':
-    'Send `/team-adopt` to select this version under your validation policy, or `/team-revise your request` to continue the discussion. The current plan is retained.',
-  'Pour discuter le plan avec le Reviewer : `/team-revise votre demande`.':
-    'To discuss the plan with the Reviewer: `/team-revise your request`.',
+  'Cette version vous convient-elle ? Répondez « oui » pour la retenir selon votre politique de validation, ou décrivez ce qu’il faut changer. Le plan actuel reste conservé.':
+    'Does this version work for you? Reply “yes” to select it under your validation policy, or describe what to change. The current plan is retained.',
+  'Vous pouvez poser vos questions ou décrire les changements souhaités ici ; le Reviewer reprendra le plan avec vous.':
+    'Ask your questions or describe the changes you want here; the Reviewer will work through the plan with you.',
   'Langue des réponses': 'Response language',
   'Repli hôte (figé au lancement)': 'Host fallback (saved at launch)',
   'Langue des réponses : {language}': 'Response language: {language}',
   'Afficher les workflows de cette conversation': 'Show workflows in this conversation',
-  'Affiche les workflows dans le fil via /team-graphs, sans lancer ni approuver une étape.':
-    'Shows workflows in the thread via /team-graphs, without starting or approving a step.',
+  'Affiche les workflows dans le fil, sans lancer ni approuver une étape.':
+    'Shows workflows in the thread, without starting or approving a step.',
   'Attendez que la conversation soit inactive et sans permission en attente.':
     'Wait until the conversation is idle with no pending permissions.',
 
@@ -208,8 +212,7 @@ export const en: Record<string, string> = {
   'Autorisation attendue': 'Permission pending',
   'Une demande nécessite votre décision.': 'A request needs your decision.',
   'Votre attention est nécessaire': 'Your attention is needed',
-  'Répondez dans le thread ou envoyez `/team-resume` pour reprendre.':
-    'Reply in the thread or send `/team-resume` to resume.',
+  'Répondez dans le fil ou dites « reprends » pour continuer.': 'Reply in the thread or say “resume” to continue.',
   'Les tests ont la main': 'Tests are running',
   'Exécution des commandes de validation.': 'Running the validation commands.',
   '{role} prend la main': '{role} takes over',
@@ -268,9 +271,10 @@ export const en: Record<string, string> = {
   'Dans la feuille de route du dépôt': 'In the repository roadmap',
   'Aucune mission dans cette conversation et aucun point ouvert trouvé dans la feuille de route du dépôt.':
     'There is no mission in this conversation and no open item was found in the repository roadmap.',
-  'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.':
-    'The plan has no test command. Send `/team-approve-no-tests` to accept that explicitly, or ask for tests.',
-  'Équipe en pause. Envoyez `/team-resume` pour reprendre.': 'Team paused. Send `/team-resume` to resume.',
+  'Le plan ne prévoit aucune commande de test. Vous pouvez demander des tests, ou dire « j’accepte l’absence de tests » pour continuer explicitement sans tests.':
+    'The plan has no test command. Ask for tests, or say “I accept no tests” to explicitly continue without tests.',
+  'Équipe en pause. Dites « reprends » lorsque vous souhaitez continuer.':
+    'Team paused. Say “resume” when you want to continue.',
   'Répondez ici, une réponse par ligne : `1. …`, `2. …`.': 'Answer here, one answer per line: `1. …`, `2. …`.',
   'Répondez directement ici.': 'Answer directly here.',
   'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.':

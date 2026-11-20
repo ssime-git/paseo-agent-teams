@@ -249,7 +249,7 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
         items.push(say(event.id, `⚠️ ${event.text}`));
         return;
       case 'paused':
-        items.push(say(event.id, ctx.t('Équipe en pause. Envoyez `/team-resume` pour reprendre.')));
+        items.push(say(event.id, ctx.t('Équipe en pause. Dites « reprends » lorsque vous souhaitez continuer.')));
         return;
     }
   });
@@ -309,7 +309,7 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
           ? list(proposal.plan.tests.map((test) => `\`${test.command}\``))
           : ctx.t('Aucun test configuré.'),
         ctx.t(
-          'Envoyez `/team-adopt` pour retenir cette version selon votre politique de validation, ou `/team-revise votre demande` pour poursuivre la discussion. Le plan actuel reste conservé.',
+          'Cette version vous convient-elle ? Répondez « oui » pour la retenir selon votre politique de validation, ou décrivez ce qu’il faut changer. Le plan actuel reste conservé.',
         ),
       ].join('\n\n'),
     });
@@ -326,7 +326,7 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
       text:
         (!tests
           ? ctx.t(
-              'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.',
+              'Le plan ne prévoit aucune commande de test. Vous pouvez demander des tests, ou dire « j’accepte l’absence de tests » pour continuer explicitement sans tests.',
             )
           : ctx.t(
               steps > 1
@@ -335,7 +335,9 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
               { steps, tests, builder: ctx.label('builder') },
             )) +
         '\n\n' +
-        ctx.t('Pour discuter le plan avec le Reviewer : `/team-revise votre demande`.'),
+        ctx.t(
+          'Vous pouvez poser vos questions ou décrire les changements souhaités ici ; le Reviewer reprendra le plan avec vous.',
+        ),
     });
   }
   if (w.status === 'permission' && w.operation)
@@ -395,7 +397,7 @@ export function statusReport(w: Workflow, ctx: TeamTimelineContext, concise = fa
             : w.status === 'permission' && role
               ? t('Le rôle {role} attend une autorisation.', { role: t(roleTitle[role]) })
               : w.status === 'paused'
-                ? t('Équipe en pause. Envoyez `/team-resume` pour reprendre.')
+                ? t('Équipe en pause. Dites « reprends » lorsque vous souhaitez continuer.')
                 : w.status === 'attention'
                   ? t('Intervention nécessaire : {error}', { error: w.error ?? t('Tour interrompu.') })
                   : w.status === 'completed'

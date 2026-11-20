@@ -208,7 +208,7 @@ test('the thread speaks English when the language setting is English', () => {
   assert.equal(row.detail.description, 'Plan the mission');
   assert.equal(
     stateNarrations(w, english)[0].text,
-    'The plan is ready (3 steps, tests: `npm test`). Reply **go** to start Codex · GPT-6.1, or describe what to change.\n\nTo discuss the plan with the Reviewer: `/team-revise your request`.',
+    'The plan is ready (3 steps, tests: `npm test`). Reply **go** to start Codex · GPT-6.1, or describe what to change.\n\nAsk your questions or describe the changes you want here; the Reviewer will work through the plan with you.',
   );
 });
 
@@ -257,7 +257,7 @@ test('the current plan gets one approval instruction and an intervention never c
   assert.equal(stateNarrations(w, ctx)[0].id, id);
   w.plan = { ...plan, tests: [] };
   assert.equal(stateNarrations(w, ctx).length, 1);
-  assert.match(said(w)[0], /team-approve-no-tests/);
+  assert.match(said(w)[0], /j’accepte l’absence de tests/);
   assert.doesNotMatch(said(w)[0], /\*\*go\*\*/);
 });
 
@@ -287,7 +287,7 @@ test('Reviewer proposals show the complete candidate and explicit adoption inste
     assert.match(narrations[0].text, /Include keyboard edge cases/);
     assert.match(narrations[0].text, /Opens/);
     assert.match(narrations[0].text, /`node --test`/);
-    assert.match(narrations[0].text, /team-adopt/);
+    assert.match(narrations[0].text, /Répondez « oui »/);
     assert.doesNotMatch(narrations[0].text, /\*\*go\*\*/);
   }
   const english = { ...ctx, t: translator('en') };
@@ -299,5 +299,5 @@ test('Reviewer proposals show the complete candidate and explicit adoption inste
   delete w.planProposal;
   w.status = 'awaiting_plan';
   assert.match(said(w)[0], /\*\*go\*\*/);
-  assert.match(said(w)[0], /team-revise/);
+  assert.match(said(w)[0], /Reviewer reprendra le plan/);
 });

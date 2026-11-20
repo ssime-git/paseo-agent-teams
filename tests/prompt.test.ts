@@ -176,3 +176,48 @@ test('saved response language covers pipeline, follow-ups, delegation, delivery 
     assert.doesNotMatch(repairPrompt(w), /Workflow response language:/);
   }
 });
+
+test('automatic handoffs retain the decision and current evidence without copying native histories or successful logs', () => {
+  const w = workflowFixture();
+  w.config.mode = 'auto';
+  w.plan = {
+    summary: 'Approved scope',
+    tasks: ['Implement edge cases'],
+    acceptance: ['Preserve user files'],
+    tests: [{ command: 'node --test', timeoutMs: 10000 }],
+  };
+  w.build = { summary: 'Implementation ready', changes: ['src/label.ts'], remaining: ['Fix empty values'] };
+  w.review = { verdict: 'fail', summary: 'Regression found', issues: ['Empty value fails'] };
+  w.events = Array.from({ length: 50 }, (_, i) => ({
+    id: String(i),
+    at: 'now',
+    kind: 'assistant',
+    role: 'builder' as const,
+    text: `native-history-secret-${i}`,
+  }));
+  w.tests = [
+    {
+      command: 'node --test',
+      timeoutMs: 10000,
+      exitCode: 0,
+      timedOut: false,
+      stdout: 'successful-log-not-needed',
+      stderr: '',
+      durationMs: 1,
+      truncated: false,
+    },
+  ];
+  const builder = buildPrompt(w, 'builder', 'Relevant diff');
+  const reviewer = buildPrompt(w, 'reviewer', 'Relevant diff');
+  assert.match(builder, /Empty value fails/);
+  assert.match(builder, /Fix empty values/);
+  assert.match(reviewer, /src\/label.ts/);
+  assert.match(reviewer, /Preserve user files/);
+  assert.match(builder, /node --test/);
+  assert.match(reviewer, /node --test/);
+  for (const prompt of [builder, reviewer]) {
+    assert.doesNotMatch(prompt, /native-history-secret/);
+    assert.doesNotMatch(prompt, /successful-log-not-needed/);
+  }
+  assert.equal(w.events.length, 50, 'Durable history stays intact');
+});

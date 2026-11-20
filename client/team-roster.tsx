@@ -42,7 +42,7 @@ export function teamControl(w: Workflow, t: Translate = french): { title: string
   if (w.status === 'attention')
     return {
       title: t('Votre attention est nécessaire'),
-      detail: w.error ?? t('Répondez dans le thread ou envoyez `/team-resume` pour reprendre.'),
+      detail: w.error ?? t('Répondez dans le fil ou dites « reprends » pour continuer.'),
     };
   if (w.phase === 'testing')
     return { title: t('Les tests ont la main'), detail: t('Exécution des commandes de validation.') };

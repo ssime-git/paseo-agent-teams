@@ -241,8 +241,8 @@ test('native Team releases its turn while a role works and publishes its finishe
   assert.equal(build.length, 0);
   assert.ok(items().some((i) => i.type === 'todo' && i.items.length === 2));
   assert.equal(
-    items().some((i) => i.type === 'plugin'),
-    false,
+    items().some((i) => i.type === 'plugin' && i.kind === 'agent-teams-activity'),
+    true,
   );
   // The owner is idle while Code works and can receive another message.
   assert.equal(
@@ -872,4 +872,59 @@ test('restored Team settings mirrored as provider options reopen without losing 
   assert.ok(s.events.slice(before).some((e) => e.type === 'session.ready'));
   await s.prompt('revision', { type: 'command', name: 'team-revise', arguments: 'Keep scope' });
   assert.equal(s.calls.length, count, 'Restored command acknowledgement must not send a second revision');
+});
+
+test('plan conversation needs no slash commands: Reviewer receives questions, agreement adopts only the proposal', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Prepare a plan' }] });
+  const w = s.workflow();
+  w.plan = {
+    summary: 'Plan',
+    tasks: ['Implement'],
+    acceptance: ['Works'],
+    tests: [{ command: 'npm test', timeoutMs: 10000 }],
+  };
+  for (const [i, text] of [
+    'Ajoute des tests pour les erreurs',
+    'Pourquoi cette approche ?',
+    'Could you simplify the plan?',
+  ].entries()) {
+    await s.prompt('discussion-' + i, { type: 'message', content: [{ type: 'text', text }] });
+    assert.equal((s.calls.at(-1)?.value as { purpose: string }).purpose, 'plan_revision');
+    assert.equal((s.calls.at(-1)?.value as { message: string }).message, text);
+  }
+  w.planProposal = {
+    summary: 'Candidate',
+    plan: w.plan,
+    baseVersion: 1,
+    operationId: 'r1',
+    agentId: 'reviewer',
+    selection: w.config.roles.reviewer,
+    at: 'now',
+  };
+  for (const [i, text] of [
+    'oui',
+    'ça me va',
+    'cette version me convient',
+    'adopt this plan',
+    'sounds good',
+  ].entries()) {
+    await s.prompt('adopt-' + i, { type: 'message', content: [{ type: 'text', text }] });
+    assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'adopt_plan');
+  }
+  await s.prompt('conditional', { type: 'message', content: [{ type: 'text', text: 'oui mais ajoute des tests' }] });
+  assert.equal((s.calls.at(-1)?.value as { purpose: string }).purpose, 'plan_revision');
+  delete w.planProposal;
+  await s.prompt('approve', { type: 'message', content: [{ type: 'text', text: 'oui' }] });
+  assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'approve');
+  w.plan.tests = [];
+  await s.prompt('short', { type: 'message', content: [{ type: 'text', text: 'oui' }] });
+  assert.equal((s.calls.at(-1)?.value as { allowNoTests?: boolean }).allowNoTests, undefined);
+  await s.prompt('explicit', { type: 'message', content: [{ type: 'text', text: 'j’accepte l’absence de tests' }] });
+  assert.equal((s.calls.at(-1)?.value as { allowNoTests?: boolean }).allowNoTests, true);
+  await s.prompt('pause', { type: 'message', content: [{ type: 'text', text: 'pause' }] });
+  assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'pause');
+  await s.prompt('resume', { type: 'message', content: [{ type: 'text', text: 'reprends' }] });
+  assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'resume');
 });

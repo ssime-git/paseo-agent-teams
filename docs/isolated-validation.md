@@ -1694,3 +1694,55 @@ Ce contrôle porte sur le plan adopté et les commandes affichées ; le candidat
 avant adoption reste couvert par les tests de projection FR/EN, sans nouveau
 contrôle navigateur de ce checkpoint. Aucun appareil physique utilisé, aucun
 parcours transversal complet ni changement de modèle Reviewer revendiqué.
+
+### Suite après consignes UX du 20 novembre : langage naturel et activité visible
+
+Les nouvelles consignes affichées dans le chat ne demandent plus de commande `/`.
+Une question ou modification du plan en attente part directement au Reviewer.
+Un accord court (« oui », « ça me va », « sounds good ») retient la proposition
+courante ; il n’approuve pas en même temps les tests. « oui mais… » reste une
+demande de discussion. L’absence de tests exige une phrase explicite distincte.
+« pause » et « reprends » pilotent le workflow. Les commandes historiques restent
+compatibles, mais ne constituent plus le parcours recommandé.
+
+La carte d’activité inline montre le rôle, le modèle, la demande courante et
+les tâches du Builder ou critères du Reviewer. Elle relit le workflow avec le
+contrôle d’appartenance natif, signale les pauses/permissions/erreurs de lecture
+et disparaît à la fin du tour, laissant le résultat dans la ligne native du
+sous-agent. Elle n’invente pas de progression individuelle des tâches. Aucun
+changement des contrats V1, opérations ou politiques de validation.
+
+Essai réel : `natural-source.json-revision.json` dans `/tmp/teams-flow-qxGqIt`.
+Deux nouveaux tours Reviewer, sans nouvelle clarification ni Planner ; une seule
+commande Bash `sleep 8` en lecture seule rend l’activité observable. Claude
+ajoute une notification synthétique liée au même toolUseId : le premier contrôle
+attendait à tort un seul tool_call. L’échec reste dans `attemptFailures` ; le
+mode `--capture` a validé l’état exact déjà obtenu sans renvoi de commande ou
+modèle. Le validateur conserve et contrôle la notification, sans la filtrer.
+La v3 conserve les deux versions précédentes et reste sans approbation des tests
+ni Builder. Le dépôt est inchangé.
+
+`natural-browser-proof.json` et les captures `natural-{active,proposal}-{1440,390}.png`
+prouvent l’agent actif, les sous-tâches, la disparition de l’activité terminée et
+la proposition sans commande dans Chromium desktop/mobile, sans débordement ni
+erreur JavaScript. Aucun appareil physique testé. Le harnais accepte `natural: true`,
+`activityDelay: true` et une observation bornée `observeMs <= 20000` dans sa source.
+Ce délai d’observation n’est pas une approbation par silence : le harnais envoie
+ensuite son accord de fixture explicitement autorisé.
+
+Les prompts automatiques étaient déjà des relais par rôle : plan et critères,
+rapport de Code, résultat des tests, défauts à corriger. La régression ajoutée à
+`tests/prompt.test.ts` vérifie l’exclusion du transcript natif complet et des logs
+réussis, avec conservation de l’historique durable. Les décisions de clarification
+restent intégrales ; aucune compression destructive ni suppression d’historique.
+
+Reprise de ce second essai : le record complet en pause et le rejeu de l’accord
+naturel sont profondément identiques après redémarrage isolé. Preuve partielle
+`natural-source.json-revision.json-restart-state.json` :
+`recordReplayVerified=true`, `nativeTimelineVerified=false`.
+Le comparateur strict échoue car Paseo ne restaure pas la notification synthétique
+`task_notification_abda6f8f-ce1f-4ad7-9fb0-7ea98d11b20d` de la commande sleep ;
+le reçu Bash et les quatre prompts/réponses Reviewer restent présents. Aucune
+identité intégrale de timeline n’est revendiquée et le comparateur n’a pas été
+assoupli. Cette limite est distincte de la reprise du workflow et du rejeu sans
+dispatch, vérifiés. Logs `roadmap-nov20-natural-verify*.log` sous `/tmp`.

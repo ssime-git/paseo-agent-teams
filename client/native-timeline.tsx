@@ -1,3 +1,4 @@
+import { TeamActivity, teamActivitySchema } from './team-activity';
 import { PlannerQuestionCard, plannerQuestionCardSchema } from './planner-question';
 import type { PluginClientContext, PluginTimelineItemProps } from '@getpaseo/plugin/client';
 import { GraphInbox, graphInboxSchema } from './graph-inbox';
@@ -80,6 +81,12 @@ export function addNativeTimeline(client: PluginClientContext) {
     signature = '';
   let removeReport: (() => void | Promise<void>) | undefined;
   const cleanups = [
+    client.addTimelineRenderer({
+      kind: 'agent-teams-activity',
+      version: 1,
+      schema: teamActivitySchema,
+      Component: TeamActivity,
+    }),
     client.addTimelineRenderer({
       kind: 'agent-teams-question',
       version: 1,

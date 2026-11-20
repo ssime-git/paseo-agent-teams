@@ -105,7 +105,12 @@ function record(saved: Saved, ...entries: TranscriptEntry[]) {
     ...entries.map((e) => ({ ...e, text: e.text.slice(0, 8000) })),
   ].slice(-TRANSCRIPT_LIMIT);
 }
-const approval = /^\s*(go|ok|okay|oui|yes|valide|validé|approve|approuvé|lgtm|vas-y|c'est bon|c’est bon)\s*[.!]*\s*$/i;
+const approval =
+  /^\s*(go|ok|okay|oui|yes|valide|validé|approve|approuvé|lgtm|vas-y|c'est bon|c’est bon|ça me va|ça marche|je valide ce plan|sounds good|looks good)\s*[.!]*\s*$/i;
+const adoptProposal =
+  /^(?:retiens cette version|adopte (?:ce plan|cette version)|ce plan me convient|cette version me convient|keep this version|adopt this plan|this plan works for me)\s*[.!]*$/i;
+const acceptNoTests =
+  /^(?:j[\u0027\u2019]accepte l[\u0027\u2019]absence de tests|i accept (?:the absence of tests|no tests))\s*[.!]*$/i;
 
 function statusQuestion(text: string): boolean {
   const normalized = text
@@ -338,7 +343,37 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           // Native tool rows merge only within their originating turn. Publish
           // finished rows once; live progress is available in the Team pill and
           // the role's native session without holding the owner turn open.
-          if (item.type === 'tool_call' && item.status === 'running') continue;
+          if (item.type === 'tool_call' && item.status === 'running') {
+            const op = w.operation;
+            if (
+              op &&
+              op.phase !== 'testing' &&
+              capabilities.includes('timeline.plugin') &&
+              item.detail?.type === 'sub_agent'
+            ) {
+              const id = `team:live:${op.id}`;
+              if (!session.emitted.has(id)) {
+                const card: import('@getpaseo/plugin/server/provider').ProviderTimelineItem = {
+                  id,
+                  type: 'plugin',
+                  pluginId: 'paseo-agent-teams',
+                  kind: 'agent-teams-activity',
+                  version: 1,
+                  data: {
+                    id: w.id,
+                    workspaceId: w.workspaceId,
+                    operationId: op.id,
+                    role: op.role,
+                    model: ctx.label(op.role),
+                    description: item.detail.description ?? '',
+                  },
+                };
+                session.emitted.set(id, JSON.stringify(card));
+                emit({ type: 'timeline.item', sessionId, item: card });
+              }
+            }
+            continue;
+          }
           const json = JSON.stringify(item);
           const previous = session.emitted.get(item.id);
           // Narrations and finished tool calls are immutable: Paseo only merges a tool call within the native
@@ -722,6 +757,13 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
                 count: unanswered?.length ?? 0,
               }),
             );
+          const proposalAccepted = w.planProposal && (approval.test(text) || adoptProposal.test(text));
+          const noTestsAccepted =
+            w.status === 'awaiting_plan' &&
+            w.plan &&
+            !w.planProposal &&
+            !w.plan.tests.length &&
+            acceptNoTests.test(text);
           w = await backend.action({
             id: w.id,
             workspaceId: w.workspaceId,
@@ -729,13 +771,27 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             requestId,
             ...(pending
               ? { action: 'answer_clarification', clarificationId: pending.id, answers: answers! }
-              : approval.test(text) && ['awaiting_plan', 'awaiting_final'].includes(w.status)
-                ? { action: 'approve' }
-                : {
-                    action: 'followup',
-                    message: text,
-                    purpose: 'message',
-                  }),
+              : proposalAccepted
+                ? { action: 'adopt_plan' }
+                : noTestsAccepted
+                  ? { action: 'approve', allowNoTests: true }
+                  : /^(?:pause|mets? (?:l[\u0027\u2019]équipe|la mission) en pause|pause the team)\s*[.!]*$/i.test(text)
+                    ? { action: 'pause' }
+                    : w.status === 'paused' && /^(?:reprends|reprendre|continue|resume)\s*[.!]*$/i.test(text)
+                      ? { action: 'resume' }
+                      : approval.test(text) && ['awaiting_plan', 'awaiting_final'].includes(w.status)
+                        ? { action: 'approve' }
+                        : {
+                            action: 'followup',
+                            message: text,
+                            purpose:
+                              w.plan &&
+                              w.config.mode === 'auto' &&
+                              (w.status === 'awaiting_plan' ||
+                                (w.status === 'paused' && w.resumeStatus === 'awaiting_plan'))
+                                ? 'plan_revision'
+                                : 'message',
+                          }),
           });
         }
         const shown = {
