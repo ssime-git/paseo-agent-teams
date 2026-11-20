@@ -197,7 +197,7 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
             !!w.config.reviewOnly &&
             later.slice(0, nextPlan < 0 ? undefined : nextPlan).some((e) => e.kind === 'review_completed');
           items.push({
-            id: `team:plan:${event.id}`,
+            id: `team:plan:${event.id}${reviewed ? ':reviewed' : ''}`,
             type: 'todo',
             items: parsed.tasks.map((text, i) => ({ id: String(i + 1), text, completed: built || reviewed })),
           });

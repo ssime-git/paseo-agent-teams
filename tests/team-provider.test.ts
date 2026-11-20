@@ -1230,3 +1230,22 @@ test('a question about an orchestrator choice does not become a free-text answer
   assert.equal(w.clarifications[0].resolvedAt, undefined);
   assert.deepEqual(w.clarifications[0].answers, []);
 });
+
+test('a status turn restores completed review tasks without dispatching another agent', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Review PR' }] });
+  const w = s.workflow();
+  w.status = 'completed';
+  w.config.reviewOnly = true;
+  w.plan = { summary: 'Review', tasks: ['Inspect code', 'Record findings'], acceptance: ['Evidence'], tests: [] };
+  w.review = { verdict: 'fail', summary: 'Report delivered', issues: ['src/a.ts:1 defect'] };
+  w.events.push({ id: 'done', kind: 'review_completed', at: 'now', text: 'Report delivered' });
+  await s.prompt('status', { type: 'message', content: [{ type: 'text', text: 'Où en est la mission ?' }] });
+  const todos = s.events.filter((e) => e.type === 'timeline.item' && e.item.type === 'todo');
+  assert.ok(todos.length);
+  assert.ok(
+    todos.some((e) => e.type === 'timeline.item' && e.item.type === 'todo' && e.item.items.every((i) => i.completed)),
+  );
+  assert.equal(s.calls.filter((c) => c.kind === 'action').length, 0);
+});

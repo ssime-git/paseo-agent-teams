@@ -988,6 +988,27 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           result: { type: 'turn', turnId },
         });
         emit({ type: 'session.turn', sessionId, turnId, state: 'started' });
+        // A restored core history can still contain the original unchecked todo.
+        // An explicit status request publishes the verified current task state in
+        // its own turn, rather than relying on rewriting a historical todo row.
+        if (
+          askingStatus &&
+          w?.status === 'completed' &&
+          w.plan &&
+          w.config.reviewOnly &&
+          !w.events.some((e) => e.kind === 'closed') &&
+          w.events.some((e) => e.kind === 'review_completed')
+        ) {
+          emit({
+            type: 'timeline.item',
+            sessionId,
+            item: {
+              id: `team:status-tasks:${prompt.clientMessageId}`,
+              type: 'todo',
+              items: w.plan.tasks.map((text, i) => ({ id: String(i + 1), text, completed: true })),
+            },
+          });
+        }
         try {
           await project(sessionId);
           if (session.turn === turnId) {
