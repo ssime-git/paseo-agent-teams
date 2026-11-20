@@ -190,10 +190,16 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
           const built = later
             .slice(0, replanned < 0 ? undefined : replanned)
             .some((e) => e.kind === 'assistant' && e.role === 'builder');
+          const nextPlan = later.findIndex(
+            (e) => e.kind === 'assistant' && e.role === 'planner' && 'tasks' in (result('planner', e.text) ?? {}),
+          );
+          const reviewed =
+            !!w.config.reviewOnly &&
+            later.slice(0, nextPlan < 0 ? undefined : nextPlan).some((e) => e.kind === 'review_completed');
           items.push({
             id: `team:plan:${event.id}`,
             type: 'todo',
-            items: parsed.tasks.map((text, i) => ({ id: String(i + 1), text, completed: built })),
+            items: parsed.tasks.map((text, i) => ({ id: String(i + 1), text, completed: built || reviewed })),
           });
         }
         const narration =

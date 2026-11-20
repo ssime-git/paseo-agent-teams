@@ -327,6 +327,13 @@ test('a completed review exposes its findings in a status reply and final narrat
   const w = workflowFixture();
   w.status = 'completed';
   w.config.reviewOnly = true;
+  w.events.push(
+    event('assistant', 'planner', 'plan', JSON.stringify(plan)),
+    event('review_completed', 'planner', undefined, 'Report validated'),
+  );
+  const todos = valid(w).filter((item) => item.type === 'todo');
+  assert.ok(todos.length > 0);
+  assert.ok(todos.every((item) => item.type === 'todo' && item.items.every((task) => task.completed)));
   w.build = { summary: 'Old implementation report', changes: ['old.ts'], remaining: [] };
   w.review = {
     verdict: 'fail',
