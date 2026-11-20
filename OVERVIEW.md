@@ -4,8 +4,10 @@ Run a team of coding agents in one Paseo thread. Choose **Agent Teams → Team A
 
 Settings → Plugins → Agent Teams sets the model of each role, the validation mode, the correction limit and the fallback language (French or English). Team follows the official client app locale when available.
 
+In the Team thread, send `/team-revise your request` to discuss or revise the saved plan with the Reviewer. A proposal keeps the current plan intact and shows its tasks, acceptance criteria and tests. Send `/team-adopt` to select that proposal under your configured validation policy. When approval is required, the thread then asks for it separately; adopting a proposal does not accept missing tests. Both commands work as typed messages and native slash commands, and retain their decisions across restarts.
+
 New historical-pipeline missions save their response language at launch, including for later questions and follow-ups. In a native Team conversation, choose Response language before the first message: Français, English, or Host fallback (the default). The server API does not provide the client locale for native creation, so this choice is explicit. Custom graphs instead save the effective client language shown in their confirmed preview. Changing an interface or host language never changes an existing mission’s response language. Older missions without a saved language keep their original behavior.
 
-Requires Paseo >=0.13.0 <0.14.0 and an authenticated coding harness on the daemon host. Prompts, repository context and tool results are sent to the selected providers under their accounts. Workflow state is stored on the daemon host. The Code role can modify workspace files and run commands with its provider's permissions.
+Requires Paseo >=0.13.0 <0.17.0 and an authenticated coding harness on the daemon host. Prompts, repository context and tool results are sent to the selected providers under their accounts. Workflow state is stored on the daemon host. The Code role can modify workspace files and run commands with its provider's permissions.
 
 See [README.md](README.md).

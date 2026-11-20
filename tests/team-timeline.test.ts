@@ -208,7 +208,7 @@ test('the thread speaks English when the language setting is English', () => {
   assert.equal(row.detail.description, 'Plan the mission');
   assert.equal(
     stateNarrations(w, english)[0].text,
-    'The plan is ready (3 steps, tests: `npm test`). Reply **go** to start Codex · GPT-6.1, or describe what to change.',
+    'The plan is ready (3 steps, tests: `npm test`). Reply **go** to start Codex · GPT-6.1, or describe what to change.\n\nTo discuss the plan with the Reviewer: `/team-revise your request`.',
   );
 });
 
@@ -259,4 +259,45 @@ test('the current plan gets one approval instruction and an intervention never c
   assert.equal(stateNarrations(w, ctx).length, 1);
   assert.match(said(w)[0], /team-approve-no-tests/);
   assert.doesNotMatch(said(w)[0], /\*\*go\*\*/);
+});
+
+test('Reviewer proposals show the complete candidate and explicit adoption instead of an approval invitation', () => {
+  const w = workflowFixture();
+  w.plan = plan;
+  w.planProposal = {
+    plan: {
+      ...plan,
+      summary: 'Revised palette',
+      tasks: ['Include keyboard edge cases'],
+      tests: [{ command: 'node --test', timeoutMs: 10000 }],
+    },
+    summary: 'Keep the original scope',
+    baseVersion: 1,
+    operationId: 'revision-one',
+    agentId: 'reviewer',
+    selection: w.config.roles.reviewer,
+    at: 'now',
+  };
+  for (const status of ['awaiting_plan', 'paused', 'awaiting_final'] as const) {
+    w.status = status;
+    const narrations = stateNarrations(w, ctx);
+    assert.equal(narrations.length, 1);
+    assert.equal(narrations[0].id, 'proposal:revision-one');
+    assert.match(narrations[0].text, /plan v1/);
+    assert.match(narrations[0].text, /Include keyboard edge cases/);
+    assert.match(narrations[0].text, /Opens/);
+    assert.match(narrations[0].text, /`node --test`/);
+    assert.match(narrations[0].text, /team-adopt/);
+    assert.doesNotMatch(narrations[0].text, /\*\*go\*\*/);
+  }
+  const english = { ...ctx, t: translator('en') };
+  assert.match(stateNarrations(w, english)[0].text, /Reviewer proposal for plan v1/);
+  assert.match(stateNarrations(w, english)[0].text, /under your validation policy/);
+  w.planProposal.plan.tests = [];
+  assert.match(stateNarrations(w, english)[0].text, /No tests configured/);
+  assert.deepEqual(w.plan, plan);
+  delete w.planProposal;
+  w.status = 'awaiting_plan';
+  assert.match(said(w)[0], /\*\*go\*\*/);
+  assert.match(said(w)[0], /team-revise/);
 });

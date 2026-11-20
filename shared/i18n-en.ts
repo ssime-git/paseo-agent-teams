@@ -1,5 +1,17 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Discuter le plan avec le Reviewer : votre demande': 'Discuss the plan with the Reviewer: your request',
+  'Adopter la proposition du Reviewer selon la validation configurée':
+    'Adopt the Reviewer proposal under the configured validation policy',
+  'Décrivez la révision après `/team-revise`.': 'Describe the revision after `/team-revise`.',
+  'Proposition du Reviewer pour le plan v{version}': 'Reviewer proposal for plan v{version}',
+  'Critères d’acceptation :': 'Acceptance criteria:',
+  'Tests proposés :': 'Proposed tests:',
+  'Aucun test configuré.': 'No tests configured.',
+  'Envoyez `/team-adopt` pour retenir cette version selon votre politique de validation, ou `/team-revise votre demande` pour poursuivre la discussion. Le plan actuel reste conservé.':
+    'Send `/team-adopt` to select this version under your validation policy, or `/team-revise your request` to continue the discussion. The current plan is retained.',
+  'Pour discuter le plan avec le Reviewer : `/team-revise votre demande`.':
+    'To discuss the plan with the Reviewer: `/team-revise your request`.',
   'Langue des réponses': 'Response language',
   'Repli hôte (figé au lancement)': 'Host fallback (saved at launch)',
   'Langue des réponses : {language}': 'Response language: {language}',

@@ -88,6 +88,8 @@ export const commands = [
   { name: 'team-resume', description: 'Reprendre le workflow enregistré' },
   { name: 'team-approve', description: 'Approuver le plan ou le résultat en attente' },
   { name: 'team-approve-no-tests', description: 'Approuver explicitement sans commande de test' },
+  { name: 'team-revise', description: 'Discuter le plan avec le Reviewer : votre demande' },
+  { name: 'team-adopt', description: 'Adopter la proposition du Reviewer selon la validation configurée' },
   { name: 'team-graphs', description: 'Afficher les graphes de cette conversation' },
   { name: 'team-advance', description: 'Continuer un graphe : UUID révision attendue' },
 ];
@@ -406,7 +408,12 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             input.config.systemPrompt ||
             input.config.toolPolicy ||
             Object.keys(input.config.mcpServers).length ||
-            Object.keys(input.config.providerOptions ?? {}).length
+            Object.entries(input.config.providerOptions ?? {}).some(
+              ([key, value]) =>
+                ![...roles, 'responseLanguage'].includes(key) ||
+                typeof value !== 'string' ||
+                input.config.settings[key] !== value,
+            )
           )
             throw new Error(
               'Team Auto does not yet support custom system prompts, MCP servers, tool policies or provider options. Configure the native roles in Team.',
@@ -675,17 +682,30 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         if (prompt.input.type === 'command') {
           const command = prompt.input.name;
           if (!commands.some((c) => c.name === command)) throw new Error('Unknown Team command');
-          if (prompt.input.arguments.trim()) throw new Error(t('Cette commande ne prend pas d’argument.'));
-          if (w && !askingStatus)
-            w = await backend.action({
-              id: w.id,
-              workspaceId: w.workspaceId,
-              expectedRevision: w.revision,
-              requestId,
-              action: command === 'team-pause' ? 'pause' : command === 'team-resume' ? 'resume' : 'approve',
-              ...(command === 'team-approve-no-tests' ? { allowNoTests: true } : {}),
-            });
-          else if (!askingStatus) throw new Error(t('Décrivez d’abord votre mission.'));
+          const message = prompt.input.arguments.trim();
+          if (command === 'team-revise' && !message) throw new Error(t('Décrivez la révision après `/team-revise`.'));
+          if (command !== 'team-revise' && message) throw new Error(t('Cette commande ne prend pas d’argument.'));
+          if (w && !askingStatus) {
+            if (!(requestId in w.requests))
+              w = await backend.action({
+                id: w.id,
+                workspaceId: w.workspaceId,
+                expectedRevision: w.revision,
+                requestId,
+                action:
+                  command === 'team-revise'
+                    ? 'followup'
+                    : command === 'team-pause'
+                      ? 'pause'
+                      : command === 'team-resume'
+                        ? 'resume'
+                        : command === 'team-adopt'
+                          ? 'adopt_plan'
+                          : 'approve',
+                ...(command === 'team-revise' ? { purpose: 'plan_revision', message } : {}),
+                ...(command === 'team-approve-no-tests' ? { allowNoTests: true } : {}),
+              });
+          } else if (!askingStatus) throw new Error(t('Décrivez d’abord votre mission.'));
         } else if (!askingStatus && !w) {
           w = await backend.create(session.saved.workspaceId, text, session.saved.config, requestId, session.agentId);
           session.saved.workflowId = w.id;
@@ -721,7 +741,10 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         const shown = {
           id: prompt.clientMessageId,
           role: 'user' as const,
-          text: prompt.input.type === 'command' ? `/${prompt.input.name}` : text,
+          text:
+            prompt.input.type === 'command'
+              ? `/${prompt.input.name}${prompt.input.arguments ? ` ${prompt.input.arguments}` : ''}`
+              : text,
           at,
         };
         if (!session.saved.transcript?.some((e) => e.id === shown.id)) {

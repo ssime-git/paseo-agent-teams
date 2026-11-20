@@ -293,6 +293,26 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
           : ctx.t('Répondez directement ici.'),
       ].join('\n'),
     });
+  } else if (w.planProposal && !w.operation && w.phase !== 'followup') {
+    const proposal = w.planProposal;
+    out.push({
+      id: `proposal:${proposal.operationId}`,
+      text: [
+        ctx.t('Proposition du Reviewer pour le plan v{version}', { version: proposal.baseVersion }),
+        proposal.summary,
+        proposal.plan.summary,
+        list(proposal.plan.tasks),
+        ctx.t('Critères d’acceptation :'),
+        list(proposal.plan.acceptance),
+        ctx.t('Tests proposés :'),
+        proposal.plan.tests.length
+          ? list(proposal.plan.tests.map((test) => `\`${test.command}\``))
+          : ctx.t('Aucun test configuré.'),
+        ctx.t(
+          'Envoyez `/team-adopt` pour retenir cette version selon votre politique de validation, ou `/team-revise votre demande` pour poursuivre la discussion. Le plan actuel reste conservé.',
+        ),
+      ].join('\n\n'),
+    });
   } else if (w.status === 'awaiting_plan' && w.plan) {
     const tests = w.plan.tests.map((t) => `\`${t.command}\``).join(', ');
     const steps = w.plan.tasks.length;
@@ -303,16 +323,19 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
     const planKey = planVersion && planVersion > 1 ? `version:${planVersion}` : (plannerResult?.id ?? w.revision);
     out.push({
       id: `plan:${planKey}`,
-      text: !tests
-        ? ctx.t(
-            'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.',
-          )
-        : ctx.t(
-            steps > 1
-              ? 'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.'
-              : 'Le plan est prêt (1 étape, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.',
-            { steps, tests, builder: ctx.label('builder') },
-          ),
+      text:
+        (!tests
+          ? ctx.t(
+              'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.',
+            )
+          : ctx.t(
+              steps > 1
+                ? 'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.'
+                : 'Le plan est prêt (1 étape, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.',
+              { steps, tests, builder: ctx.label('builder') },
+            )) +
+        '\n\n' +
+        ctx.t('Pour discuter le plan avec le Reviewer : `/team-revise votre demande`.'),
     });
   }
   if (w.status === 'permission' && w.operation)
@@ -323,7 +346,7 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
         { role: ctx.t(roleTitle[w.operation.role]) },
       ),
     });
-  if (w.status === 'awaiting_final' && !pending)
+  if (w.status === 'awaiting_final' && !pending && !w.planProposal)
     out.push({
       id: `final:${last?.id ?? w.revision}`,
       text: ctx.t(

@@ -1648,3 +1648,49 @@ avec tests négatifs sur perte, doublon et inversion ; il ne supprime aucun tour
 Moteur/persistance simulés pour la régression locale de recréation de session ;
 daemon 0.15.0, modèle, RPC et redémarrage réels pour l'essai ci-dessus. Aucun
 nouveau navigateur/mobile ni parcours transversal complet revendiqué.
+
+## Révision explicite du plan dans le fil Team (20 novembre 2026)
+
+Le harnais opt-in `scripts/smoke-thread-revision.mjs` poursuit un plan existant
+sur un daemon loopback isolé. Son fichier source contient `root` (dépôt `/tmp/teams-…/repo`),
+`url`, `workspaceId`, `workflowId` et `agentId` (propriétaire natif Team).
+Il vérifie les modèles détectés, exige une politique non autonome avec validation
+humaine des tests et conserve une intention avant chaque commande. Deux tours
+Reviewer au maximum, budget global 180 s ; aucune relance automatique d’une
+intention existante, aucun Builder et aucune approbation de livraison.
+
+```bash
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6917/ws node scripts/smoke-thread-revision.mjs /tmp/teams-EXEMPLE/source.json
+# Si la fermeture native a mis la mission en pause, capturer cet état exact :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6917/ws node scripts/smoke-thread-revision.mjs --checkpoint /tmp/teams-EXEMPLE/source.json
+# Après arrêt/redémarrage du seul daemon isolé :
+PASEO_TEAMS_SMOKE_URL=ws://127.0.0.1:6917/ws node scripts/smoke-thread-revision.mjs --verify /tmp/teams-EXEMPLE/source.json
+```
+
+`--checkpoint` ne lance aucune commande ni modèle. Il n’accepte qu’un unique
+événement `paused` ajouté à l’état réussi, avec tout le reste profondément
+identique. `--verify` compare ensuite le record complet sans filtrage, rejoue
+le même message natif `/team-adopt` et compare le contenu intégral des deux
+tours Reviewer avec `assertModelTimelineRestored`. Les réglages Team que Paseo
+0.16.2 recopie dans `settings` et `providerOptions` sont acceptés seulement si
+leurs clés sont connues et leurs valeurs identiques ; les options inconnues,
+les divergences et les restrictions personnalisées restent refusées.
+
+Preuve réelle : `/tmp/teams-flow-qxGqIt/revision-source-v2.json-revision.json`
+et fichier `-restart.json` associé, workflow `4ded9e67-e21b-46b4-bb94-d139f0c4bbd5`.
+Paseo 0.16.2, Reviewer détecté Claude Opus 5.5 en mode `plan`, deux prompts et
+deux réponses sans outil ; le dépôt et la version initiale restent intacts.
+La v2 reste sans approbation des tests ni dispatch Builder. La première ouverture
+refusée est conservée dans `revision-source.json-revision.json` : état identique,
+aucun tour modèle. La première comparaison après arrêt a relevé la pause normale
+de fermeture native ; le checkpoint exact a ensuite été capturé et un second
+redémarrage isolé a confirmé son identité sans filtrer le record.
+
+Chromium a contrôlé le fil après adoption en 1440 × 1050 et 390 × 844, sans
+débordement ni erreur JavaScript : `revision-browser-proof.json` et captures
+`revision-thread-{1440,390}.png` dans le dossier isolé. La capture mobile initiale
+avait conservé le sélecteur d’onglets ouvert ; la capture finale le ferme.
+Ce contrôle porte sur le plan adopté et les commandes affichées ; le candidat
+avant adoption reste couvert par les tests de projection FR/EN, sans nouveau
+contrôle navigateur de ce checkpoint. Aucun appareil physique utilisé, aucun
+parcours transversal complet ni changement de modèle Reviewer revendiqué.

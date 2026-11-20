@@ -790,3 +790,86 @@ test('a repository status question answers directly without creating a mission a
   );
   assert.match(JSON.stringify(s.events), /Le plan attend votre accord/);
 });
+
+test('Team revision and adoption commands route explicitly, retain the request and replay without a second action', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Prepare a plan' }] });
+  const revision = {
+    type: 'message' as const,
+    content: [{ type: 'text' as const, text: '/team-revise Add edge cases\nKeep the existing tests.' }],
+  };
+  await s.prompt('revision', revision);
+  assert.deepEqual(s.calls.at(-1)?.value, {
+    id: s.workflow().id,
+    workspaceId: s.workflow().workspaceId,
+    expectedRevision: 0,
+    requestId: (s.calls.at(-1)?.value as { requestId: string }).requestId,
+    action: 'followup',
+    purpose: 'plan_revision',
+    message: 'Add edge cases\nKeep the existing tests.',
+  });
+  const count = s.calls.length;
+  await s.prompt('revision', revision);
+  assert.equal(s.calls.length, count);
+  assert.match(JSON.stringify(s.events), /team-revise Add edge cases\\nKeep the existing tests/);
+  await s.prompt('adopt', { type: 'command', name: 'team-adopt', arguments: '' });
+  const action = s.calls.at(-1)?.value as { action: string; allowNoTests?: boolean };
+  assert.equal(action.action, 'adopt_plan');
+  assert.equal(action.allowNoTests, undefined);
+  assert.equal(s.workflow().testsApproved, false);
+  assert.equal(
+    s.calls.filter((c) => c.kind === 'action' && (c.value as { action: string }).action === 'approve').length,
+    0,
+  );
+});
+
+test('Team plan commands reject missing requests, extra adoption arguments and absent missions without mutation', async (t) => {
+  const s = await setup(t, 'en');
+  await s.open();
+  for (const [i, text] of ['/team-revise Add tests', '/team-adopt', '/team-revise', '/team-adopt yes'].entries()) {
+    await s.prompt('invalid-before-' + i, { type: 'message', content: [{ type: 'text', text }] });
+    assert.equal(s.calls.length, 0);
+  }
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Prepare a plan' }] });
+  const count = s.calls.length;
+  await s.prompt('empty', { type: 'command', name: 'team-revise', arguments: '  ' });
+  await s.prompt('extra', { type: 'command', name: 'team-adopt', arguments: 'approve' });
+  assert.equal(s.calls.length, count);
+  assert.match(JSON.stringify(s.events), /Describe the revision after/);
+});
+
+test('restored Team settings mirrored as provider options reopen without losing commands or allowing custom restrictions', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Prepare a plan' }] });
+  await s.prompt('revision', { type: 'command', name: 'team-revise', arguments: 'Keep scope' });
+  const persisted = s.events.filter((e) => e.type === 'session.persistence').at(-1);
+  assert.ok(persisted?.type === 'session.persistence');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  const count = s.calls.length;
+  const settings = {
+    planner: s.workflow().config.roles.planner.provider,
+    builder: s.workflow().config.roles.builder.provider,
+    reviewer: s.workflow().config.roles.reviewer.provider,
+    responseLanguage: 'host',
+  };
+  for (const [i, extra] of [
+    { providerOptions: { customRestriction: true }, settings },
+    { providerOptions: { ...settings, reviewer: 'different/model' }, settings },
+    { providerOptions: settings, settings, systemPrompt: 'Keep this restriction' },
+  ].entries()) {
+    const before = s.events.length;
+    await s.open(persisted.persistence, extra);
+    assert.ok(
+      s.events.slice(before).some((e) => e.type === 'request.failed'),
+      'Unsupported config ' + i,
+    );
+    assert.equal(s.calls.length, count);
+  }
+  const before = s.events.length;
+  await s.open(persisted.persistence, { providerOptions: settings, settings });
+  assert.ok(s.events.slice(before).some((e) => e.type === 'session.ready'));
+  await s.prompt('revision', { type: 'command', name: 'team-revise', arguments: 'Keep scope' });
+  assert.equal(s.calls.length, count, 'Restored command acknowledgement must not send a second revision');
+});
