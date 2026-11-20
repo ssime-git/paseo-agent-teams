@@ -957,3 +957,24 @@ test('Team creation accepts explicit role models and preserves them through reop
     reviewer: { provider: 'codex/detected/model', modeId: 'read-only' },
   });
 });
+
+test('Team accepts the daemon-injected Paseo MCP endpoint and still rejects custom tools', async (t) => {
+  const s = await setup(t, 'fr', true, { daemonUrl: 'ws://127.0.0.1:6918/ws' });
+  const paseo = {
+    type: 'http',
+    url: 'http://127.0.0.1:6918/mcp/agents?callerAgentId=00000000-0000-4000-8000-000000000001',
+  };
+  for (const mcpServers of [
+    { paseo: { ...paseo, url: paseo.url.replace('6918', '6919') } },
+    { paseo: { ...paseo, url: paseo.url.replace('000001', '000002') } },
+    { paseo, custom: { type: 'http', url: 'http://127.0.0.1:6918/other' } },
+    { custom: paseo },
+  ]) {
+    const before = s.events.length;
+    await s.open(undefined, { mcpServers });
+    assert.ok(s.events.slice(before).some((event) => event.type === 'request.failed'));
+  }
+  await s.open(undefined, { mcpServers: { paseo } });
+  assert.ok(s.events.some((event) => event.type === 'session.ready'));
+  assert.equal(s.calls.length, 0);
+});

@@ -4,6 +4,7 @@ import {
   type ProviderRegistration,
   type ProviderEvent,
   type ProviderInput,
+  type ProviderMcpServerConfig,
   type ProviderConfigState,
 } from '@getpaseo/plugin/server/provider';
 import { configSchema, roles, type Action, type Config, type Role, type Workflow } from '../shared/contracts';
@@ -31,7 +32,22 @@ function selectRole(choices: TeamProviderChoice[], role: Role, value: unknown) {
   return { provider: value, modeId: mode.id };
 }
 
+/** Paseo adds its own tool endpoint at session launch. Team never connects to it. */
+function isHostPaseoMcp(name: string, server: ProviderMcpServerConfig, daemonUrl?: string, agentId?: string) {
+  if (name !== 'paseo' || server.type !== 'http' || !daemonUrl || !agentId) return false;
+  try {
+    const expected = new URL('/mcp/agents', daemonUrl);
+    if (expected.protocol !== 'ws:') return false;
+    expected.protocol = 'http:';
+    expected.searchParams.set('callerAgentId', agentId);
+    return new URL(server.url).href === expected.href;
+  } catch {
+    return false;
+  }
+}
+
 export interface TeamProviderBackend {
+  daemonUrl?: string;
   /** Validation mode preselected for new conversations, from the default team settings. */
   defaultMode?(): Promise<'plan' | 'final' | 'autonomous'>;
   /** Language of the thread messages, from the Agent Teams settings. */
@@ -451,7 +467,10 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           if (
             input.config.systemPrompt ||
             input.config.toolPolicy ||
-            Object.keys(input.config.mcpServers).length ||
+            Object.entries(input.config.mcpServers).some(
+              ([name, server]) =>
+                !isHostPaseoMcp(name, server, backend.daemonUrl, input.config.env.PASEO_AGENT_TEAMS_AGENT_ID),
+            ) ||
             Object.entries(input.config.providerOptions ?? {}).some(
               ([key, value]) =>
                 ![...roles, 'responseLanguage'].includes(key) ||

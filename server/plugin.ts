@@ -52,6 +52,7 @@ import { repositoryPreflight } from './git';
 import { resolveRepositories, scopesOverlap } from './scopes';
 
 export function contributeServer(server: PluginServerContext) {
+  const daemonUrl = process.env.PASEO_AGENT_TEAMS_DAEMON_URL ?? 'ws://127.0.0.1:6767/ws';
   const directory = process.env.PASEO_AGENT_TEAMS_DATA_DIR ?? join(homedir(), '.local', 'state', 'paseo-agent-teams');
   const store = new Store(directory);
   const definitions = new DefinitionCatalog(join(directory, 'definitions'));
@@ -77,7 +78,7 @@ export function contributeServer(server: PluginServerContext) {
     recovering = false;
   const bind = async () => {
     recoveryClient ??= createPaseoClient({
-      url: process.env.PASEO_AGENT_TEAMS_DAEMON_URL ?? 'ws://127.0.0.1:6767/ws',
+      url: daemonUrl,
       password: process.env.PASEO_AGENT_TEAMS_DAEMON_PASSWORD,
       reconnect: { enabled: true },
       connectTimeoutMs: 5000,
@@ -231,6 +232,7 @@ export function contributeServer(server: PluginServerContext) {
   });
   server.registerProvider(
     createTeamProvider({
+      daemonUrl,
       defaultMode: async () => (await savedTeam())?.validation ?? 'plan',
       language: async () => (await savedTeam())?.language ?? 'fr',
       async open(cwd, workspaceId) {
