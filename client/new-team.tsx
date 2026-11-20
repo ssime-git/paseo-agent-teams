@@ -1,11 +1,21 @@
-import { useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import type { PluginClientContext, PluginWorkspacePanelProps } from '@getpaseo/plugin/client';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useRpc, type PluginClientContext, type PluginWorkspacePanelProps } from '@getpaseo/plugin/client';
 import { interfaceLanguage, translate } from '../shared/i18n';
-import { TEAM_PROVIDER_ID } from '../shared/team-composition';
+import { TextInput } from '@getpaseo/plugin/client/ui';
+import { roles, teamChoicesRpc, type Role } from '../shared/contracts';
+import {
+  roleMode,
+  roleTitle,
+  teamModelLabel,
+  TEAM_PROVIDER_ID,
+  type TeamProviderChoice,
+} from '../shared/team-composition';
 import { onLanguage, useT } from './i18n';
 
 import { NEW_TEAM_PANEL } from './routes';
+
+type TeamModels = Partial<Record<Role, string>>;
 
 function NewTeam({
   workspaceId,
@@ -13,7 +23,7 @@ function NewTeam({
   navigation,
   create,
 }: PluginWorkspacePanelProps & {
-  create(workspaceId: string, key: string): Promise<string>;
+  create(workspaceId: string, key: string, models: TeamModels): Promise<string>;
 }) {
   const t = useT();
   const colors = theme.colors;
@@ -22,6 +32,28 @@ function NewTeam({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const [created, setCreated] = useState<string>();
+  const [editing, setEditing] = useState<Role>();
+  const [search, setSearch] = useState('');
+  const [models, setModels] = useState<TeamModels>({});
+  const [choices, setChoices] = useState<TeamProviderChoice[]>();
+  const [catalogError, setCatalogError] = useState(false);
+  const catalog = useRpc(teamChoicesRpc);
+  const catalogRef = useRef(catalog);
+  catalogRef.current = catalog;
+  useEffect(() => {
+    let live = true;
+    catalogRef.current({ workspaceId }).then(
+      (value) => {
+        if (live) setChoices(value);
+      },
+      () => {
+        if (live) setCatalogError(true);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [workspaceId]);
 
   const start = async () => {
     if (inFlight.current) return;
@@ -30,7 +62,7 @@ function NewTeam({
     setError(false);
     try {
       intent.current ??= `new-team-${Date.now()}-${Math.random()}-${Math.random()}`;
-      const agentId = created ?? (await create(workspaceId, intent.current));
+      const agentId = created ?? (await create(workspaceId, intent.current, models));
       setCreated(agentId);
       if (navigation) {
         navigation.openAgent({ agentId });
@@ -46,17 +78,96 @@ function NewTeam({
   };
 
   return (
-    <View style={{ padding: 20, gap: 12, alignItems: 'flex-start' }}>
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16 }}>
       <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: '600' }}>{t('Nouvelle équipe')}</Text>
       <Text style={{ color: colors.foregroundMuted }}>
         {t('Ouvrez une conversation Team Auto dans cet espace de travail.')}
       </Text>
+      {choices ? (
+        <View style={{ gap: 8, maxWidth: 640 }}>
+          {roles.map((role) => {
+            const options = choices.flatMap((provider) =>
+              provider.id !== TEAM_PROVIDER_ID && roleMode(provider, role)
+                ? provider.models.map((model) => ({
+                    value: `${provider.id}/${model.id}`,
+                    label: `${provider.label ?? provider.id} · ${teamModelLabel(model.id, model.label)}`,
+                  }))
+                : [],
+            );
+            const defaultModel = { value: '', label: t('Modèle par défaut') };
+            const selected = options.find((option) => option.value === models[role]) ?? defaultModel;
+            const expanded = editing === role;
+            const query = search.trim().toLowerCase();
+            const results = options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(query));
+            return (
+              <View key={role} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8 }}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${t(roleTitle[role])}: ${selected.label}`}
+                  accessibilityState={{ expanded }}
+                  disabled={busy || !!created}
+                  onPress={() => {
+                    setSearch('');
+                    setEditing(expanded ? undefined : role);
+                  }}
+                  style={{ padding: 12, gap: 4 }}
+                >
+                  <Text style={{ color: colors.foreground, fontWeight: '600' }}>{t(roleTitle[role])}</Text>
+                  <Text style={{ color: colors.foregroundMuted }}>{selected.label}</Text>
+                </Pressable>
+                {expanded ? (
+                  <View style={{ padding: 12, gap: 4 }}>
+                    <TextInput
+                      accessibilityLabel={t('Rechercher un modèle')}
+                      placeholder={t('Rechercher un modèle')}
+                      value={search}
+                      onChangeText={setSearch}
+                      style={{
+                        padding: 10,
+                        color: colors.foreground,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: 8,
+                      }}
+                    />
+                    {query && !results.length ? (
+                      <Text style={{ color: colors.foregroundMuted }}>{t('Aucun modèle trouvé.')}</Text>
+                    ) : null}
+                    {[defaultModel, ...results].map(({ value, label }) => (
+                      <Pressable
+                        key={value}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: selected.value === value }}
+                        disabled={busy}
+                        onPress={() => {
+                          if (inFlight.current) return;
+                          intent.current = undefined;
+                          setModels((previous) => ({ ...previous, [role]: value }));
+                          setEditing(undefined);
+                        }}
+                        style={{ padding: 12 }}
+                      >
+                        <Text style={{ color: colors.foreground }}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      ) : (
+        <Text style={{ color: colors.foregroundMuted }}>
+          {catalogError ? t('Catalogue des modèles indisponible.') : t('Recherche des modèles disponibles…')}
+        </Text>
+      )}
       <Pressable
         accessibilityRole="button"
         disabled={busy || (!!created && !navigation)}
         accessibilityState={{ disabled: busy || (!!created && !navigation), busy }}
         onPress={() => void start()}
         style={{
+          alignSelf: 'flex-start',
           backgroundColor: colors.surface2,
           borderColor: colors.accent,
           borderWidth: 1,
@@ -82,7 +193,7 @@ function NewTeam({
           {t('Conversation créée. Retrouvez-la dans les onglets de cet espace.')}
         </Text>
       ) : null}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -91,9 +202,10 @@ export function addNewTeam(client: PluginClientContext) {
   let release: (() => Promise<void>) | undefined;
   let language = interfaceLanguage(client.i18n?.locale);
   const title = () => translate(language, 'Nouvelle équipe');
-  const create = async (workspaceId: string, idempotencyKey: string) => {
+  const create = async (workspaceId: string, idempotencyKey: string, models: TeamModels) => {
+    const options = Object.fromEntries(Object.entries(models).filter(([, model]) => model));
     const agent = await client.paseo.workspaces.ref(workspaceId).agents.create({
-      config: { provider: `${TEAM_PROVIDER_ID}/auto` },
+      config: { provider: `${TEAM_PROVIDER_ID}/auto`, ...(Object.keys(options).length ? { options } : {}) },
       idempotencyKey,
     });
     return agent.id;

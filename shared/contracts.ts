@@ -509,10 +509,10 @@ export const nativeArtifactsRpc = defineRpc({
 });
 export const nativeBriefSchema = z.object({ text: z.string() });
 
-/** Harnesses, models and modes this host can use for team roles, independent of any workspace. */
+/** Harnesses, models and modes available for team roles, optionally in a workspace. */
 export const teamChoicesRpc = defineRpc({
   name: 'teams.choices',
-  input: z.object({}),
+  input: z.object({ workspaceId: z.string().min(1).optional() }),
   output: z.array(
     z.object({
       id: z.string(),

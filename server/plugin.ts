@@ -223,7 +223,12 @@ export function contributeServer(server: PluginServerContext) {
     const state = await defaults.read();
     return state.status === 'ready' ? state.values : undefined;
   };
-  server.handle(teamChoicesRpc, async (_input, { paseo }) => discover(paseo, homedir()));
+  server.handle(teamChoicesRpc, async ({ workspaceId }, { paseo }) => {
+    if (!workspaceId) return discover(paseo, homedir());
+    const workspace = await paseo.workspaces.ref(workspaceId).refresh();
+    if (!workspace?.workspaceDirectory) throw new TeamError('WORKSPACE_NOT_FOUND', 'Team workspace unavailable');
+    return discover(paseo, workspace.workspaceDirectory);
+  });
   server.registerProvider(
     createTeamProvider({
       defaultMode: async () => (await savedTeam())?.validation ?? 'plan',

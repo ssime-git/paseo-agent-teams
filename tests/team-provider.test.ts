@@ -928,3 +928,32 @@ test('plan conversation needs no slash commands: Reviewer receives questions, ag
   await s.prompt('resume', { type: 'message', content: [{ type: 'text', text: 'reprends' }] });
   assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'resume');
 });
+
+test('Team creation accepts explicit role models and preserves them through reopen and first mission', async (t) => {
+  const codex = choices[0];
+  const available = [{ ...codex, models: [...codex.models, { id: 'other', isDefault: false }] }, choices[1]];
+  const s = await setup(t, 'fr', true, {
+    open: async () => ({
+      workspaceId: s.workflow().workspaceId,
+      config: structuredClone(s.workflow().config),
+      choices: available,
+    }),
+  });
+  for (const planner of ['codex/unknown', 'agent-teams/auto']) {
+    const before = s.events.length;
+    await s.open(undefined, { settings: { planner }, providerOptions: { planner } });
+    assert.ok(s.events.slice(before).some((event) => event.type === 'request.failed'));
+  }
+  const models = { planner: 'codex/other', builder: 'codex/detected/model' };
+  await s.open(undefined, { settings: models, providerOptions: models });
+  const opened = s.events.find((event) => event.type === 'session.opened');
+  assert.ok(opened?.type === 'session.opened' && opened.persistence);
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  await s.open(opened.persistence, { settings: models, providerOptions: models });
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Prepare a plan' }] });
+  assert.deepEqual(s.workflow().config.roles, {
+    planner: { provider: 'codex/other', modeId: 'read-only' },
+    builder: { provider: 'codex/detected/model', modeId: 'auto' },
+    reviewer: { provider: 'codex/detected/model', modeId: 'read-only' },
+  });
+});

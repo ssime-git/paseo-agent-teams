@@ -1,5 +1,9 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Rechercher un modèle': 'Search models',
+  'Aucun modèle trouvé.': 'No models found.',
+  'Modèle par défaut': 'Default model',
+  'Catalogue des modèles indisponible.': 'Model catalog unavailable.',
   'Nouvelle équipe': 'New team',
   'Ouvrez une conversation Team Auto dans cet espace de travail.': 'Open a Team Auto conversation in this workspace.',
   'Création de l’équipe…': 'Creating team…',

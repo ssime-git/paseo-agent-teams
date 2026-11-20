@@ -15,12 +15,21 @@ import {
   type RoleAction,
   type TranscriptEntry,
 } from './team-timeline';
-import { roleTitle, TEAM_PROVIDER_ID, type TeamProviderChoice } from '../shared/team-composition';
+import { roleMode, roleTitle, TEAM_PROVIDER_ID, type TeamProviderChoice } from '../shared/team-composition';
 import { translator, type Language, type Translate } from '../shared/i18n';
 import { graphAdvanceRpc } from '../shared/graph-actions';
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { graphStatusReport } from './graph-status';
 import { readOnlyMode } from '../shared/provider-selection';
+
+function selectRole(choices: TeamProviderChoice[], role: Role, value: unknown) {
+  const provider = choices.find(
+    (choice) => choice.id !== TEAM_PROVIDER_ID && choice.models.some((model) => `${choice.id}/${model.id}` === value),
+  );
+  const mode = provider && roleMode(provider, role);
+  if (!mode || typeof value !== 'string') throw new Error('Unavailable Team model or permissions');
+  return { provider: value, modeId: mode.id };
+}
 
 export interface TeamProviderBackend {
   /** Validation mode preselected for new conversations, from the default team settings. */
@@ -453,8 +462,6 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             throw new Error(
               'Team Auto does not yet support custom system prompts, MCP servers, tool policies or provider options. Configure the native roles in Team.',
             );
-          if (!input.persistence && Object.keys(input.config.settings).length)
-            throw new Error('Configure Team roles after opening the session.');
           const workspaceId = input.persistence
             ? await backend.ownerWorkspace(
                 z.string().min(1).parse(input.config.env.PASEO_AGENT_TEAMS_AGENT_ID),
@@ -474,10 +481,15 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             saved = {
               key: z.uuid().parse(input.config.env.PASEO_AGENT_TEAMS_AGENT_ID),
               workspaceId: opened.workspaceId,
-              config: opened.config,
+              config: structuredClone(opened.config),
             };
             if (input.config.mode)
               saved.config.validation = z.enum(['plan', 'final', 'autonomous']).parse(input.config.mode);
+            for (const [key, value] of Object.entries(input.config.settings)) {
+              if (key === 'responseLanguage') continue;
+              const role = z.enum(roles).parse(key);
+              saved.config.roles[role] = selectRole(opened.choices, role, value);
+            }
           }
           if (roles.some((role) => saved.config.roles[role].provider.startsWith(`${TEAM_PROVIDER_ID}/`)))
             throw new Error('A Team cannot contain itself');
@@ -547,13 +559,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
               continue;
             }
             const role = z.enum(roles).parse(key);
-            const provider = session.choices.find((p) => p.models.some((m) => `${p.id}/${m.id}` === value));
-            const mode = provider?.modes.find((m) =>
-              role === 'builder' ? !readOnlyMode(provider.family, m.id) : readOnlyMode(provider.family, m.id),
-            );
-            if (!provider || !mode || typeof value !== 'string')
-              throw new Error('Unavailable Team model or permissions');
-            next.roles[role] = { provider: value, modeId: mode.id };
+            next.roles[role] = selectRole(session.choices, role, value);
           }
           session.saved.config = configSchema.parse(next);
           persist(input.sessionId, session.saved);
