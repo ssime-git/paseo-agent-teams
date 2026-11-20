@@ -3,7 +3,7 @@ import { TeamError } from '../shared/errors';
 import type { PaseoApi, PaseoAgentHandle } from '@getpaseo/client';
 import { writeFile, realpath } from 'node:fs/promises';
 import { join, sep, isAbsolute } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { roles, type Config, type Role, type Workflow, type Permission } from '../shared/contracts';
 import { resolveRepositories } from './scopes';
 import { roleTitle } from '../shared/team-composition';
@@ -15,6 +15,7 @@ import { DEFAULT_MODEL, INSTRUCTION_READ_ONLY, readOnlyMode, parseProvider } fro
 import type { Outcome, Runtime, CheckScope } from './engine';
 import { deliveryFingerprint, verifyDelivery } from './delivery';
 import type { RoleAction } from './team-timeline';
+import { responseLanguage } from './prompt';
 import type { AgentTimelineItem } from '@getpaseo/protocol/agent-types';
 
 export { readOnlyMode } from '../shared/provider-selection';
@@ -76,7 +77,7 @@ export class PaseoRuntime implements Runtime {
     await writeFile(baseline, captured, { mode: 0o600, flush: true });
     return { cwd: actualCwd, repo: targets[0].lock, repositoryTargets: targets, baseline, language };
   }
-  async agent(w: Workflow, role: Role) {
+  async agent(w: Workflow, role: Role, consultationId?: string) {
     const profiles = await providerProfiles(this.api);
     const selection = w.config.roles[role];
     const { harness, model } = parseProvider(selection.provider);
@@ -102,7 +103,9 @@ export class PaseoRuntime implements Runtime {
       if (features?.some((f) => f.id === 'auto_accept' && f.type === 'toggle')) featureValues = { auto_accept: true };
     }
     const options = {
-      idempotencyKey: `${w.id}-${role}${w.config.freshSessionPerCycle && w.cycle ? `-c${w.cycle}` : ''}${w.agentGenerations?.[role] ? `-g${w.agentGenerations[role]}` : ''}`,
+      idempotencyKey:
+        consultationId ??
+        `${w.id}-${role}${w.config.freshSessionPerCycle && w.cycle ? `-c${w.cycle}` : ''}${w.agentGenerations?.[role] ? `-g${w.agentGenerations[role]}` : ''}`,
       config: {
         ...selection,
         provider: model === DEFAULT_MODEL ? harness : selection.provider,
@@ -121,8 +124,12 @@ export class PaseoRuntime implements Runtime {
       },
       env: { GIT_OPTIONAL_LOCKS: '0' },
       // Inside a Team Auto thread the parent already names the team; the subagent list shows the role.
-      title: w.ownerAgentId ? translate(await this.language(), roleTitle[role]) : `Agent Teams · ${role}`,
-      labels: { 'agent-teams-workflow': w.id, 'agent-teams-role': role },
+      title: consultationId
+        ? 'Team · Q&A'
+        : w.ownerAgentId
+          ? translate(await this.language(), roleTitle[role])
+          : `Agent Teams · ${role}`,
+      labels: consultationId ? undefined : { 'agent-teams-workflow': w.id, 'agent-teams-role': role },
     };
     const agents = this.api.workspaces.ref(w.workspaceId).agents;
     if (!w.ownerAgentId) return (await agents.create(options)).id;
@@ -133,6 +140,44 @@ export class PaseoRuntime implements Runtime {
       // A closed orchestrator degrades to a regular role tab instead of blocking the mission.
       if (!/Caller agent .* not found/.test(String(error))) throw error;
       return (await agents.create(options)).id;
+    }
+  }
+  async liveQuestion(w: Workflow, question: string, requestId: string) {
+    if (!w.operation || w.config.roles.planner.modeId === INSTRUCTION_READ_ONLY) return;
+    const id = createHash('sha256').update(requestId).digest('hex');
+    const active = w.operation;
+    const activity = active.phase === 'testing' ? [] : await this.activity(w, active.role, active.id, true);
+    const agent = this.api.agents.ref(await this.agent(w, 'planner', `team-question-${id}`));
+    try {
+      const answer = await agent.run(
+        [
+          ...responseLanguage(w),
+          'Answer the user directly as Team orchestrator. This is a read-only consultation in a separate session. Do not use tools, contact agents, execute requests, approve, or alter anything. Use only the supplied evidence. State clearly what is unknown and do not declare a running review finished.',
+          JSON.stringify({
+            mission: w.task.slice(0, 3000),
+            plan: w.plan && {
+              summary: w.plan.summary.slice(0, 2500),
+              tasks: w.plan.tasks.slice(0, 10).map((t) => t.slice(0, 300)),
+            },
+            active: { role: active.role, phase: active.phase, status: w.status, recent: activity.slice(-8) },
+            review: w.review?.summary.slice(0, 1500),
+            question: question.slice(0, 4000),
+          }),
+        ].join('\n'),
+        { messageId: id, activeTurnBehavior: 'steer', timeoutMs: 25000 },
+      );
+      if (answer.status === 'idle') return answer.lastMessage?.trim().slice(0, 5000);
+      // Only this consultation can have a pending permission. Deny it rather than waiting for the user.
+      if (answer.status === 'permission') {
+        for (const permission of answer.final?.pendingPermissions ?? []) {
+          await agent.respondToPermission({
+            requestId: permission.id,
+            response: { behavior: 'deny', message: 'Read-only Team consultation', interrupt: true },
+          });
+        }
+      }
+    } finally {
+      await agent.archive().catch(() => {});
     }
   }
   async skillContext(w: Workflow, role: Role) {
@@ -347,7 +392,7 @@ export class PaseoRuntime implements Runtime {
     return { entries, cursor };
   }
   /** Tool calls the role session made while handling one plugin operation, newest last. */
-  async activity(w: Workflow, role: Role, operationId: string): Promise<RoleAction[]> {
+  async activity(w: Workflow, role: Role, operationId: string, includeMessages = false): Promise<RoleAction[]> {
     const id = w.agents[role];
     if (!id) return [];
     // Bounded read: a very long turn can push its prompt out of the page; the row then keeps only its result.
@@ -361,6 +406,8 @@ export class PaseoRuntime implements Runtime {
     for (const entry of page.entries.slice(start + 1)) {
       if (entry.item.type === 'user_message') break;
       if (entry.item.type === 'tool_call') calls.set(entry.item.callId, describeToolCall(entry.item));
+      if (includeMessages && entry.item.type === 'assistant_message' && entry.item.text.trim())
+        calls.set(`message:${entry.seqStart}`, { toolName: '', summary: clip(entry.item.text, 420) });
     }
     return [...calls.values()];
   }

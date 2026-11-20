@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { plannerQuestionReadRpc, plannerQuestionAnswerRpc } from '../shared/planner-question';
+import { plannerQuestionReadRpc, plannerQuestionAnswerRpc, teamActivityReadRpc } from '../shared/planner-question';
 import { ownedPlannerWorkflow } from './planner-question';
 import { createHash } from 'node:crypto';
 import { TeamError } from '../shared/errors';
@@ -105,6 +105,11 @@ export function contributeServer(server: PluginServerContext) {
     return engine;
   };
   server.handle(plannerQuestionReadRpc, async (input, { paseo }) => ownedPlannerWorkflow(paseo, store, input));
+  server.handle(teamActivityReadRpc, async ({ operationId, ...input }, { paseo }) => {
+    const w = await ownedPlannerWorkflow(paseo, store, input);
+    if (w.operation?.id !== operationId || w.operation.phase === 'testing') return [];
+    return (await new PaseoRuntime(paseo, directory).activity(w, w.operation.role, operationId, true)).slice(-8);
+  });
   server.handle(plannerQuestionAnswerRpc, async (input, { paseo }) => {
     nativeApi = paseo;
     await ownedPlannerWorkflow(paseo, store, {
@@ -233,6 +238,10 @@ export function contributeServer(server: PluginServerContext) {
   server.registerProvider(
     createTeamProvider({
       daemonUrl,
+      async liveQuestion(w, question, requestId) {
+        await bind();
+        return new PaseoRuntime(recoveryClient!, directory).liveQuestion(w, question, requestId);
+      },
       defaultMode: async () => (await savedTeam())?.validation ?? 'plan',
       language: async () => (await savedTeam())?.language ?? 'fr',
       async open(cwd, workspaceId) {

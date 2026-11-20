@@ -21,3 +21,9 @@ export const plannerQuestionAnswerRpc = defineRpc({
     .strict(),
   output: workflowSchema,
 });
+
+export const teamActivityReadRpc = defineRpc({
+  name: 'teams.operation_activity',
+  input: scope.extend({ operationId: z.string().min(1) }),
+  output: z.array(z.object({ toolName: z.string(), summary: z.string().optional() })),
+});

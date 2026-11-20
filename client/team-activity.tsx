@@ -3,7 +3,7 @@ import { Text, View } from 'react-native';
 import { useRpc, type PluginTimelineItemProps } from '@getpaseo/plugin/client';
 import { z } from 'zod';
 import { roles, type Workflow } from '../shared/contracts';
-import { plannerQuestionReadRpc } from '../shared/planner-question';
+import { plannerQuestionReadRpc, teamActivityReadRpc } from '../shared/planner-question';
 import { roleTitle } from '../shared/team-composition';
 import { useT } from './i18n';
 
@@ -26,14 +26,19 @@ export function TeamActivity({
 }: PluginTimelineItemProps<z.infer<typeof teamActivitySchema>>) {
   const t = useT();
   const read = useRpc(plannerQuestionReadRpc);
+  const activityRead = useRpc(teamActivityReadRpc);
+  const activityRef = useRef(activityRead);
+  activityRef.current = activityRead;
   const readRef = useRef(read);
   readRef.current = read;
   const [workflow, setWorkflow] = useState<Workflow>();
+  const [activity, setActivity] = useState<{ toolName: string; summary?: string }[]>([]);
   const [error, setError] = useState(false);
   useEffect(() => {
     let live = true,
       pending = false;
     setWorkflow(undefined);
+    setActivity([]);
     setError(false);
     const refresh = async () => {
       if (pending) return;
@@ -43,7 +48,19 @@ export function TeamActivity({
         if (!live) return;
         setWorkflow(w);
         setError(false);
-        if (w.operation?.id !== data.operationId) clearInterval(timer);
+        if (w.operation?.id !== data.operationId) {
+          clearInterval(timer);
+        } else {
+          const items = await activityRef
+            .current({
+              id: data.id,
+              workspaceId: data.workspaceId,
+              ownerAgentId: agentId,
+              operationId: data.operationId,
+            })
+            .catch(() => undefined);
+          if (live && Array.isArray(items)) setActivity(items);
+        }
       } catch {
         if (live) setError(true);
       } finally {
@@ -93,6 +110,16 @@ export function TeamActivity({
           {tasks.map((task, i) => (
             <Text key={i} style={{ color: c.foreground, fontSize: 12, lineHeight: 18 }}>
               {i + 1}. {task}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+      {activity.length ? (
+        <View style={{ gap: 5 }}>
+          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{t('Dans le fil du sous-agent')}</Text>
+          {activity.map(({ toolName, summary }, i) => (
+            <Text key={i} style={{ color: c.foreground, fontSize: 12, lineHeight: 18 }}>
+              {[toolName, summary].filter(Boolean).join(' · ')}
             </Text>
           ))}
         </View>

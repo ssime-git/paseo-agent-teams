@@ -978,3 +978,40 @@ test('Team accepts the daemon-injected Paseo MCP endpoint and still rejects cust
   assert.ok(s.events.some((event) => event.type === 'session.ready'));
   assert.equal(s.calls.length, 0);
 });
+
+test('a question during an active Reviewer turn gets a direct response without queuing or changing the operation', async (t) => {
+  let consultations = 0;
+  const s = await setup(t, 'fr', true, {
+    async liveQuestion(w, question) {
+      consultations++;
+      assert.equal(w.operation?.id, 'review');
+      assert.equal(question, 'En attendant, peux-tu décrire l’objectif ?');
+      return 'La revue vérifie le traitement des erreurs.';
+    },
+  });
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Review a change' }] });
+  const w = s.workflow();
+  w.status = 'running';
+  w.phase = 'reviewing';
+  w.operation = { id: 'review', role: 'reviewer', phase: 'reviewing', state: 'sent', startedAt: 'now' };
+  const before = structuredClone(w);
+  const message = {
+    type: 'message' as const,
+    content: [{ type: 'text' as const, text: 'En attendant, peux-tu décrire l’objectif ?' }],
+  };
+  await s.prompt('question', message);
+  await s.prompt('question', message);
+  assert.equal(consultations, 1);
+  assert.deepEqual(s.workflow(), before);
+  assert.equal(s.calls.filter((entry) => entry.kind === 'action').length, 0);
+  assert.equal(
+    s.events.filter(
+      (event) =>
+        event.type === 'timeline.item' &&
+        event.item.type === 'assistant_message' &&
+        event.item.text === 'La revue vérifie le traitement des erreurs.',
+    ).length,
+    1,
+  );
+});

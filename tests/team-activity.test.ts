@@ -15,8 +15,13 @@ test('live role card shows actual subtasks, pauses honestly, reports refresh err
   let fail = false;
   (globalThis as Record<string, unknown>).__activityTest = {
     language: 'en',
-    rpc: () => async () => {
+    rpc: (name: string) => async () => {
       if (fail) throw Error('offline');
+      if (name === 'teams.operation_activity')
+        return [
+          { toolName: '', summary: 'Reviewing the error handling' },
+          { toolName: 'Read', summary: 'src/validation.ts' },
+        ];
       return structuredClone(w);
     },
   };
@@ -48,6 +53,9 @@ test('live role card shows actual subtasks, pauses honestly, reports refresh err
   assert.match(text(), /Preserve README/);
   assert.match(text(), /Add edge cases/);
   assert.match(text(), /In progress/);
+  assert.match(text(), /From the sub-agent thread/);
+  assert.match(text(), /Reviewing the error handling/);
+  assert.match(text(), /src\/validation.ts/);
   w.status = 'paused';
   await act(async () => {
     await new Promise((r) => setTimeout(r, 1100));

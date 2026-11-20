@@ -1,5 +1,8 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Dans le fil du sous-agent': 'From the sub-agent thread',
+  'Je ne peux pas confirmer la réponse pour le moment. Le travail de l’équipe se poursuit.':
+    'I cannot confirm the answer yet. The team is still working.',
   'Rechercher un modèle': 'Search models',
   'Aucun modèle trouvé.': 'No models found.',
   'Modèle par défaut': 'Default model',

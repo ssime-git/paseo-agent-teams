@@ -48,6 +48,7 @@ function isHostPaseoMcp(name: string, server: ProviderMcpServerConfig, daemonUrl
 
 export interface TeamProviderBackend {
   daemonUrl?: string;
+  liveQuestion?(w: Workflow, question: string, requestId: string): Promise<string | undefined>;
   /** Validation mode preselected for new conversations, from the default team settings. */
   defaultMode?(): Promise<'plan' | 'final' | 'autonomous'>;
   /** Language of the thread messages, from the Agent Teams settings. */
@@ -136,6 +137,9 @@ const adoptProposal =
   /^(?:retiens cette version|adopte (?:ce plan|cette version)|ce plan me convient|cette version me convient|keep this version|adopt this plan|this plan works for me)\s*[.!]*$/i;
 const acceptNoTests =
   /^(?:j[\u0027\u2019]accepte l[\u0027\u2019]absence de tests|i accept (?:the absence of tests|no tests))\s*[.!]*$/i;
+
+const readQuestion =
+  /[?？]\s*$|\b(?:peux-tu (?:me )?(?:dire|expliquer|décrire)|what|why|how|where|pourquoi|comment|quel(?:le)?s?)\b/i;
 
 function statusQuestion(text: string): boolean {
   const normalized = text
@@ -739,6 +743,16 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         const at = w?.events.length ?? 0;
         const askingStatus =
           prompt.input.type === 'command' ? prompt.input.name === 'team-status' : statusQuestion(text);
+        const liveQuestion =
+          !!backend.liveQuestion &&
+          prompt.input.type === 'message' &&
+          !!w?.operation &&
+          ['running', 'ready', 'permission'].includes(w.status) &&
+          !w.clarifications?.some((q) => !q.resolvedAt) &&
+          !askingStatus &&
+          readQuestion.test(text);
+        const liveReplyId = `consultation:${prompt.clientMessageId}`;
+        const previousLiveQuestion = session.saved.transcript?.some((e) => e.id === liveReplyId);
         if (prompt.input.type === 'command') {
           const command = prompt.input.name;
           if (!commands.some((c) => c.name === command)) throw new Error('Unknown Team command');
@@ -770,7 +784,14 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           w = await backend.create(session.saved.workspaceId, text, session.saved.config, requestId, session.agentId);
           session.saved.workflowId = w.id;
           persist(sessionId, session.saved);
-        } else if (!askingStatus && w && !(requestId in w.requests) && !(`create:${requestId}` in w.requests)) {
+        } else if (
+          !liveQuestion &&
+          !previousLiveQuestion &&
+          !askingStatus &&
+          w &&
+          !(requestId in w.requests) &&
+          !(`create:${requestId}` in w.requests)
+        ) {
           const pending = w.clarifications?.find((q) => !q.resolvedAt);
           const unanswered = pending?.request.questions.filter(
             (q) => !pending.answers.some((a) => a.questionId === q.id),
@@ -853,6 +874,22 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
                     'Aucune mission dans cette conversation et aucun point ouvert trouvé dans la feuille de route du dépôt.',
                   );
             record(session.saved, { ...report, text });
+            persist(sessionId, session.saved);
+          }
+        }
+        // Save the consultation decision before contacting the model. A replay never dispatches it again.
+        if (liveQuestion && !previousLiveQuestion && w) {
+          record(session.saved, {
+            id: liveReplyId,
+            role: 'assistant',
+            at,
+            text: t('Je ne peux pas confirmer la réponse pour le moment. Le travail de l’équipe se poursuit.'),
+          });
+          persist(sessionId, session.saved);
+          const answer = await backend.liveQuestion!(w, text, requestId).catch(() => undefined);
+          const receipt = session.saved.transcript?.find((e) => e.id === liveReplyId);
+          if (answer && receipt && !closed && sessions.get(sessionId) === session) {
+            receipt.text = answer.slice(0, 5000);
             persist(sessionId, session.saved);
           }
         }
