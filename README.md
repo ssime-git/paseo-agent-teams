@@ -24,7 +24,7 @@ Requirements: Paseo `>=0.13.0 <0.17.0`, at least one authenticated harness on th
 
 ## Run a mission
 
-1. Open a workspace, start a chat and choose **Agent Teams → Team Auto** in the model picker.
+1. In a workspace, select **New team** to create a Team Auto conversation. This also works from a chat using another model.
 2. Describe the mission and send it.
 3. When the plan is ready, reply **go**. To change it, describe what you want instead.
 

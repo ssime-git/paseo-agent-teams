@@ -1,5 +1,14 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Nouvelle équipe': 'New team',
+  'Ouvrez une conversation Team Auto dans cet espace de travail.': 'Open a Team Auto conversation in this workspace.',
+  'Création de l’équipe…': 'Creating team…',
+  'Ouvrir la conversation': 'Open conversation',
+  'Créer la conversation Team Auto': 'Create Team Auto conversation',
+  'Impossible d’ouvrir la nouvelle équipe. Réessayez.': 'Could not open the new team. Try again.',
+  'Conversation créée. Retrouvez-la dans les onglets de cet espace.':
+    'Conversation created. Find it in the workspace tabs.',
+
   'Actualisation indisponible': 'Refresh unavailable',
   'Actualisation…': 'Refreshing…',
   'En cours': 'In progress',

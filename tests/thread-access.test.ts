@@ -10,6 +10,7 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
     update(value: { type: string; payload: { kind: string; agent?: Agent; agentId?: string } }): void;
   };
   const registrations: {
+    id: string;
     agentId: string;
     workspaceId: string;
     button: {
@@ -18,6 +19,7 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
     };
     removed: boolean;
   }[] = [];
+  const launchers: typeof registrations = [];
   const opened: unknown[] = [];
   let signal!: AbortSignal;
   const sent: unknown[] = [];
@@ -52,7 +54,7 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
     },
     addComposerPill(input: (typeof registrations)[number]) {
       const entry = { ...input, removed: false };
-      registrations.push(entry);
+      (entry.id === 'agent-teams-new' ? launchers : registrations).push(entry);
       return {
         remove() {
           entry.removed = true;
@@ -81,6 +83,10 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
     type: 'agent_update',
     payload: { kind: 'upsert', agent: { id: 'a', workspaceId: 'w1', provider: team } },
   });
+  assert.deepEqual(
+    launchers.map((entry) => entry.agentId),
+    ['a', 'claude-thread'],
+  );
   assert.equal(registrations.length, 1); // Only the Team Auto thread gets the Team pill.
   assert.equal(registrations[0].button.label, 'Équipe');
   const content = registrations[0].button.behavior.Content({}) as { props: Record<string, () => void> };
@@ -107,6 +113,8 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
     payload: { kind: 'upsert', agent: { id: 'a', workspaceId: 'w2', provider: team } },
   });
   assert.equal(registrations[0].removed, true);
+  assert.equal(launchers[0].removed, true);
+  assert.equal(launchers.at(-1)?.workspaceId, 'w2');
   assert.equal(registrations[1].workspaceId, 'w2');
   observer.snapshot({ entries: [{ agent: { id: 'b', workspaceId: 'w3', provider: team } }] });
   assert.equal(registrations[1].removed, true);

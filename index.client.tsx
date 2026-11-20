@@ -1,5 +1,6 @@
 import type { PluginClientContext } from '@getpaseo/plugin/client';
 import { settingsRpc } from '@getpaseo/plugin';
+import { addNewTeam } from './client/new-team';
 import { addNativeTimeline } from './client/native-timeline';
 import { addThreadAccess } from './client/thread-access';
 import { TeamCard } from './client/team-card';
@@ -59,6 +60,7 @@ export default function contribute(client: PluginClientContext) {
   followLanguage();
   const languageTimer = setInterval(followLanguage, 1_000);
   const removeNativeTimeline = addNativeTimeline(client);
+  const removeNewTeam = addNewTeam(client);
   const removeThreadAccess = addThreadAccess(client, TeamCard);
   return () => {
     clearInterval(languageTimer);
@@ -67,5 +69,6 @@ export default function contribute(client: PluginClientContext) {
     void removeSettings();
     removeNativeTimeline();
     removeThreadAccess();
+    removeNewTeam();
   };
 }
