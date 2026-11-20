@@ -8,6 +8,7 @@ import {
 } from '@getpaseo/plugin/server/provider';
 import { createTeamProvider, type TeamProviderBackend } from '../server/team-provider';
 import { workflowFixture } from './fixtures';
+import { RepositoryBusy } from '../shared/errors';
 import { automaticTeam } from '../shared/team-composition';
 
 const choices = [
@@ -1014,4 +1015,52 @@ test('a question during an active Reviewer turn gets a direct response without q
     ).length,
     1,
   );
+});
+
+test('a reserved repository reports the blocking mission in the thread and waits for a new request', async (t) => {
+  let attempts = 0;
+  const s = await setup(t, 'fr', true, {
+    async create() {
+      attempts++;
+      throw new RepositoryBusy({ id: 'blocking', workspaceId: 'owner', task: 'Revoir la PR précédente' });
+    },
+  });
+  const request = { type: 'message' as const, content: [{ type: 'text' as const, text: 'Revoir une autre PR' }] };
+  await s.open();
+  await s.prompt('blocked', request);
+  assert.match(JSON.stringify(s.events), /Revoir la PR précédente/);
+  assert.match(JSON.stringify(s.events), /Clôture cette mission/);
+  assert.ok(!s.events.some((e) => e.type === 'session.prompt_result' && e.result.type === 'failed'));
+  const saved = s.events.findLast((e) => e.type === 'session.persistence');
+  assert.ok(saved?.type === 'session.persistence');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  await s.open(saved.persistence);
+  await s.prompt('blocked', request);
+  assert.equal(attempts, 1);
+  await s.prompt('retry', request);
+  assert.equal(attempts, 2);
+});
+
+test('explicit closure targets only the current mission, including while awaiting a clarification', async (t) => {
+  const s = await setup(t);
+  const send = (id: string, text: string) => s.prompt(id, { type: 'message', content: [{ type: 'text', text }] });
+  await s.open();
+  await send('empty-close', 'Clôture cette mission');
+  assert.equal(s.calls.length, 0);
+  await send('launch', 'Revoir cette modification');
+  const w = s.workflow();
+  w.clarifications = [
+    {
+      id: 'pending',
+      at: 'now',
+      answers: [],
+      request: { kind: 'clarification', summary: 'Question ouverte', questions: [] },
+    },
+  ];
+  await send('close', 'Clôture cette mission');
+  assert.deepEqual(
+    s.calls.filter((c) => c.kind === 'action').map((c) => (c.value as { action: string; id: string }).action),
+    ['finish'],
+  );
+  assert.match(JSON.stringify(s.events), /Mission clôturée/);
 });

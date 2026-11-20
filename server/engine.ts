@@ -1,4 +1,4 @@
-import { TeamError } from '../shared/errors';
+import { RepositoryBusy, TeamError } from '../shared/errors';
 import { deliveryQuestion, deliveryMethod } from '../shared/delivery';
 import { rm } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
@@ -155,11 +155,7 @@ export class Engine {
       const checkScope: CheckScope = async (scope) => {
         for (const lock of repositoryLocks(scope)) await this.store.assertCanCreate(lock);
         const blocker = (await this.store.all()).find((w) => scopesOverlap(w, scope) && w.status !== 'completed');
-        if (blocker)
-          throw new TeamError(
-            'REPOSITORY_LOCKED',
-            `Another workflow holds this repository: ${blocker.id} (workspace ${blocker.workspaceId ?? 'unknown'}). Open Agent Teams there to resume or close it.`,
-          );
+        if (blocker) throw new RepositoryBusy({ id: blocker.id, workspaceId: blocker.workspaceId, task: blocker.task });
       };
       let prepared: (PreparedScope & { baseline: string }) | undefined;
       let committed = false;
@@ -231,7 +227,12 @@ export class Engine {
         !pending.resolvedAt &&
         !(
           (input.action === 'followup' && (!input.purpose || input.purpose === 'message')) ||
-          (pending.purpose === 'delivery' && ['adopt_plan', 'continue', 'start_goal'].includes(input.action))
+          (pending.purpose === 'delivery' &&
+            (['adopt_plan', 'continue', 'start_goal'].includes(input.action) ||
+              (input.action === 'resume' &&
+                w.status === 'paused' &&
+                w.resumeStatus === 'awaiting_final' &&
+                !w.operation)))
         ) &&
         !['answer_clarification', 'import_planner_answers', 'pause', 'reconfigure', 'finish'].includes(input.action)
       )

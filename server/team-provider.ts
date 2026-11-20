@@ -21,6 +21,7 @@ import { translator, type Language, type Translate } from '../shared/i18n';
 import { graphAdvanceRpc } from '../shared/graph-actions';
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { graphStatusReport } from './graph-status';
+import { RepositoryBusy } from '../shared/errors';
 import { readOnlyMode } from '../shared/provider-selection';
 
 function selectRole(choices: TeamProviderChoice[], role: Role, value: unknown) {
@@ -133,6 +134,8 @@ function record(saved: Saved, ...entries: TranscriptEntry[]) {
 }
 const approval =
   /^\s*(go|ok|okay|oui|yes|valide|validé|approve|approuvé|lgtm|vas-y|c'est bon|c’est bon|ça me va|ça marche|je valide ce plan|sounds good|looks good)\s*[.!]*\s*$/i;
+const finishMission =
+  /^(?:clôture (?:cette|la) mission|termine (?:cette|la) mission|close (?:this|the) mission)\s*[.!]*$/i;
 const adoptProposal =
   /^(?:retiens cette version|adopte (?:ce plan|cette version)|ce plan me convient|cette version me convient|keep this version|adopt this plan|this plan works for me)\s*[.!]*$/i;
 const acceptNoTests =
@@ -743,6 +746,8 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         const at = w?.events.length ?? 0;
         const askingStatus =
           prompt.input.type === 'command' ? prompt.input.name === 'team-status' : statusQuestion(text);
+        const closingMission = prompt.input.type === 'message' && finishMission.test(text);
+        let blocked: RepositoryBusy | undefined;
         const liveQuestion =
           !!backend.liveQuestion &&
           prompt.input.type === 'message' &&
@@ -751,6 +756,9 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           !w.clarifications?.some((q) => !q.resolvedAt) &&
           !askingStatus &&
           readQuestion.test(text);
+        const previousMissionControl = session.saved.transcript?.some(
+          (e) => e.id === `mission-control:${prompt.clientMessageId}`,
+        );
         const liveReplyId = `consultation:${prompt.clientMessageId}`;
         const previousLiveQuestion = session.saved.transcript?.some((e) => e.id === liveReplyId);
         if (prompt.input.type === 'command') {
@@ -780,10 +788,25 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
                 ...(command === 'team-approve-no-tests' ? { allowNoTests: true } : {}),
               });
           } else if (!askingStatus) throw new Error(t('Décrivez d’abord votre mission.'));
-        } else if (!askingStatus && !w) {
-          w = await backend.create(session.saved.workspaceId, text, session.saved.config, requestId, session.agentId);
-          session.saved.workflowId = w.id;
-          persist(sessionId, session.saved);
+        } else if (closingMission) {
+          if (w && w.status !== 'completed' && !(requestId in w.requests)) {
+            w = await backend.action({
+              id: w.id,
+              workspaceId: w.workspaceId,
+              expectedRevision: w.revision,
+              requestId,
+              action: 'finish',
+            });
+          }
+        } else if (!previousMissionControl && !askingStatus && !w) {
+          try {
+            w = await backend.create(session.saved.workspaceId, text, session.saved.config, requestId, session.agentId);
+            session.saved.workflowId = w.id;
+            persist(sessionId, session.saved);
+          } catch (error) {
+            if (!(error instanceof RepositoryBusy)) throw error;
+            blocked = error;
+          }
         } else if (
           !liveQuestion &&
           !previousLiveQuestion &&
@@ -796,8 +819,13 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           const unanswered = pending?.request.questions.filter(
             (q) => !pending.answers.some((a) => a.questionId === q.id),
           );
-          const answers = pending && unanswered ? answerQuestions(unanswered, text) : undefined;
-          if (pending && !answers)
+          const resumingDelivery =
+            pending?.purpose === 'delivery' &&
+            w.status === 'paused' &&
+            w.resumeStatus === 'awaiting_final' &&
+            /^(?:reprends|reprendre|continue|resume)\s*[.!]*$/i.test(text);
+          const answers = pending && unanswered && !resumingDelivery ? answerQuestions(unanswered, text) : undefined;
+          if (pending && !answers && !resumingDelivery)
             throw new Error(
               t('{count} questions sont en attente. Répondez une par ligne : « 1. … », « 2. … ».', {
                 count: unanswered?.length ?? 0,
@@ -815,29 +843,33 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             workspaceId: w.workspaceId,
             expectedRevision: w.revision,
             requestId,
-            ...(pending
-              ? { action: 'answer_clarification', clarificationId: pending.id, answers: answers! }
-              : proposalAccepted
-                ? { action: 'adopt_plan' }
-                : noTestsAccepted
-                  ? { action: 'approve', allowNoTests: true }
-                  : /^(?:pause|mets? (?:l[\u0027\u2019]équipe|la mission) en pause|pause the team)\s*[.!]*$/i.test(text)
-                    ? { action: 'pause' }
-                    : w.status === 'paused' && /^(?:reprends|reprendre|continue|resume)\s*[.!]*$/i.test(text)
-                      ? { action: 'resume' }
-                      : approval.test(text) && ['awaiting_plan', 'awaiting_final'].includes(w.status)
-                        ? { action: 'approve' }
-                        : {
-                            action: 'followup',
-                            message: text,
-                            purpose:
-                              w.plan &&
-                              w.config.mode === 'auto' &&
-                              (w.status === 'awaiting_plan' ||
-                                (w.status === 'paused' && w.resumeStatus === 'awaiting_plan'))
-                                ? 'plan_revision'
-                                : 'message',
-                          }),
+            ...(resumingDelivery
+              ? { action: 'resume' }
+              : pending
+                ? { action: 'answer_clarification', clarificationId: pending.id, answers: answers! }
+                : proposalAccepted
+                  ? { action: 'adopt_plan' }
+                  : noTestsAccepted
+                    ? { action: 'approve', allowNoTests: true }
+                    : /^(?:pause|mets? (?:l[\u0027\u2019]équipe|la mission) en pause|pause the team)\s*[.!]*$/i.test(
+                          text,
+                        )
+                      ? { action: 'pause' }
+                      : w.status === 'paused' && /^(?:reprends|reprendre|continue|resume)\s*[.!]*$/i.test(text)
+                        ? { action: 'resume' }
+                        : approval.test(text) && ['awaiting_plan', 'awaiting_final'].includes(w.status)
+                          ? { action: 'approve' }
+                          : {
+                              action: 'followup',
+                              message: text,
+                              purpose:
+                                w.plan &&
+                                w.config.mode === 'auto' &&
+                                (w.status === 'awaiting_plan' ||
+                                  (w.status === 'paused' && w.resumeStatus === 'awaiting_plan'))
+                                  ? 'plan_revision'
+                                  : 'message',
+                            }),
           });
         }
         const shown = {
@@ -857,6 +889,25 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         if (!session.emitted.has(item.id)) {
           session.emitted.set(item.id, JSON.stringify(item));
           emit({ type: 'timeline.item', sessionId, item });
+        }
+        if (blocked || closingMission) {
+          const id = `mission-control:${prompt.clientMessageId}`;
+          if (!session.saved.transcript?.some((e) => e.id === id)) {
+            const text = blocked
+              ? t(
+                  'Ce dépôt est réservé par une autre mission Team : « {task} ». Retrouvez ce fil dans l’espace de travail. Si vous avez terminé, dites « Clôture cette mission » dans ce fil, puis renvoyez ici votre demande.',
+                  {
+                    task: blocked.blocker.task.replace(/\s+/g, ' ').trim().slice(0, 150),
+                  },
+                )
+              : w
+                ? t(
+                    'Mission clôturée. Vous pouvez créer une nouvelle équipe pour lancer une autre mission dans ce dépôt.',
+                  )
+                : t('Aucune mission à clôturer dans ce fil.');
+            record(session.saved, { id, role: 'assistant', text, at });
+            persist(sessionId, session.saved);
+          }
         }
         if (askingStatus) {
           const report = { id: `status:${prompt.clientMessageId}`, role: 'assistant' as const, at };

@@ -1,5 +1,10 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Ce dépôt est réservé par une autre mission Team : « {task} ». Retrouvez ce fil dans l’espace de travail. Si vous avez terminé, dites « Clôture cette mission » dans ce fil, puis renvoyez ici votre demande.':
+    'This repository is reserved by another Team mission: “{task}”. Find that conversation in the workspace. When finished, say “Close this mission” in that conversation, then send your request again here.',
+  'Mission clôturée. Vous pouvez créer une nouvelle équipe pour lancer une autre mission dans ce dépôt.':
+    'Mission closed. You can create a new team to start another mission in this repository.',
+  'Aucune mission à clôturer dans ce fil.': 'There is no mission to close in this conversation.',
   'validation du Plan refusée': 'Planner validation failed',
   'Validation finale du Plan': 'Final Planner validation',
   'Le Plan demande une correction': 'The Planner requests a correction',

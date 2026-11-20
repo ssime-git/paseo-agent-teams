@@ -2930,3 +2930,17 @@ test('Planner refusal at the correction limit keeps delivery unavailable', async
   assert.equal(w.delivery, undefined);
   assert.ok(!w.clarifications?.some((q) => q.purpose === 'delivery'));
 });
+
+test('resuming a paused delivery question restores the choice without dispatch or approval', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const original = structuredClone(w.clarifications);
+  w = await h.action(w, 'pause');
+  const count = h.fake.calls.length;
+  w = await h.action(w, 'resume');
+  assert.equal(w.status, 'awaiting_final');
+  assert.deepEqual(w.clarifications, original);
+  assert.equal(w.delivery?.approvedAt, undefined);
+  assert.equal(h.fake.calls.length, count);
+});
