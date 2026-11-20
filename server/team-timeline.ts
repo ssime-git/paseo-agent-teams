@@ -403,7 +403,9 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
         'Le résultat attend votre accord. Répondez **go** pour le valider, ou décrivez ce qu’il faut reprendre.',
       ),
     });
-  if (w.status === 'completed' && w.build && !w.events.some((e) => e.kind === 'closed')) {
+  if (w.status === 'completed' && w.config.reviewOnly && w.review && !w.events.some((e) => e.kind === 'closed')) {
+    out.push({ id: `review-report:${w.id}`, text: reviewReport(w, ctx.t) });
+  } else if (w.status === 'completed' && w.build && !w.events.some((e) => e.kind === 'closed')) {
     const passed = w.tests.filter((t) => t.exitCode === 0 && !t.timedOut).length;
     out.push({
       id: `done:${w.id}:${last?.id ?? w.cycle}`,
@@ -428,9 +430,21 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
   return out;
 }
 
+function reviewReport(w: Workflow, t: Translate) {
+  return [
+    t('Revue terminée. Le rapport et les constats sont disponibles dans le fil.'),
+    w.review?.summary,
+    list(w.review?.issues ?? []),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 /** The answer to `/team-status`: who has control, what is awaited, the team and the correction count. */
 export function statusReport(w: Workflow, ctx: TeamTimelineContext, concise = false) {
   const t = ctx.t;
+  if (w.status === 'completed' && w.config.reviewOnly && w.review && !w.events.some((e) => e.kind === 'closed'))
+    return reviewReport(w, t);
   const role = w.operation?.role;
   const state = w.events.some((e) => e.kind === 'closed')
     ? t('Mission clôturée')

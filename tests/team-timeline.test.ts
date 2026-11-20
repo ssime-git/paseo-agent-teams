@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ProviderEventSchema } from '@getpaseo/plugin/server/provider';
-import { stateNarrations, teamThread, type TeamTimelineContext, type TranscriptEntry } from '../server/team-timeline';
+import {
+  stateNarrations,
+  statusReport,
+  teamThread,
+  type TeamTimelineContext,
+  type TranscriptEntry,
+} from '../server/team-timeline';
 import type { Workflow } from '../shared/contracts';
 import { workflowFixture } from './fixtures';
 import { translator } from '../shared/i18n';
@@ -315,4 +321,22 @@ test('orchestrated objections render one attributed handoff instead of a duplica
     1,
   );
   assert.ok(items.some((i) => i.type === 'assistant_message' && i.text.startsWith('Plan → Code')));
+});
+
+test('a completed review exposes its findings in a status reply and final narration even with an old Builder report', () => {
+  const w = workflowFixture();
+  w.status = 'completed';
+  w.config.reviewOnly = true;
+  w.build = { summary: 'Old implementation report', changes: ['old.ts'], remaining: [] };
+  w.review = {
+    verdict: 'fail',
+    summary: 'No file changed. Report validated.',
+    issues: ['src/price.ts:4 — wrong calculation'],
+  };
+  for (const context of [ctx, { ...ctx, t: translator('en') }]) {
+    const report = statusReport(w, context, true);
+    assert.match(report, /src\/price.ts:4/);
+    assert.doesNotMatch(report, /Old implementation report/);
+    assert.ok(stateNarrations(w, context).some((n) => n.text === report));
+  }
 });
