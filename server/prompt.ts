@@ -83,7 +83,15 @@ function artifacts(w: Workflow, role: Role): string[] {
         ]
       : [];
   if (role === 'builder')
-    return [plan, review, tests, `Remaining from last build: ${serialize(w.build?.remaining ?? [])}`];
+    return [
+      plan,
+      review,
+      ...(w.plannerValidation?.verdict === 'fail'
+        ? [`Planner validation: ${serialize(w.plannerValidation, 4 * 1024)}`]
+        : []),
+      tests,
+      `Remaining from last build: ${serialize(w.build?.remaining ?? [])}`,
+    ];
   return [plan, `Build: ${serialize(w.build, 4 * 1024)}`, tests];
 }
 
@@ -112,6 +120,20 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
       `Briefing: ${boundedText(w.followup.briefing, 16000)}`,
       `Allowed repositories: ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd])}`,
       `Repository context: ${boundedText(context, 16000)}`,
+    ].join('\n');
+  if (w.phase === 'validating')
+    return [
+      ...responseLanguage(w),
+      'You are the Planner performing final validation. Inspect the actual work in read-only mode and compare it to the approved plan, acceptance criteria and user decisions. Read the independent test and Reviewer evidence and identify any remaining substantive gap. Return fail with actionable issues if the work does not meet the plan. A pass certifies readiness only. Never edit, approve delivery, commit, push or merge.',
+      `Allowed repositories: ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd])}`,
+      `Original task: ${boundedText(w.task, 8000)}`,
+      clarificationContext(w),
+      `Approved plan: ${compactPlan(w)}`,
+      `Build: ${serialize(w.build, 4000)}`,
+      `Independent review: ${serialize(w.review, 4000)}`,
+      `Independent tests: ${serialize(testSummary(w), 8000)}`,
+      `Repository context: ${boundedText(context, 16000)}`,
+      `Return ONLY a JSON object matching this schema: ${JSON.stringify(reviewSchema.toJSONSchema())}`,
     ].join('\n');
   if (w.phase === 'delivering')
     return [
@@ -241,6 +263,6 @@ export function repairPrompt(w: Workflow) {
     'Repair only the report format of your completed turn. Do not use tools, run tests, edit files or repeat the task. Preserve the facts and unresolved blockers; do not invent successful work.',
     `Validation error: ${boundedText(repair.error, 4000)}`,
     `Previous completed report: ${boundedText(repair.text, 32 * 1024)}`,
-    `Return ONLY a JSON object matching this schema: ${JSON.stringify(schemaFor(repair.role).toJSONSchema())}`,
+    `Return ONLY a JSON object matching this schema: ${JSON.stringify((w.phase === 'validating' ? reviewSchema : schemaFor(repair.role)).toJSONSchema())}`,
   ].join('\n');
 }

@@ -2892,3 +2892,41 @@ test('workflow language is captured once, persisted and replayed across host set
   assert.ok(h.fake.calls.some((call) => call.role === 'builder'));
   assert.ok(h.fake.calls.every((call) => call.prompt.includes('Workflow response language: English')));
 });
+
+test('new Team workflow requires a separate final Planner verdict before asking about delivery', async (t) => {
+  const h = await setup(t, { plannerFinalReview: true });
+  let w = await h.create();
+  h.fake.responses.planner = [JSON.stringify(fail), JSON.stringify(pass)];
+  w = await h.action(w, 'approve');
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'builder', 'reviewer', 'planner', 'builder', 'reviewer', 'planner'],
+  );
+  assert.match(h.fake.calls[3].prompt, /final validation/);
+  assert.match(h.fake.calls[3].prompt, /Independent review:.*Ready/);
+  assert.match(h.fake.calls[4].prompt, /Missing state verification/);
+  assert.equal(w.status, 'awaiting_final');
+  assert.equal(w.cycle, 1);
+  assert.deepEqual(w.review, pass);
+  assert.deepEqual(w.plannerValidation, pass);
+  assert.equal(w.delivery?.approvedAt, undefined);
+  assert.deepEqual(
+    w.events
+      .filter((e) => ['planner_rejected', 'planner_validated', 'delivery_requested'].includes(e.kind))
+      .map((e) => e.kind),
+    ['planner_rejected', 'planner_validated', 'delivery_requested'],
+  );
+  assert.deepEqual((await new Store(h.store.directory).get(w.id)).plannerValidation, pass);
+});
+
+test('Planner refusal at the correction limit keeps delivery unavailable', async (t) => {
+  const h = await setup(t, { plannerFinalReview: true, maxCorrections: 0 });
+  let w = await h.create();
+  h.fake.responses.planner = [JSON.stringify(fail)];
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'attention');
+  assert.deepEqual(w.review, pass);
+  assert.deepEqual(w.plannerValidation, fail);
+  assert.equal(w.delivery, undefined);
+  assert.ok(!w.clarifications?.some((q) => q.purpose === 'delivery'));
+});

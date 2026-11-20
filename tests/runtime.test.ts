@@ -925,3 +925,76 @@ for (const role of ['planner', 'reviewer'] as const) {
     }
   });
 }
+
+test('live orchestrator forwards a focused question to one read-only specialist without touching its active session', async () => {
+  const w = savedWorkflow();
+  w.task = 'Check validation';
+  w.language = 'fr';
+  w.config = {
+    ...w.config,
+    builderAutoAccept: true,
+    roles: {
+      planner: { provider: 'claude/plan-model', modeId: 'plan' },
+      builder: { provider: 'codex/build-model', modeId: 'auto' },
+      reviewer: { provider: 'claude/review-model', modeId: 'plan' },
+    },
+  };
+  const created: { config: { provider: string; modeId: string; options?: unknown } }[] = [];
+  const turns: string[] = [];
+  const archives: string[] = [];
+  const api = {
+    config: { get: async () => ({ config: { providers: {} } }) },
+    providers: { listModes: async () => ({ modes: [{ id: 'auto' }, { id: 'plan' }] }) },
+    workspaces: {
+      ref: () => ({
+        agents: {
+          create: async (options: (typeof created)[number]) => {
+            created.push(options);
+            return { id: 'consult-' + created.length };
+          },
+        },
+      }),
+    },
+    agents: {
+      ref: (id: string) => {
+        if (id === 'agent')
+          return {
+            timeline: {
+              refetch: async () => ({
+                entries: [
+                  accepted,
+                  { seqStart: 2, item: { type: 'assistant_message', text: 'Inspecting input checks' } },
+                ],
+              }),
+            },
+          };
+        return {
+          run: async (prompt: string) => {
+            turns.push(prompt);
+            return {
+              status: 'idle',
+              lastMessage:
+                id === 'consult-1'
+                  ? '{"kind":"consult","question":"Which inputs are guarded?"}'
+                  : 'Empty values are guarded.',
+            };
+          },
+          archive: async () => {
+            archives.push(id);
+          },
+        };
+      },
+    },
+  } as unknown as PaseoApi;
+  const reply = await new PaseoRuntime(api, '/unused').liveQuestion(w, 'Quels champs sont contrôlés ?', 'one-question');
+  assert.match(reply!, /transmis.*Code/);
+  assert.match(reply!, /Empty values are guarded/);
+  assert.equal(turns.length, 2);
+  assert.match(turns[1], /Which inputs are guarded/);
+  assert.match(turns[1], /Inspecting input checks/);
+  assert.equal(created[1].config.provider, 'codex/build-model');
+  assert.deepEqual(created[1].config.options, { sandbox_mode: 'read-only', approval_policy: 'never' });
+  assert.deepEqual(archives, ['consult-1', 'consult-2']);
+  assert.equal(w.agents.builder, 'agent');
+  assert.equal(w.operation?.id, 'operation');
+});

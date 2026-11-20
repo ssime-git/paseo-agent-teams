@@ -34,7 +34,7 @@ const shorten = (text: string, max = 160) => {
 
 /** Engine correction events are recorded in French; the thread shows them in the chosen language. */
 export function correctionText(t: Translate, text: string) {
-  const cycle = /^Correction (\d+)\/(\d+) : (review refusée|tests non validés)/.exec(text);
+  const cycle = /^Correction (\d+)\/(\d+) : (review refusée|tests non validés|validation du Plan refusée)/.exec(text);
   if (cycle)
     return t('Correction {cycle}/{max} : {reason}. Retour au Code.', {
       cycle: cycle[1],
@@ -149,7 +149,10 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
     switch (event.kind) {
       case 'dispatch': {
         if (!role || !event.operationId) return;
-        const description = describe(w, index, role, ctx.t);
+        const description =
+          event.text === 'Starting final Planner validation'
+            ? ctx.t('Validation finale du Plan')
+            : describe(w, index, role, ctx.t);
         descriptions.set(event.operationId, description);
         if (done.has(event.operationId)) return; // The result event completes this row in place.
         const live = w.operation?.id === event.operationId && w.status !== 'attention';
@@ -230,6 +233,20 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
         return;
       case 'message_queued':
         items.push(say(event.id, ctx.t('Message reçu ; l’orchestrateur le traitera après le tour courant.')));
+        return;
+      case 'planner_validated':
+      case 'planner_rejected':
+        items.push(
+          say(
+            event.id,
+            [
+              event.kind === 'planner_validated'
+                ? ctx.t('Validation finale du Plan')
+                : ctx.t('Le Plan demande une correction'),
+              event.text,
+            ].join('\n\n'),
+          ),
+        );
         return;
       case 'plan_approved': {
         const version = /Plan v(\d+)/.exec(event.text)?.[1];

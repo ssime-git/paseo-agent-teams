@@ -1,5 +1,8 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'validation du Plan refusée': 'Planner validation failed',
+  'Validation finale du Plan': 'Final Planner validation',
+  'Le Plan demande une correction': 'The Planner requests a correction',
   'Dans le fil du sous-agent': 'From the sub-agent thread',
   'Je ne peux pas confirmer la réponse pour le moment. Le travail de l’équipe se poursuit.':
     'I cannot confirm the answer yet. The team is still working.',

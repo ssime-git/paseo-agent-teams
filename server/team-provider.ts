@@ -139,7 +139,7 @@ const acceptNoTests =
   /^(?:j[\u0027\u2019]accepte l[\u0027\u2019]absence de tests|i accept (?:the absence of tests|no tests))\s*[.!]*$/i;
 
 const readQuestion =
-  /[?？]\s*$|\b(?:peux-tu (?:me )?(?:dire|expliquer|décrire)|what|why|how|where|pourquoi|comment|quel(?:le)?s?)\b/i;
+  /[?？]\s*$|\b(?:peux-tu (?:me )?(?:dire|expliquer|décrire|demander|consulter)|what|why|how|where|pourquoi|comment|quel(?:le)?s?)\b/i;
 
 function statusQuestion(text: string): boolean {
   const normalized = text

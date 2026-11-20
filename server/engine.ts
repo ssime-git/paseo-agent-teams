@@ -1017,6 +1017,7 @@ export class Engine {
     }
     const fingerprint =
       w.resultRepair ||
+      w.phase === 'validating' ||
       w.config.roles[role].modeId === INSTRUCTION_READ_ONLY ||
       (w.phase === 'followup' && w.followup?.purpose !== 'pull_request' && !w.followup?.execution)
         ? await this.runtime.fingerprint(w)
@@ -1041,7 +1042,13 @@ export class Engine {
       current.status = 'running';
       current.handoffTokens = estimateTokens(prompt);
       delete current.error;
-      this.event(current, 'dispatch', `Starting ${role}`, role, current.operation.id);
+      this.event(
+        current,
+        'dispatch',
+        current.phase === 'validating' ? 'Starting final Planner validation' : `Starting ${role}`,
+        role,
+        current.operation.id,
+      );
       await this.save(current);
       return { w: current, role, prompt };
     });
@@ -1371,6 +1378,20 @@ export class Engine {
   }
   private async applyStageResult(w: Workflow, role: Role, text: string, fingerprint?: string, operationId?: string) {
     try {
+      if (w.phase === 'validating') {
+        const verdict = reviewSchema.parse(parseJson(text));
+        delete w.resultRepair;
+        w.plannerValidation = verdict;
+        const evidenceMatches = w.review?.verdict === 'pass' && this.testsMatch(w, fingerprint);
+        const accepted = verdict.verdict === 'pass' && evidenceMatches;
+        const summary = evidenceMatches
+          ? [verdict.summary, ...verdict.issues.map((issue) => `- ${issue}`)].join('\n')
+          : 'Les preuves de test ou de revue ne correspondent plus au travail courant.';
+        this.event(w, accepted ? 'planner_validated' : 'planner_rejected', summary, 'planner', operationId);
+        if (accepted) await this.requestDelivery(w, fingerprint!, 'planner');
+        else this.retryValidation(w, verdict.verdict === 'fail' ? 'validation du Plan refusée' : 'tests non validés');
+        return;
+      }
       const result = parseResult(role, text);
       delete w.resultRepair;
       if (role === 'planner') {
@@ -1533,46 +1554,53 @@ export class Engine {
       }
     }
   }
-  private async applyReview(w: Workflow, result: unknown, fingerprint?: string) {
-    w.review = reviewSchema.parse(result);
-    const testsPass =
+  private testsMatch(w: Workflow, fingerprint?: string) {
+    return (
+      !!fingerprint &&
       w.testedFingerprint === fingerprint &&
       w.testsApproved &&
       (w.plan!.tests.length > 0
         ? w.tests.length === w.plan!.tests.length && w.tests.every((t) => t.exitCode === 0 && !t.timedOut)
-        : w.allowNoTests);
-    if (w.review.verdict === 'pass' && testsPass) {
-      w.delivery = {
-        fingerprint: fingerprint!,
-        contentFingerprint: await (this.runtime.deliveryFingerprint?.(w) ?? this.runtime.fingerprint(w)),
-      };
-      w.phase = 'delivering';
-      w.status = 'awaiting_final';
-      w.clarifications ??= [];
-      w.clarifications.push({
-        id: randomUUID(),
-        purpose: 'delivery',
-        at: new Date().toISOString(),
-        answers: [],
-        agentId: w.agents.reviewer,
-        request: structuredClone(deliveryQuestion),
-      });
-      this.event(
-        w,
-        'delivery_requested',
-        'PR ou intégration sur main : en attente de votre choix explicite.',
-        'reviewer',
-      );
-    } else if (w.config.goalMode && w.config.autoFix) {
-      this.retryGoal(w);
-    } else if (w.config.autoFix && w.cycle < w.config.maxCorrections) {
+        : w.allowNoTests)
+    );
+  }
+  private async applyReview(w: Workflow, result: unknown, fingerprint?: string) {
+    w.review = reviewSchema.parse(result);
+    if (w.review.verdict === 'pass' && this.testsMatch(w, fingerprint)) {
+      if (w.config.plannerFinalReview) {
+        w.phase = 'validating';
+        w.status = 'ready';
+      } else await this.requestDelivery(w, fingerprint!, 'reviewer');
+    } else this.retryValidation(w, w.review.verdict === 'fail' ? 'review refusée' : 'tests non validés');
+  }
+  private async requestDelivery(w: Workflow, fingerprint: string, role: 'planner' | 'reviewer') {
+    w.delivery = {
+      fingerprint,
+      contentFingerprint: await (this.runtime.deliveryFingerprint?.(w) ?? this.runtime.fingerprint(w)),
+    };
+    w.phase = 'delivering';
+    w.status = 'awaiting_final';
+    w.clarifications ??= [];
+    w.clarifications.push({
+      id: randomUUID(),
+      purpose: 'delivery',
+      at: new Date().toISOString(),
+      answers: [],
+      agentId: w.agents[role],
+      request: structuredClone(deliveryQuestion),
+    });
+    this.event(w, 'delivery_requested', 'PR ou intégration sur main : en attente de votre choix explicite.', role);
+  }
+  private retryValidation(w: Workflow, reason: string) {
+    if (w.config.goalMode && w.config.autoFix) this.retryGoal(w);
+    else if (w.config.autoFix && w.cycle < w.config.maxCorrections) {
       w.cycle++;
       w.phase = STAGE_TRANSITIONS.planner;
       w.status = 'ready';
       this.event(
         w,
         'correction',
-        `Correction ${w.cycle}/${w.config.maxCorrections} : ${w.review.verdict === 'fail' ? 'review refusée' : 'tests non validés'}. Retour au Builder.`,
+        `Correction ${w.cycle}/${w.config.maxCorrections} : ${reason}. Retour au Builder.`,
         'builder',
       );
     } else {

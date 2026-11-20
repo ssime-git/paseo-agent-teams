@@ -48,7 +48,7 @@ export function teamControl(w: Workflow, t: Translate = french): { title: string
     return { title: t('Les tests ont la main'), detail: t('Exécution des commandes de validation.') };
   const role =
     w.operation?.role ??
-    (w.phase === 'planning'
+    (w.phase === 'planning' || w.phase === 'validating'
       ? 'planner'
       : w.phase === 'building' || w.phase === 'delivering'
         ? 'builder'

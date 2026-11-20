@@ -53,6 +53,7 @@ async function dynamicTexts() {
     ...modes.map((m) => m.label),
     ...commands.map((c) => c.description),
     'review refusée',
+    'validation du Plan refusée',
     'tests non validés',
   ];
 }

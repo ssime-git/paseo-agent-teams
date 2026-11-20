@@ -26,6 +26,7 @@ export const configSchema = z
     validation: z.enum(['plan', 'final', 'autonomous']).default('plan'),
     // Explicit per-mission preference; absence preserves the host fallback.
     responseLanguage: z.enum(['fr', 'en']).optional(),
+    plannerFinalReview: z.boolean().optional(),
     autoFix: z.boolean().default(true),
     goalMode: z.boolean().optional(),
     goalMaxTurns: z.number().int().min(3).max(200).optional(),
@@ -252,7 +253,17 @@ export const workflowSchema = z.object({
   /** Native Team Auto agent that owns this mission; role agents are created as its children. */
   ownerAgentId: z.string().optional(),
   agents: z.partialRecord(roleSchema, z.string()),
-  phase: z.enum(['planning', 'building', 'testing', 'reviewing', 'delivering', 'manual', 'done', 'followup']),
+  phase: z.enum([
+    'planning',
+    'building',
+    'testing',
+    'reviewing',
+    'validating',
+    'delivering',
+    'manual',
+    'done',
+    'followup',
+  ]),
   status: z.enum([
     'ready',
     'running',
@@ -272,6 +283,7 @@ export const workflowSchema = z.object({
   clarifications: z.array(clarificationRecordSchema).optional(),
   build: buildSchema.optional(),
   review: reviewSchema.optional(),
+  plannerValidation: reviewSchema.optional(),
   delivery: z
     .object({
       method: z.enum(['pull_request', 'main']).optional(),
@@ -341,7 +353,16 @@ export const workflowSchema = z.object({
       message: z.string().optional(),
       delegatedResult: z.string().optional(),
       delegationCount: z.number().int().nonnegative().optional(),
-      returnPhase: z.enum(['planning', 'building', 'testing', 'reviewing', 'delivering', 'manual', 'done']),
+      returnPhase: z.enum([
+        'planning',
+        'building',
+        'testing',
+        'reviewing',
+        'validating',
+        'delivering',
+        'manual',
+        'done',
+      ]),
       returnStatus: z.enum([
         'ready',
         'paused',
@@ -451,6 +472,7 @@ export const workflowRecordRpc = defineRpc({
       clarifications: true,
       build: true,
       review: true,
+      plannerValidation: true,
       delivery: true,
       tests: true,
       events: true,
