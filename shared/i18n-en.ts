@@ -1,5 +1,10 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Correction {cycle}/{max} : {reason}. Retour à la Revue.': 'Correction {cycle}/{max}: {reason}. Back to Review.',
+  'Le plan de revue est prêt ({steps} étapes). Répondez **go** pour lancer la revue en lecture seule.':
+    'The review plan is ready ({steps} steps). Reply **go** to start the read-only review.',
+  'Revue terminée. Le rapport et les constats sont disponibles dans le fil.':
+    'Review complete. The report and findings are available in the conversation.',
   'Ce dépôt est réservé par une autre mission Team : « {task} ». Retrouvez ce fil dans l’espace de travail. Si vous avez terminé, dites « Clôture cette mission » dans ce fil, puis renvoyez ici votre demande.':
     'This repository is reserved by another Team mission: “{task}”. Find that conversation in the workspace. When finished, say “Close this mission” in that conversation, then send your request again here.',
   'Mission clôturée. Vous pouvez créer une nouvelle équipe pour lancer une autre mission dans ce dépôt.':

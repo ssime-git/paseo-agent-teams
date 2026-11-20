@@ -26,7 +26,9 @@ export const configSchema = z
     validation: z.enum(['plan', 'final', 'autonomous']).default('plan'),
     // Explicit per-mission preference; absence preserves the host fallback.
     responseLanguage: z.enum(['fr', 'en']).optional(),
+    reviewOnly: z.boolean().optional(),
     plannerFinalReview: z.boolean().optional(),
+    teamOrchestration: z.boolean().optional(),
     autoFix: z.boolean().default(true),
     goalMode: z.boolean().optional(),
     goalMaxTurns: z.number().int().min(3).max(200).optional(),
@@ -44,6 +46,7 @@ export const configSchema = z
 export type Config = z.infer<typeof configSchema>;
 export const planSchema = z
   .object({
+    intent: z.enum(['review', 'implementation']).optional(),
     summary: z.string().min(1),
     tasks: z.array(z.string()).min(1),
     acceptance: z.array(z.string()).min(1),
@@ -111,7 +114,7 @@ export const nativeClarificationAnswersSchema = z
   .strict();
 export const clarificationRecordSchema = z.object({
   id: z.string(),
-  purpose: z.literal('delivery').optional(),
+  purpose: z.enum(['delivery', 'coordination']).optional(),
   request: clarificationSchema,
   operationId: z.string().optional(),
   agentId: z.string().optional(),
@@ -166,6 +169,11 @@ export const planProposalSchema = z.object({
   at: z.string(),
 });
 export type Review = z.infer<typeof reviewSchema>;
+// Only the orchestrator can choose the next specialist. Historical review JSON stays valid.
+export const teamVerdictSchema = reviewSchema.safeExtend({
+  nextRole: z.enum(['builder', 'reviewer']).optional(),
+});
+export const teamDecisionSchema = z.union([teamVerdictSchema, clarificationSchema]);
 export const coordinationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('reply'), summary: z.string().min(1), available: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal('replan'), summary: z.string().min(1) }).strict(),
@@ -233,6 +241,7 @@ export const eventSchema = z.object({
   text: z.string(),
   /** Links dispatch, result and test events to the native operation that produced them. */
   operationId: z.string().optional(),
+  agentId: z.string().optional(),
 });
 export const workflowSchema = z.object({
   version: z.literal(1),
@@ -283,7 +292,9 @@ export const workflowSchema = z.object({
   clarifications: z.array(clarificationRecordSchema).optional(),
   build: buildSchema.optional(),
   review: reviewSchema.optional(),
-  plannerValidation: reviewSchema.optional(),
+  reviewedFingerprint: z.string().optional(),
+  plannerValidation: teamVerdictSchema.optional(),
+  assignment: z.object({ from: roleSchema, to: roleSchema, briefing: z.string() }).optional(),
   delivery: z
     .object({
       method: z.enum(['pull_request', 'main']).optional(),
@@ -400,6 +411,7 @@ export const actionInput = z.object({
     'finish',
     'permission',
     'continue',
+    'review_only',
     'reconfigure',
     'followup',
     'adopt_plan',

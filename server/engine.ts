@@ -11,6 +11,7 @@ import {
   planRevisionSchema,
   nativePlanRevisionSchema,
   reviewSchema,
+  teamDecisionSchema,
   deliveryResultSchema,
   coordinationSchema,
   roles,
@@ -98,12 +99,13 @@ export class Engine {
     });
     return next;
   }
-  private event(w: Workflow, kind: string, text: string, role?: Role, operationId?: string) {
+  private event(w: Workflow, kind: string, text: string, role?: Role, operationId?: string, agentId?: string) {
     w.events.push({
       id: randomUUID(),
       at: new Date().toISOString(),
       kind,
       text,
+      ...(agentId ? { agentId } : {}),
       ...(role ? { role } : {}),
       ...(operationId ? { operationId } : {}),
     });
@@ -228,7 +230,7 @@ export class Engine {
         !(
           (input.action === 'followup' && (!input.purpose || input.purpose === 'message')) ||
           (pending.purpose === 'delivery' &&
-            (['adopt_plan', 'continue', 'start_goal'].includes(input.action) ||
+            (['adopt_plan', 'continue', 'start_goal', 'review_only'].includes(input.action) ||
               (input.action === 'resume' &&
                 w.status === 'paused' &&
                 w.resumeStatus === 'awaiting_final' &&
@@ -334,7 +336,7 @@ export class Engine {
               w.delivery.method = method;
               w.delivery.approvedAt = new Date().toISOString();
               w.phase = 'delivering';
-            } else w.phase = 'planning';
+            } else w.phase = pending.purpose === 'coordination' ? 'validating' : 'planning';
             pending.resolvedAt = new Date().toISOString();
             delete w.error;
             delete w.resumeStatus;
@@ -561,6 +563,23 @@ export class Engine {
           );
           break;
         }
+        case 'review_only':
+          if (w.operation || this.jobs.has(w.id) || !(await this.runtime.canClose(w)))
+            throw new TeamError('ACTIVE_STEP', 'Wait for the active turn before changing the mission');
+          if (!w.plan) throw new TeamError('PLAN_MISSING', 'A saved plan is required');
+          w.config.reviewOnly = true;
+          w.config.plannerFinalReview = true;
+          w.config.teamOrchestration = true;
+          w.config.freshSessionPerCycle = true;
+          this.invalidateDelivery(w);
+          delete w.error;
+          delete w.resumeStatus;
+          w.cycle = 0;
+          if (w.goal) w.goal = { startedAt: new Date().toISOString(), turns: 0, corrections: 0, replans: 0 };
+          w.phase = 'reviewing';
+          w.status = 'ready';
+          this.event(w, 'review_only', 'Mission de revue en lecture seule, sans correction des fichiers.');
+          break;
         case 'reconfigure':
         case 'continue': {
           if (!['paused', 'attention'].includes(w.status) || w.operation || this.jobs.has(w.id))
@@ -637,11 +656,11 @@ export class Engine {
               this.recordPlan(w, { ...w.plan, tests: input.tests }, 'human');
             }
             w.allowNoTests = input.allowNoTests ?? false;
-            if (!w.plan.tests.length && !w.allowNoTests)
+            if (!w.config.reviewOnly && !w.plan.tests.length && !w.allowNoTests)
               throw new TeamError('NO_TESTS_APPROVAL_REQUIRED', 'Explicitly accept the absence of tests');
             this.approvePlan(w, 'human');
             if (w.config.goalMode && w.goal?.turns === 1) w.goal.startedAt = new Date().toISOString();
-            w.phase = STAGE_TRANSITIONS.planner;
+            w.phase = w.config.reviewOnly ? 'reviewing' : STAGE_TRANSITIONS.planner;
             w.status = 'ready';
           } else if (w.status === 'awaiting_final') {
             // Older saved final checkpoints did not have a delivery decision.
@@ -1019,6 +1038,7 @@ export class Engine {
     const fingerprint =
       w.resultRepair ||
       w.phase === 'validating' ||
+      w.config.reviewOnly ||
       w.config.roles[role].modeId === INSTRUCTION_READ_ONLY ||
       (w.phase === 'followup' && w.followup?.purpose !== 'pull_request' && !w.followup?.execution)
         ? await this.runtime.fingerprint(w)
@@ -1049,6 +1069,7 @@ export class Engine {
         current.phase === 'validating' ? 'Starting final Planner validation' : `Starting ${role}`,
         role,
         current.operation.id,
+        current.agents[role],
       );
       await this.save(current);
       return { w: current, role, prompt };
@@ -1100,6 +1121,7 @@ export class Engine {
         w.status = 'ready';
         if (
           w.config.goalMode &&
+          !w.config.teamOrchestration &&
           w.config.autoFix &&
           !controller.signal.aborted &&
           results.some((r) => r.exitCode !== 0 || r.timedOut)
@@ -1380,17 +1402,51 @@ export class Engine {
   private async applyStageResult(w: Workflow, role: Role, text: string, fingerprint?: string, operationId?: string) {
     try {
       if (w.phase === 'validating') {
-        const verdict = reviewSchema.parse(parseJson(text));
+        const verdict = (w.config.teamOrchestration ? teamDecisionSchema : reviewSchema).parse(parseJson(text));
         delete w.resultRepair;
+        if ('kind' in verdict) {
+          w.clarifications ??= [];
+          w.clarifications.push({
+            id: randomUUID(),
+            purpose: 'coordination',
+            request: verdict,
+            operationId,
+            agentId: w.agents.planner,
+            at: new Date().toISOString(),
+            answers: [],
+          });
+          w.status = 'attention';
+          w.error = 'En attente de réponse';
+          this.event(w, 'clarification_requested', verdict.summary, 'planner', operationId);
+          return;
+        }
         w.plannerValidation = verdict;
-        const evidenceMatches = w.review?.verdict === 'pass' && this.testsMatch(w, fingerprint);
+        const evidenceMatches =
+          !!w.review && (w.config.reviewOnly || w.review.verdict === 'pass') && this.testsMatch(w, fingerprint);
         const accepted = verdict.verdict === 'pass' && evidenceMatches;
-        const summary = evidenceMatches
-          ? [verdict.summary, ...verdict.issues.map((issue) => `- ${issue}`)].join('\n')
-          : 'Les preuves de test ou de revue ne correspondent plus au travail courant.';
+        const summary =
+          evidenceMatches || verdict.verdict === 'fail'
+            ? [verdict.summary, ...verdict.issues.map((issue) => `- ${issue}`)].join('\n')
+            : 'Les preuves de test ou de revue ne correspondent plus au travail courant.';
         this.event(w, accepted ? 'planner_validated' : 'planner_rejected', summary, 'planner', operationId);
-        if (accepted) await this.requestDelivery(w, fingerprint!, 'planner');
-        else this.retryValidation(w, verdict.verdict === 'fail' ? 'validation du Plan refusée' : 'tests non validés');
+        if (accepted && w.config.reviewOnly) {
+          w.phase = 'done';
+          w.status = 'completed';
+          this.event(w, 'review_completed', w.review!.summary, 'planner');
+        } else if (accepted) await this.requestDelivery(w, fingerprint!, 'planner');
+        else {
+          const target = w.config.reviewOnly
+            ? 'reviewer'
+            : 'nextRole' in verdict && verdict.nextRole === 'reviewer'
+              ? 'reviewer'
+              : 'builder';
+          if (w.config.teamOrchestration) this.assign(w, 'planner', target, summary, operationId);
+          this.retryValidation(
+            w,
+            verdict.verdict === 'fail' ? 'validation du Plan refusée' : 'tests non validés',
+            target,
+          );
+        }
         return;
       }
       const result = parseResult(role, text);
@@ -1523,12 +1579,19 @@ export class Engine {
     provenance?: Workflow['planProposal'],
   ) {
     const plan = planSchema.parse(result);
+    if (plan.intent === 'review') w.config.reviewOnly = true;
     const acceptedNoTests = w.allowNoTests || w.config.allowNoTests;
     const goalApproved =
       w.config.goalMode && (w.config.validation !== 'plan' || !!w.planVersions?.some((v) => v.approval));
     if (w.config.validation !== 'plan' && w.config.testCommands.length) plan.tests = w.config.testCommands;
     this.recordPlan(w, plan, source, operationId, provenance);
     w.phase = STAGE_TRANSITIONS.planner;
+    if (w.config.reviewOnly) {
+      w.phase = 'reviewing';
+      w.status = w.config.validation === 'plan' ? 'awaiting_plan' : 'ready';
+      if (w.status === 'ready') this.approvePlan(w, 'configuration');
+      return;
+    }
     if (w.config.validation === 'plan' && !goalApproved) w.status = 'awaiting_plan';
     else {
       w.allowNoTests = goalApproved ? acceptedNoTests : w.config.allowNoTests;
@@ -1556,6 +1619,7 @@ export class Engine {
     }
   }
   private testsMatch(w: Workflow, fingerprint?: string) {
+    if (w.config.reviewOnly) return !!fingerprint && w.reviewedFingerprint === fingerprint;
     return (
       !!fingerprint &&
       w.testedFingerprint === fingerprint &&
@@ -1567,8 +1631,13 @@ export class Engine {
   }
   private async applyReview(w: Workflow, result: unknown, fingerprint?: string) {
     w.review = reviewSchema.parse(result);
-    if (w.review.verdict === 'pass' && this.testsMatch(w, fingerprint)) {
-      if (w.config.plannerFinalReview) {
+    w.reviewedFingerprint = fingerprint;
+    if (w.config.teamOrchestration) {
+      this.assign(w, 'reviewer', 'planner', [w.review.summary, ...w.review.issues].join('\n'));
+      w.phase = 'validating';
+      w.status = 'ready';
+    } else if ((w.config.reviewOnly || w.review.verdict === 'pass') && this.testsMatch(w, fingerprint)) {
+      if (w.config.plannerFinalReview || w.config.reviewOnly) {
         w.phase = 'validating';
         w.status = 'ready';
       } else await this.requestDelivery(w, fingerprint!, 'reviewer');
@@ -1592,17 +1661,21 @@ export class Engine {
     });
     this.event(w, 'delivery_requested', 'PR ou intégration sur main : en attente de votre choix explicite.', role);
   }
-  private retryValidation(w: Workflow, reason: string) {
-    if (w.config.goalMode && w.config.autoFix) this.retryGoal(w);
+  private assign(w: Workflow, from: Role, to: Role, briefing: string, operationId?: string) {
+    w.assignment = { from, to, briefing };
+    this.event(w, 'team_handoff', `${from} → ${to}\n\n${briefing}`, to, operationId);
+  }
+  private retryValidation(w: Workflow, reason: string, target: 'builder' | 'reviewer' = 'builder') {
+    if (w.config.goalMode && w.config.autoFix && !w.config.reviewOnly && !w.config.teamOrchestration) this.retryGoal(w);
     else if (w.config.autoFix && w.cycle < w.config.maxCorrections) {
       w.cycle++;
-      w.phase = STAGE_TRANSITIONS.planner;
+      w.phase = w.config.reviewOnly || target === 'reviewer' ? 'reviewing' : STAGE_TRANSITIONS.planner;
       w.status = 'ready';
       this.event(
         w,
         'correction',
-        `Correction ${w.cycle}/${w.config.maxCorrections} : ${reason}. Retour au Builder.`,
-        'builder',
+        `Correction ${w.cycle}/${w.config.maxCorrections} : ${reason}. Retour au ${w.phase === 'reviewing' ? 'Reviewer' : 'Builder'}.`,
+        w.phase === 'reviewing' ? 'reviewer' : 'builder',
       );
     } else {
       w.status = 'attention';

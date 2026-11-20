@@ -23,6 +23,7 @@ import type { AgentTimelineItem } from '@getpaseo/protocol/agent-types';
 const consultationDecision = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('answer'), text: z.string().trim().min(1).max(5000) }).strict(),
   z.object({ kind: z.literal('consult'), question: z.string().trim().min(1).max(1500) }).strict(),
+  z.object({ kind: z.literal('queue'), text: z.string().trim().min(1).max(5000) }).strict(),
 ]);
 
 export { readOnlyMode } from '../shared/provider-selection';
@@ -182,7 +183,7 @@ export class PaseoRuntime implements Runtime {
       id,
       [
         ...language,
-        'Answer the user as Team orchestrator using only the supplied evidence. Do not use tools. If the user explicitly asks to consult the active specialist or that specialist has relevant information you lack, return consult with one focused read-only question for that specialist. Never forward a request to change work, execute a command, approve or deliver. An ongoing operation is not a finished result.',
+        'Answer the user as Team orchestrator using only the supplied evidence, including conversational statements and objections without a question mark. Do not use tools. If the message requests a change to the ongoing work, return queue with a direct acknowledgement: the engine will persist the original message and process it at the next safe checkpoint. If the user explicitly asks to consult the active specialist or that specialist has relevant information you lack, return consult with one focused read-only question for that specialist. Never forward a request to change work, execute a command, approve or deliver to a consultation. An ongoing operation is not a finished result.',
         context,
         `Return ONLY JSON conforming to ${JSON.stringify(consultationDecision.toJSONSchema())}`,
       ].join('\n'),
@@ -190,6 +191,7 @@ export class PaseoRuntime implements Runtime {
     if (!first) return;
     const decision = consultationDecision.parse(parseJson(first));
     if (decision.kind === 'answer') return decision.text;
+    if (decision.kind === 'queue') return { text: decision.text, queue: true as const };
     // Tests are executed by the engine, not by an agent that can be consulted.
     if (active.phase === 'testing') return;
     const latest = await this.activity(w, active.role, active.id, true);
@@ -216,7 +218,7 @@ export class PaseoRuntime implements Runtime {
   private async consult(w: Workflow, role: Role, id: string, prompt: string) {
     const agent = this.api.agents.ref(await this.agent(w, role, `team-question-${id}`));
     try {
-      const answer = await agent.run(prompt, { messageId: id, activeTurnBehavior: 'steer', timeoutMs: 15000 });
+      const answer = await agent.run(prompt, { messageId: id, activeTurnBehavior: 'steer', timeoutMs: 45000 });
       if (answer.status === 'idle') return answer.lastMessage?.trim().slice(0, 7000);
       if (answer.status === 'permission') {
         for (const permission of answer.final?.pendingPermissions ?? []) {
@@ -443,7 +445,7 @@ export class PaseoRuntime implements Runtime {
   }
   /** Tool calls the role session made while handling one plugin operation, newest last. */
   async activity(w: Workflow, role: Role, operationId: string, includeMessages = false): Promise<RoleAction[]> {
-    const id = w.agents[role];
+    const id = w.events.find((e) => e.kind === 'dispatch' && e.operationId === operationId)?.agentId ?? w.agents[role];
     if (!id) return [];
     // Bounded read: a very long turn can push its prompt out of the page; the row then keeps only its result.
     const page = await this.api.agents

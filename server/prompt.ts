@@ -5,6 +5,7 @@ import {
   reviewSchema,
   deliveryResultSchema,
   coordinationSchema,
+  teamDecisionSchema,
   type Workflow,
   type Role,
 } from '../shared/contracts';
@@ -92,7 +93,7 @@ function artifacts(w: Workflow, role: Role): string[] {
       tests,
       `Remaining from last build: ${serialize(w.build?.remaining ?? [])}`,
     ];
-  return [plan, `Build: ${serialize(w.build, 4 * 1024)}`, tests];
+  return [plan, `Build: ${serialize(w.build, 4 * 1024)}`, ...(w.config.teamOrchestration ? [review] : []), tests];
 }
 
 /** Historical workflows intentionally retain their original language behavior. */
@@ -124,7 +125,19 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
   if (w.phase === 'validating')
     return [
       ...responseLanguage(w),
+      ...(w.config.reviewOnly
+        ? [
+            'This is a review-only mission. Validate the accuracy, evidence and completeness of the review report. Defects in the reviewed PR are findings, not a reason to demand implementation. Do not require those defects to be fixed. No delivery or implementation is requested.',
+          ]
+        : []),
       'You are the Planner performing final validation. Inspect the actual work in read-only mode and compare it to the approved plan, acceptance criteria and user decisions. Read the independent test and Reviewer evidence and identify any remaining substantive gap. Return fail with actionable issues if the work does not meet the plan. A pass certifies readiness only. Never edit, approve delivery, commit, push or merge.',
+      ...(w.config.teamOrchestration
+        ? [
+            'You are the active team orchestrator, not a rubber stamp. Reconcile the Reviewer objections with Builder responses and actual evidence. Choose nextRole=builder for implementation defects, nextRole=reviewer to challenge unsupported findings or request missing independent verification. Return verdict=fail and specific actionable issues for that specialist, including which objection and proof to address. The engine returns the result to you automatically; do not launch agents yourself. Use kind=clarification with concrete options and a recommendation only for a genuine user decision; silence is never approval. A pass cannot override a failing implementation review or failed tests. In a review-only mission judge the report quality, never request fixes to the reviewed code.',
+            `Correction budget used: ${w.cycle}/${w.config.maxCorrections}. Stop and report unresolved objections when exhausted.`,
+            `Previous orchestrator decision: ${serialize(w.plannerValidation, 4000)}`,
+          ]
+        : []),
       `Allowed repositories: ${serialize(w.repositoryTargets?.map((r) => r.root) ?? [w.cwd])}`,
       `Original task: ${boundedText(w.task, 8000)}`,
       clarificationContext(w),
@@ -133,7 +146,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
       `Independent review: ${serialize(w.review, 4000)}`,
       `Independent tests: ${serialize(testSummary(w), 8000)}`,
       `Repository context: ${boundedText(context, 16000)}`,
-      `Return ONLY a JSON object matching this schema: ${JSON.stringify(reviewSchema.toJSONSchema())}`,
+      `Return ONLY a JSON object matching this schema: ${JSON.stringify((w.config.teamOrchestration ? teamDecisionSchema : reviewSchema).toJSONSchema())}`,
     ].join('\n');
   if (w.phase === 'delivering')
     return [
@@ -213,7 +226,25 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
     ...responseLanguage(w),
     `Current pipeline role: ${role}. Apply restrictions addressed specifically to this role. Planner and Reviewer are read-only; Builder implements the approved plan within its configured permissions. A restriction addressed only to another role does not change your role. Preserve all user restrictions that apply to the whole workflow; this role assignment grants no additional permission.`,
     instructions[role],
-    'Successful review is followed by a mandatory human delivery question: PR or integration on main. Plan approval, final approval, autonomous mode, silence and tool auto-accept never authorize delivery. Do not commit, push, publish or merge during implementation or review. The mission is complete only after approved delivery is verified.',
+    ...(role === 'planner'
+      ? [
+          'Record intent=review for a request to inspect, review or audit without implementing changes; intent=implementation when changes are requested. A review report is the deliverable even when it identifies defects. Never turn a review request into permission to fix files.',
+        ]
+      : []),
+    ...(w.assignment?.to === role
+      ? [
+          `Focused assignment from ${w.assignment.from}: ${boundedText(w.assignment.briefing, 8000)}`,
+          'Address each objection explicitly. State what you changed or verified, with file locations and evidence. If an objection is incorrect, explain why with evidence instead of silently ignoring it. The orchestrator and Reviewer will verify your response. Do not expand the approved scope.',
+        ]
+      : []),
+    ...(w.config.reviewOnly
+      ? [
+          'Review-only mission. Inspect and report findings, including defects. Never fix files, checkout, commit, push or publish. For the Reviewer, verdict judges the reviewed code: return fail if defects are found, pass only if no blocking defect is found. A failing verdict describes the PR, not a failed implementation task. The Planner separately judges the report quality. Treat the review report as the deliverable. Test commands in the plan are suggested verification only; the engine does not execute them in this mode.',
+        ]
+      : []),
+    w.config.reviewOnly
+      ? 'The review report is the deliverable. The orchestrator validates its quality; no commit, PR creation or integration is requested.'
+      : 'Successful review is followed by a mandatory human delivery question: PR or integration on main. Plan approval, final approval, autonomous mode, silence and tool auto-accept never authorize delivery. Do not commit, push, publish or merge during implementation or review. The mission is complete only after approved delivery is verified.',
     'Separate pre-delivery acceptance from delivery requirements. Plan and review whether the implementation is ready to deliver; commits, PR creation, publication CI and merging happen only in the approved delivery stage and must not be prerequisites for a passing implementation review. Preserve the user’s delivery requirements explicitly as post-approval tasks. For a publication-only request, inspect and validate the existing implementation without reimplementing it. An older plan that requires publishing before review must be revised before retrying the Builder.',
     'A passing review may retain advisory notes and human delivery choices; these do not send work back to the Builder. If implementation changes are actually required, return verdict=fail with actionable defects. Route user decisions through the orchestrator.',
     ...scopeInstructions,
@@ -231,6 +262,7 @@ export function buildPrompt(w: Workflow, role: Role, context: string, skillConte
       : []),
     ...(role === 'reviewer'
       ? [
+          'Recheck every prior objection against the current artifact and Builder response. Say which objections are resolved and why; retain unsupported or incomplete fixes as actionable issues. Challenge claims using evidence, not stylistic preference.',
           `Verified working artifact fingerprint: ${w.testedFingerprint ?? 'not verified'}. Tests were executed by the plugin; check their scope and output independently.`,
         ]
       : []),
@@ -263,6 +295,6 @@ export function repairPrompt(w: Workflow) {
     'Repair only the report format of your completed turn. Do not use tools, run tests, edit files or repeat the task. Preserve the facts and unresolved blockers; do not invent successful work.',
     `Validation error: ${boundedText(repair.error, 4000)}`,
     `Previous completed report: ${boundedText(repair.text, 32 * 1024)}`,
-    `Return ONLY a JSON object matching this schema: ${JSON.stringify((w.phase === 'validating' ? reviewSchema : schemaFor(repair.role)).toJSONSchema())}`,
+    `Return ONLY a JSON object matching this schema: ${JSON.stringify((w.phase === 'validating' ? (w.config.teamOrchestration ? teamDecisionSchema : reviewSchema) : schemaFor(repair.role)).toJSONSchema())}`,
   ].join('\n');
 }

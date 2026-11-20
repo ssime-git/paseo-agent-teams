@@ -987,6 +987,7 @@ test('live orchestrator forwards a focused question to one read-only specialist 
     },
   } as unknown as PaseoApi;
   const reply = await new PaseoRuntime(api, '/unused').liveQuestion(w, 'Quels champs sont contrôlés ?', 'one-question');
+  assert.ok(typeof reply === 'string');
   assert.match(reply!, /transmis.*Code/);
   assert.match(reply!, /Empty values are guarded/);
   assert.equal(turns.length, 2);
@@ -997,4 +998,40 @@ test('live orchestrator forwards a focused question to one read-only specialist 
   assert.deepEqual(archives, ['consult-1', 'consult-2']);
   assert.equal(w.agents.builder, 'agent');
   assert.equal(w.operation?.id, 'operation');
+});
+
+test('historical role activity uses the recorded session after a fresh correction session replaces it', async () => {
+  const used: string[] = [];
+  const api = {
+    agents: {
+      ref: (id: string) => {
+        used.push(id);
+        return {
+          timeline: {
+            refetch: async () => ({
+              entries: [
+                { item: { type: 'user_message', text: '[agent-teams-operation:first]\nTask' } },
+                { item: { type: 'tool_call', callId: 'read', detail: { type: 'read', filePath: 'first.ts' } } },
+              ],
+            }),
+          },
+        };
+      },
+    },
+  } as unknown as PaseoApi;
+  const w = savedWorkflow();
+  w.agents.builder = 'second-session';
+  w.events.push({
+    id: 'dispatch-first',
+    at: 'now',
+    kind: 'dispatch',
+    role: 'builder',
+    operationId: 'first',
+    agentId: 'first-session',
+    text: 'Start',
+  });
+  assert.deepEqual(await new PaseoRuntime(api, '/unused').activity(w, 'builder', 'first'), [
+    { toolName: 'Read', summary: 'first.ts' },
+  ]);
+  assert.deepEqual(used, ['first-session']);
 });

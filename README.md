@@ -1,14 +1,16 @@
 # Agent Teams for Paseo
 
-Run a team of coding agents in one Paseo thread. Pick **Agent Teams → Team Auto** as the model, describe a mission, and three roles take turns:
+Run a team of coding agents in one Paseo thread. Pick **Agent Teams → Team Auto** as the model, describe a mission, and an orchestrator coordinates three roles:
 
 - **Plan** reads the repository and proposes a plan (read-only).
 - **Code** implements it and runs commands.
 - **Review** checks the changes and the test results (read-only).
 
-The plugin runs the planned tests between Code and Review. A failed test or a rejected review goes back to Code, up to the correction limit. Each role can use a different harness and model discovered by your Paseo daemon: Claude Code, Codex, OpenCode, Pi or a custom provider.
+The plugin runs the planned tests between Code and Review. In new native Team missions, every review returns to the orchestrator. It can send specific objections to Code for a correction, challenge Review for missing evidence, or ask you a persistent question. Results return automatically for another decision, within the configured correction limit. The thread shows these handoffs and retains each round. Fresh correction sessions receive the task, decisions, relevant reports and focused objections rather than the complete chat history. Each role can use a different harness and model discovered by your Paseo daemon: Claude Code, Codex, OpenCode, Pi or a custom provider.
 
-In new native Team conversations, Plan checks the finished work against the approved plan after the independent tests and review pass. A refusal sends concrete issues back for correction within the configured limit. Once validation passes, Team Auto asks how to deliver the work: **PR** or **main**. This question is mandatory in every validation mode, including autonomous. Choose in the inline response card or reply exactly `PR` or `main`. Code then creates or reuses a PR, or integrates the changes on local `main` without pushing `main`. The mission completes only after the plugin verifies the delivery. A blocker keeps the mission open. See [delivery behavior](docs/delivery.md).
+Plan checks the actual work against the approved plan and arbitrates the independent test and review evidence. A refusal sends concrete issues back for correction within the configured limit. Once validation passes, Team Auto asks how to deliver the work: **PR** or **main**. This question is mandatory in every validation mode, including autonomous. Choose in the inline response card or reply exactly `PR` or `main`. Code then creates or reuses a PR, or integrates the changes on local `main` without pushing `main`. The mission completes only after the plugin verifies the delivery. A blocker keeps the mission open. See [delivery behavior](docs/delivery.md).
+
+A request for a review or audit runs in read-only mode: Review produces findings and Plan validates the report. Defects in the reviewed code do not trigger implementation or a delivery question. Questions at a pending choice remain conversation; they do not submit or approve that choice.
 
 ![A mission waiting for plan approval](docs/screenshots/plan-ready.png)
 

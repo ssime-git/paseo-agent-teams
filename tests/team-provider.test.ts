@@ -1064,3 +1064,169 @@ test('explicit closure targets only the current mission, including while awaitin
   );
   assert.match(JSON.stringify(s.events), /Mission clôturée/);
 });
+
+test('questions at a delivery checkpoint stay conversational and never consume the pending choice', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Review PR 18' }] });
+  const w = s.workflow();
+  w.status = 'awaiting_final';
+  w.phase = 'delivering';
+  w.clarifications = [
+    {
+      id: 'delivery-question',
+      purpose: 'delivery',
+      at: 'now',
+      answers: [],
+      request: {
+        kind: 'clarification',
+        summary: 'Delivery',
+        questions: [
+          {
+            id: 'delivery',
+            title: 'Deliver?',
+            options: [
+              { id: 'main', label: 'Main', tradeoff: 'Integrate' },
+              { id: 'pull_request', label: 'PR', tradeoff: 'Review' },
+            ],
+            recommendedOptionId: 'pull_request',
+          },
+        ],
+      },
+    },
+  ];
+  for (const [i, text] of [
+    'tu as fais des changement ? il fallait juste faire le revue',
+    'Pourquoi une livraison ?',
+    'What did the Reviewer find?',
+  ].entries()) {
+    await s.prompt('question-' + i, { type: 'message', content: [{ type: 'text', text }] });
+    const action = s.calls.at(-1)?.value as { action: string; purpose: string; message: string };
+    assert.equal(action.action, 'followup');
+    assert.equal(action.purpose, 'message');
+    assert.equal(action.message, text);
+    assert.equal(w.clarifications[0].resolvedAt, undefined);
+    assert.deepEqual(w.clarifications[0].answers, []);
+  }
+});
+
+test('orchestrator answers a conversational objection without punctuation while a role works', async (t) => {
+  const s = await setup(t, 'fr', true, {
+    async liveQuestion(_w, message) {
+      assert.equal(message, 'Cette approche me semble fragile');
+      return 'Le Reviewer vérifie justement ce risque sur le cas réel.';
+    },
+  });
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Build feature' }] });
+  const w = s.workflow();
+  w.status = 'running';
+  w.phase = 'reviewing';
+  w.operation = { id: 'r', role: 'reviewer', phase: 'reviewing', state: 'sent', startedAt: 'now' };
+  const before = structuredClone(w);
+  await s.prompt('objection', {
+    type: 'message',
+    content: [{ type: 'text', text: 'Cette approche me semble fragile' }],
+  });
+  assert.deepEqual(s.workflow(), before);
+  assert.equal(s.calls.filter((c) => c.kind === 'action').length, 0);
+  assert.ok(JSON.stringify(s.events).includes('Le Reviewer vérifie justement ce risque'));
+});
+
+test('orchestrator persists requested changes during active work before acknowledging them', async (t) => {
+  const s = await setup(t, 'fr', true, {
+    async liveQuestion() {
+      return { text: 'Je transmets cette contrainte pour le prochain échange.', queue: true };
+    },
+  });
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Build feature' }] });
+  const w = s.workflow();
+  w.status = 'running';
+  w.phase = 'building';
+  w.operation = { id: 'b', role: 'builder', phase: 'building', state: 'sent', startedAt: 'now' };
+  const input = {
+    type: 'message' as const,
+    content: [{ type: 'text' as const, text: 'Ajoute aussi le cas de saisie vide' }],
+  };
+  await s.prompt('amend', input);
+  await s.prompt('amend', input);
+  const actions = s.calls.filter((c) => c.kind === 'action');
+  assert.equal(actions.length, 1);
+  assert.equal((actions[0].value as { action: string; message: string }).action, 'followup');
+  assert.equal((actions[0].value as { message: string }).message, 'Ajoute aussi le cas de saisie vide');
+});
+
+test('a persisted live routing decision retries after action failure without calling the orchestrator twice', async (t) => {
+  let consultations = 0;
+  const s = await setup(t, 'fr', true, {
+    async liveQuestion() {
+      consultations++;
+      return { text: 'Je prends en compte cette contrainte.', queue: true };
+    },
+  });
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Build feature' }] });
+  const w = s.workflow();
+  w.status = 'running';
+  w.phase = 'building';
+  w.operation = { id: 'b', role: 'builder', phase: 'building', state: 'sent', startedAt: 'now' };
+  const action = s.backend.action;
+  let attempts = 0;
+  s.backend.action = async (input) => {
+    if (input.action === 'followup' && ++attempts === 1) throw Error('connection lost before acceptance');
+    return action(input);
+  };
+  const input = { type: 'message' as const, content: [{ type: 'text' as const, text: 'Ajoute le cas vide' }] };
+  await s.prompt('durable-change', input);
+  const saved = s.events.findLast((e) => e.type === 'session.persistence');
+  assert.ok(saved?.type === 'session.persistence');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  await s.open(saved.persistence);
+  await s.prompt('durable-change', input);
+  assert.equal(consultations, 1);
+  assert.equal(attempts, 2);
+  assert.equal(
+    s.calls.filter((c) => c.kind === 'action' && (c.value as { action: string }).action === 'followup').length,
+    1,
+  );
+});
+
+test('a question about an orchestrator choice does not become a free-text answer', async (t) => {
+  const s = await setup(t);
+  await s.open();
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Build feature' }] });
+  const w = s.workflow();
+  w.status = 'attention';
+  w.phase = 'validating';
+  w.clarifications = [
+    {
+      id: 'q',
+      purpose: 'coordination',
+      at: 'now',
+      answers: [],
+      request: {
+        kind: 'clarification',
+        summary: 'Compatibility',
+        questions: [
+          {
+            id: 'version',
+            title: 'Which version?',
+            options: [
+              { id: 'v1', label: 'V1', tradeoff: 'Compatible' },
+              { id: 'v2', label: 'V2', tradeoff: 'Migration' },
+            ],
+            recommendedOptionId: 'v1',
+          },
+        ],
+      },
+    },
+  ];
+  await s.prompt('explain', {
+    type: 'message',
+    content: [{ type: 'text', text: 'Pourquoi recommandes-tu cette option ?' }],
+  });
+  assert.equal((s.calls.at(-1)?.value as { action: string }).action, 'followup');
+  assert.equal(w.clarifications[0].resolvedAt, undefined);
+  assert.deepEqual(w.clarifications[0].answers, []);
+});

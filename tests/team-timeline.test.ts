@@ -301,3 +301,18 @@ test('Reviewer proposals show the complete candidate and explicit adoption inste
   assert.match(said(w)[0], /\*\*go\*\*/);
   assert.match(said(w)[0], /Reviewer reprendra le plan/);
 });
+
+test('orchestrated objections render one attributed handoff instead of a duplicated rejection', () => {
+  const w = workflowFixture();
+  w.config.teamOrchestration = true;
+  w.events.push(
+    event('planner_rejected', 'planner', 'p', 'Fix a confirmed defect'),
+    event('team_handoff', 'builder', 'p', 'planner → builder\n\nFix a confirmed defect'),
+  );
+  const items = valid(w).filter((i) => i.type === 'assistant_message');
+  assert.equal(
+    items.filter((i) => i.type === 'assistant_message' && i.text.includes('Fix a confirmed defect')).length,
+    1,
+  );
+  assert.ok(items.some((i) => i.type === 'assistant_message' && i.text.startsWith('Plan → Code')));
+});

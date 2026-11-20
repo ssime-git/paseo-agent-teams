@@ -35,12 +35,16 @@ const shorten = (text: string, max = 160) => {
 /** Engine correction events are recorded in French; the thread shows them in the chosen language. */
 export function correctionText(t: Translate, text: string) {
   const cycle = /^Correction (\d+)\/(\d+) : (review refusée|tests non validés|validation du Plan refusée)/.exec(text);
-  if (cycle)
-    return t('Correction {cycle}/{max} : {reason}. Retour au Code.', {
+  if (cycle) {
+    const values = {
       cycle: cycle[1],
       max: cycle[2],
       reason: t(cycle[3]),
-    });
+    };
+    return text.endsWith('Retour au Reviewer.')
+      ? t('Correction {cycle}/{max} : {reason}. Retour à la Revue.', values)
+      : t('Correction {cycle}/{max} : {reason}. Retour au Code.', values);
+  }
   const minor = /^Revue validée avec (\d+) point/.exec(text);
   if (minor) return t('Revue validée avec {count} point(s) non bloquant(s) : le Code les traite.', { count: minor[1] });
   if (text.startsWith('Blocage persistant'))
@@ -52,7 +56,8 @@ function describe(w: Workflow, index: number, role: Role, t: Translate) {
   const previous = w.events
     .slice(0, index)
     .reverse()
-    .find((e) => ['correction', 'goal_replan', 'dispatch', 'user', 'followup'].includes(e.kind));
+    .find((e) => ['team_handoff', 'correction', 'goal_replan', 'dispatch', 'user', 'followup'].includes(e.kind));
+  if (previous?.kind === 'team_handoff') return shorten(previous.text.split('\n\n').slice(1).join('\n\n'), 120);
   if (previous?.kind === 'correction' && role === 'builder') return shorten(correctionText(t, previous.text), 120);
   if (previous?.kind === 'goal_replan') return t('Diagnostiquer le blocage et ajuster le plan');
   if (previous?.kind === 'user') return t('Répondre : {message}', { message: shorten(previous.text, 100) });
@@ -191,7 +196,8 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
             items: parsed.tasks.map((text, i) => ({ id: String(i + 1), text, completed: built })),
           });
         }
-        const narration = role === 'reviewer' ? reviewNarration(event.text, ctx.t) : undefined;
+        const narration =
+          role === 'reviewer' && !w.config.teamOrchestration ? reviewNarration(event.text, ctx.t) : undefined;
         if (narration) items.push(say(event.id, narration));
         return;
       }
@@ -228,14 +234,34 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
       case 'goal_replan':
         items.push(say(event.id, correctionText(ctx.t, event.text)));
         return;
+      case 'team_handoff':
+        items.push(
+          say(
+            event.id,
+            event.text.replace(
+              /^(planner|builder|reviewer) → (planner|builder|reviewer)/,
+              (_, from: Role, to: Role) => `${ctx.t(roleTitle[from])} → ${ctx.t(roleTitle[to])}`,
+            ),
+          ),
+        );
+        return;
       case 'orchestrator_reply':
         items.push(say(event.id, event.text));
         return;
       case 'message_queued':
         items.push(say(event.id, ctx.t('Message reçu ; l’orchestrateur le traitera après le tour courant.')));
         return;
+      case 'review_completed':
+        items.push(say(event.id, ctx.t('Revue terminée. Le rapport et les constats sont disponibles dans le fil.')));
+        return;
       case 'planner_validated':
       case 'planner_rejected':
+        if (
+          event.kind === 'planner_rejected' &&
+          w.config.teamOrchestration &&
+          w.events.some((e) => e.kind === 'team_handoff' && e.operationId === event.operationId)
+        )
+          return;
         items.push(
           say(
             event.id,
@@ -341,16 +367,21 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
     out.push({
       id: `plan:${planKey}`,
       text:
-        (!tests
+        (w.config.reviewOnly
           ? ctx.t(
-              'Le plan ne prévoit aucune commande de test. Vous pouvez demander des tests, ou dire « j’accepte l’absence de tests » pour continuer explicitement sans tests.',
+              'Le plan de revue est prêt ({steps} étapes). Répondez **go** pour lancer la revue en lecture seule.',
+              { steps },
             )
-          : ctx.t(
-              steps > 1
-                ? 'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.'
-                : 'Le plan est prêt (1 étape, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.',
-              { steps, tests, builder: ctx.label('builder') },
-            )) +
+          : !tests
+            ? ctx.t(
+                'Le plan ne prévoit aucune commande de test. Vous pouvez demander des tests, ou dire « j’accepte l’absence de tests » pour continuer explicitement sans tests.',
+              )
+            : ctx.t(
+                steps > 1
+                  ? 'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.'
+                  : 'Le plan est prêt (1 étape, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.',
+                { steps, tests, builder: ctx.label('builder') },
+              )) +
         '\n\n' +
         ctx.t(
           'Vous pouvez poser vos questions ou décrire les changements souhaités ici ; le Reviewer reprendra le plan avec vous.',

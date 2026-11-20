@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { reviewOnlyTask } from './mission-intent';
 import { plannerQuestionReadRpc, plannerQuestionAnswerRpc, teamActivityReadRpc } from '../shared/planner-question';
 import { ownedPlannerWorkflow } from './planner-question';
 import { createHash } from 'node:crypto';
@@ -297,7 +298,19 @@ export function contributeServer(server: PluginServerContext) {
       list: (workspaceId) => store.all().then((all) => all.filter((w) => w.workspaceId === workspaceId)),
       get: (id, workspaceId) => store.authorize(id, workspaceId),
       create: async (workspaceId, task, config, requestId, ownerAgentId) =>
-        (await bind()).create(workspaceId, task, { ...config, plannerFinalReview: true }, requestId, ownerAgentId),
+        (await bind()).create(
+          workspaceId,
+          task,
+          {
+            ...config,
+            plannerFinalReview: true,
+            teamOrchestration: true,
+            freshSessionPerCycle: true,
+            ...(reviewOnlyTask(task) ? { reviewOnly: true } : {}),
+          },
+          requestId,
+          ownerAgentId,
+        ),
       activity: async (w, role, operationId) => {
         await bind();
         return new PaseoRuntime(recoveryClient!, directory, () => nativeApi).activity(w, role, operationId);

@@ -49,7 +49,11 @@ function isHostPaseoMcp(name: string, server: ProviderMcpServerConfig, daemonUrl
 
 export interface TeamProviderBackend {
   daemonUrl?: string;
-  liveQuestion?(w: Workflow, question: string, requestId: string): Promise<string | undefined>;
+  liveQuestion?(
+    w: Workflow,
+    question: string,
+    requestId: string,
+  ): Promise<string | { text: string; queue: true } | undefined>;
   /** Validation mode preselected for new conversations, from the default team settings. */
   defaultMode?(): Promise<'plan' | 'final' | 'autonomous'>;
   /** Language of the thread messages, from the Agent Teams settings. */
@@ -89,6 +93,7 @@ const savedSchema = z
               .object({ id: z.string(), workspaceId: z.string(), clarificationId: z.string() })
               .optional(),
             text: z.string(),
+            queuedMessage: z.string().min(1).max(32000).optional(),
             at: z.number().int().min(0),
           })
           .strict(),
@@ -142,7 +147,7 @@ const acceptNoTests =
   /^(?:j[\u0027\u2019]accepte l[\u0027\u2019]absence de tests|i accept (?:the absence of tests|no tests))\s*[.!]*$/i;
 
 const readQuestion =
-  /[?？]\s*$|\b(?:peux-tu (?:me )?(?:dire|expliquer|décrire|demander|consulter)|what|why|how|where|pourquoi|comment|quel(?:le)?s?)\b/i;
+  /[?？]|\b(?:peux-tu (?:me )?(?:dire|expliquer|décrire|demander|consulter)|as-tu|tu as|what|why|how|where|pourquoi|comment|quel(?:le)?s?)\b/i;
 
 function statusQuestion(text: string): boolean {
   const normalized = text
@@ -755,7 +760,9 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           ['running', 'ready', 'permission'].includes(w.status) &&
           !w.clarifications?.some((q) => !q.resolvedAt) &&
           !askingStatus &&
-          readQuestion.test(text);
+          !closingMission &&
+          !approval.test(text) &&
+          !/^(?:pause|mets? (?:l[\u0027\u2019]équipe|la mission) en pause|pause the team)\s*[.!]*$/i.test(text);
         const previousMissionControl = session.saved.transcript?.some(
           (e) => e.id === `mission-control:${prompt.clientMessageId}`,
         );
@@ -819,13 +826,17 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           const unanswered = pending?.request.questions.filter(
             (q) => !pending.answers.some((a) => a.questionId === q.id),
           );
+          const checkpointQuestion = !!pending && readQuestion.test(text);
           const resumingDelivery =
             pending?.purpose === 'delivery' &&
             w.status === 'paused' &&
             w.resumeStatus === 'awaiting_final' &&
             /^(?:reprends|reprendre|continue|resume)\s*[.!]*$/i.test(text);
-          const answers = pending && unanswered && !resumingDelivery ? answerQuestions(unanswered, text) : undefined;
-          if (pending && !answers && !resumingDelivery)
+          const answers =
+            pending && unanswered && !resumingDelivery && !checkpointQuestion
+              ? answerQuestions(unanswered, text)
+              : undefined;
+          if (pending && !answers && !resumingDelivery && !checkpointQuestion)
             throw new Error(
               t('{count} questions sont en attente. Répondez une par ligne : « 1. … », « 2. … ».', {
                 count: unanswered?.length ?? 0,
@@ -843,33 +854,35 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             workspaceId: w.workspaceId,
             expectedRevision: w.revision,
             requestId,
-            ...(resumingDelivery
-              ? { action: 'resume' }
-              : pending
-                ? { action: 'answer_clarification', clarificationId: pending.id, answers: answers! }
-                : proposalAccepted
-                  ? { action: 'adopt_plan' }
-                  : noTestsAccepted
-                    ? { action: 'approve', allowNoTests: true }
-                    : /^(?:pause|mets? (?:l[\u0027\u2019]équipe|la mission) en pause|pause the team)\s*[.!]*$/i.test(
-                          text,
-                        )
-                      ? { action: 'pause' }
-                      : w.status === 'paused' && /^(?:reprends|reprendre|continue|resume)\s*[.!]*$/i.test(text)
-                        ? { action: 'resume' }
-                        : approval.test(text) && ['awaiting_plan', 'awaiting_final'].includes(w.status)
-                          ? { action: 'approve' }
-                          : {
-                              action: 'followup',
-                              message: text,
-                              purpose:
-                                w.plan &&
-                                w.config.mode === 'auto' &&
-                                (w.status === 'awaiting_plan' ||
-                                  (w.status === 'paused' && w.resumeStatus === 'awaiting_plan'))
-                                  ? 'plan_revision'
-                                  : 'message',
-                            }),
+            ...(checkpointQuestion
+              ? { action: 'followup', purpose: 'message', message: text }
+              : resumingDelivery
+                ? { action: 'resume' }
+                : pending
+                  ? { action: 'answer_clarification', clarificationId: pending.id, answers: answers! }
+                  : proposalAccepted
+                    ? { action: 'adopt_plan' }
+                    : noTestsAccepted
+                      ? { action: 'approve', allowNoTests: true }
+                      : /^(?:pause|mets? (?:l[\u0027\u2019]équipe|la mission) en pause|pause the team)\s*[.!]*$/i.test(
+                            text,
+                          )
+                        ? { action: 'pause' }
+                        : w.status === 'paused' && /^(?:reprends|reprendre|continue|resume)\s*[.!]*$/i.test(text)
+                          ? { action: 'resume' }
+                          : approval.test(text) && ['awaiting_plan', 'awaiting_final'].includes(w.status)
+                            ? { action: 'approve' }
+                            : {
+                                action: 'followup',
+                                message: text,
+                                purpose:
+                                  w.plan &&
+                                  w.config.mode === 'auto' &&
+                                  (w.status === 'awaiting_plan' ||
+                                    (w.status === 'paused' && w.resumeStatus === 'awaiting_plan'))
+                                    ? 'plan_revision'
+                                    : 'message',
+                              }),
           });
         }
         const shown = {
@@ -939,10 +952,31 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           persist(sessionId, session.saved);
           const answer = await backend.liveQuestion!(w, text, requestId).catch(() => undefined);
           const receipt = session.saved.transcript?.find((e) => e.id === liveReplyId);
-          if (answer && receipt && !closed && sessions.get(sessionId) === session) {
-            receipt.text = answer.slice(0, 5000);
+          if ((answer && typeof answer !== 'string' && answer.queue) || (!answer && !readQuestion.test(text))) {
+            if (receipt) receipt.queuedMessage = text;
             persist(sessionId, session.saved);
           }
+          if (answer && receipt && !closed && sessions.get(sessionId) === session) {
+            receipt.text = (typeof answer === 'string' ? answer : answer.text).slice(0, 5000);
+            persist(sessionId, session.saved);
+          }
+        }
+        // Persist the routing decision before enqueueing, so a lost action response
+        // or provider restart retries the same request without a second model turn.
+        const queued = session.saved.transcript?.find((e) => e.id === liveReplyId);
+        if (queued?.queuedMessage && w) {
+          const current = await backend.get(w.id, w.workspaceId);
+          w = await backend.action({
+            id: current.id,
+            workspaceId: current.workspaceId,
+            expectedRevision: current.revision,
+            requestId,
+            action: 'followup',
+            purpose: 'message',
+            message: queued.queuedMessage,
+          });
+          delete queued.queuedMessage;
+          persist(sessionId, session.saved);
         }
         const turnId = `team:turn:${prompt.clientMessageId}`;
         session.turn = turnId;

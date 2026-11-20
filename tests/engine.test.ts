@@ -2944,3 +2944,159 @@ test('resuming a paused delivery question restores the choice without dispatch o
   assert.equal(w.delivery?.approvedAt, undefined);
   assert.equal(h.fake.calls.length, count);
 });
+
+test('orchestrator arbitrates Reviewer objections, challenges the Reviewer, then sends a focused correction to Builder', async (t) => {
+  const h = await setup(t, { teamOrchestration: true, plannerFinalReview: true, maxCorrections: 2, goalMode: true });
+  const tests = h.fake.tests.bind(h.fake);
+  h.fake.tests = async (w) => {
+    const results = await tests(w);
+    if (h.fake.testCount === 1) results[0].exitCode = 1;
+    return results;
+  };
+  let w = await h.create();
+  h.fake.responses.reviewer = [JSON.stringify(fail), JSON.stringify(fail), JSON.stringify(pass)];
+  h.fake.responses.planner = [
+    JSON.stringify({ ...fail, summary: 'Verify the alleged exploit', nextRole: 'reviewer' }),
+    JSON.stringify({ ...fail, summary: 'Fix the confirmed exploit', nextRole: 'builder' }),
+    JSON.stringify(pass),
+  ];
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'awaiting_final');
+  assert.equal(w.cycle, 2);
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'builder', 'reviewer', 'planner', 'reviewer', 'planner', 'builder', 'reviewer', 'planner'],
+  );
+  assert.match(h.fake.calls[4].prompt, /Focused assignment from planner: Verify the alleged exploit/);
+  assert.match(h.fake.calls[6].prompt, /Focused assignment from planner: Fix the confirmed exploit/);
+  assert.match(h.fake.calls[7].prompt, /Previous review:.*Missing state verification/);
+  assert.equal(w.delivery?.approvedAt, undefined);
+  const persisted = await new Store(h.store.directory).get(w.id);
+  assert.deepEqual(
+    persisted.events.filter((e) => e.kind === 'team_handoff'),
+    w.events.filter((e) => e.kind === 'team_handoff'),
+  );
+});
+
+test('review-only findings are a report, never a Builder correction or delivery request', async (t) => {
+  const h = await setup(t, { reviewOnly: true, teamOrchestration: true, plannerFinalReview: true, goalMode: true });
+  h.fake.responses.planner = [
+    JSON.stringify(plan),
+    JSON.stringify({ ...fail, summary: 'Add file locations', nextRole: 'builder' }),
+    JSON.stringify(pass),
+  ];
+  h.fake.responses.reviewer = [
+    JSON.stringify(fail),
+    JSON.stringify({ ...fail, summary: 'Confirmed at callback.ts:12' }),
+  ];
+  let w = await h.create();
+  assert.equal(w.status, 'awaiting_plan');
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.review?.verdict, 'fail');
+  assert.equal(w.plannerValidation?.verdict, 'pass');
+  assert.equal(w.delivery, undefined);
+  assert.equal(h.fake.testCount, 0);
+  assert.deepEqual(
+    h.fake.calls.map((c) => c.role),
+    ['planner', 'reviewer', 'planner', 'reviewer', 'planner'],
+  );
+  assert.match(h.fake.calls[3].prompt, /Add file locations/);
+  assert.ok(w.events.some((e) => e.kind === 'review_completed'));
+});
+
+test('orchestration cannot override a failed implementation review and stops at its correction budget', async (t) => {
+  const h = await setup(t, { teamOrchestration: true, plannerFinalReview: true, maxCorrections: 1 });
+  let w = await h.create();
+  h.fake.responses.reviewer = [JSON.stringify(fail), JSON.stringify(fail)];
+  h.fake.responses.planner = [JSON.stringify(pass), JSON.stringify(pass)];
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'attention');
+  assert.equal(w.cycle, 1);
+  assert.equal(w.delivery, undefined);
+  assert.equal(h.fake.calls.length, 7);
+});
+
+test('orchestrator user question persists and resumes validation with all artifacts after an explicit answer', async (t) => {
+  const h = await setup(t, { teamOrchestration: true, plannerFinalReview: true });
+  let w = await h.create();
+  h.fake.responses.planner = [
+    JSON.stringify({
+      kind: 'clarification',
+      summary: 'Choose compatibility',
+      questions: [
+        {
+          id: 'compat',
+          title: 'Which compatibility?',
+          options: [
+            { id: 'v1', label: 'Keep V1', tradeoff: 'Preserves clients' },
+            { id: 'v2', label: 'V2', tradeoff: 'Requires migration' },
+          ],
+          recommendedOptionId: 'v1',
+        },
+      ],
+    }),
+  ];
+  w = await h.action(w, 'approve');
+  assert.equal(w.phase, 'validating');
+  assert.equal(w.status, 'attention');
+  const q = w.clarifications!.find((q) => !q.resolvedAt)!;
+  assert.equal(q.purpose, 'coordination');
+  const count = h.fake.calls.length;
+  const restored = await new Store(h.store.directory).get(w.id);
+  assert.deepEqual(restored.clarifications, w.clarifications);
+  assert.equal(h.fake.calls.length, count);
+  h.fake.responses.planner = [JSON.stringify(pass)];
+  w = await h.action(w, 'answer_clarification', {
+    clarificationId: q.id,
+    answers: [{ questionId: 'compat', text: 'Keep V1 compatibility, please' }],
+  });
+  assert.equal(w.status, 'awaiting_final');
+  assert.match(h.fake.calls.at(-1)!.prompt, /Keep V1 compatibility, please/);
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, 1);
+});
+
+test('Planner review intent skips implementation even for legacy launch configuration', async (t) => {
+  const h = await setup(t);
+  h.fake.responses.planner = [JSON.stringify({ ...plan, intent: 'review' }), JSON.stringify(pass)];
+  h.fake.responses.reviewer = [JSON.stringify(fail)];
+  let w = await h.create();
+  assert.equal(w.config.reviewOnly, true);
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'completed');
+  assert.equal(h.fake.testCount, 0);
+  assert.ok(!h.fake.calls.some((c) => c.role === 'builder'));
+  assert.equal(w.delivery, undefined);
+});
+
+test('review-only validation refuses a report for an artifact changed after the Reviewer turn', async (t) => {
+  const h = await setup(t, { reviewOnly: true, teamOrchestration: true, maxCorrections: 0 });
+  h.fake.responses.planner = [JSON.stringify(plan), JSON.stringify(pass)];
+  const run = h.fake.run.bind(h.fake);
+  h.fake.run = async (w, role, prompt, id) => {
+    const result = await run(w, role, prompt, id);
+    if (w.phase === 'validating') h.fake.fingerprint = async () => 'changed-artifact';
+    return result;
+  };
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  assert.equal(w.status, 'attention');
+  assert.equal(w.delivery, undefined);
+});
+
+test('switching a mistaken delivery checkpoint to review-only closes that choice and never dispatches Builder again', async (t) => {
+  const h = await setup(t);
+  let w = await h.create();
+  w = await h.action(w, 'approve');
+  const before = h.fake.calls.filter((c) => c.role === 'builder').length;
+  h.fake.responses.planner = [JSON.stringify(pass)];
+  h.fake.responses.reviewer = [JSON.stringify(fail)];
+  w = await h.action(w, 'review_only');
+  assert.equal(w.status, 'completed');
+  assert.equal(w.config.reviewOnly, true);
+  assert.equal(w.config.teamOrchestration, true);
+  assert.equal(w.delivery, undefined);
+  assert.ok(!w.clarifications?.some((q) => !q.resolvedAt));
+  assert.equal(h.fake.calls.filter((c) => c.role === 'builder').length, before);
+  assert.equal(w.review?.verdict, 'fail');
+});
