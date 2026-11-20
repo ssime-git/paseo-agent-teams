@@ -7,6 +7,7 @@ import { graphListRpc, graphResponseRpc, graphAdvanceRpc } from '../shared/graph
 import type { GraphCheckpoint } from '../shared/graph-checkpoint';
 import { useT } from './i18n';
 import { GraphLauncher } from './graph-launcher';
+import { GraphHistory } from './graph-history';
 
 export const graphInboxSchema = z
   .object({
@@ -236,6 +237,31 @@ export function GraphInbox({
           <Text style={{ color: c.foreground }}>
             {t('Étape : {step}', { step: state.nextStepId ?? active?.stepId ?? '—' })}
           </Text>
+          <GraphHistory state={state} colors={c} />
+          {active?.testRun?.completion?.results.some((test) => test.exitCode !== 0 || test.timedOut) &&
+          !active.testRejection &&
+          !active.result
+            ? button(t('Suivre la branche d’échec des tests'), () => {
+                void run(async () => {
+                  replace(
+                    await respond({
+                      ...scope,
+                      id: state.id,
+                      expectedRevision: state.revision,
+                      operationId: active.operationId,
+                      submission: {
+                        action: 'reject_tests',
+                        decision: {
+                          id: active.operationId,
+                          summary: t('Tests en échec : utiliser la transition d’échec configurée.'),
+                        },
+                      },
+                    }),
+                  );
+                  setNotice(t('Réponse enregistrée. La continuation reste une action distincte.'));
+                });
+              })
+            : null}
           {human || question ? (
             <>
               <Text style={{ color: c.foreground, fontWeight: '600' }}>{t('En attente de réponse')}</Text>
@@ -308,9 +334,11 @@ export function GraphInbox({
                 const result = await advance({ ...scope, id: state.id, expectedRevision: state.revision });
                 replace(result.state);
                 setNotice(
-                  result.status === 'stale'
-                    ? t('Révision périmée : aucune continuation')
-                    : t('Un seul avancement demandé. Aucune décision humaine ni approbation implicite.'),
+                  result.status === 'blocked' || result.reason === 'uncertain'
+                    ? t('Avancement bloqué : {reason}. Aucune opération n’a été renvoyée.', { reason: result.reason })
+                    : result.status === 'stale'
+                      ? t('Révision périmée : aucune continuation')
+                      : t('Un seul avancement demandé. Aucune décision humaine ni approbation implicite.'),
                 );
               });
             },

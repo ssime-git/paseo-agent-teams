@@ -1,4 +1,4 @@
-import type { PaseoApi } from '@getpaseo/client';
+import type { PaseoApi, PaseoWorkspaceAgentCreateOptions } from '@getpaseo/client';
 import { z } from 'zod';
 import { planSchema, buildSchema, reviewSchema, clarificationSchema } from '../shared/contracts';
 import { TeamError } from '../shared/errors';
@@ -59,7 +59,7 @@ export async function prepareGraphDispatch(
   )
     throw new TeamError('READ_ONLY_REQUIRED', 'Graph analysis requires verified native read-only permissions');
   const prompt = graphDispatchPrompt(state, input.operationId);
-  const agent = await api.workspaces.ref(input.workspaceId).agents.create({
+  const options: PaseoWorkspaceAgentCreateOptions = {
     idempotencyKey: `graph-${state.id}-${input.operationId}`,
     config: {
       provider: model === DEFAULT_MODEL ? harness : step.selection.provider,
@@ -77,7 +77,18 @@ export async function prepareGraphDispatch(
     env: { GIT_OPTIONAL_LOCKS: '0' },
     title: `Agent Teams · ${step.id}`,
     labels: { 'agent-teams-graph': state.id, 'agent-teams-operation': input.operationId },
-  });
+    ...(state.admission ? { parent: state.admission.ownerAgentId } : {}),
+  };
+  const agents = api.workspaces.ref(input.workspaceId).agents;
+  let agent;
+  try {
+    agent = await agents.create(options);
+  } catch (error) {
+    if (!options.parent || !/Caller agent .* not found/.test(String(error))) throw error;
+    // A closed native owner must not prevent recovery of its saved graph.
+    const { parent: _, ...standalone } = options;
+    agent = await agents.create(standalone);
+  }
   const bound = await checkpoints.bindDispatch(state.id, input.workspaceId, state.revision, input.operationId, {
     agentId: agent.id,
     prompt,

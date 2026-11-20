@@ -1,5 +1,18 @@
 // English text for each French source text (see shared/i18n.ts). Keep placeholders identical.
 export const en: Record<string, string> = {
+  'Affiche les workflows de cette conversation.': 'Show workflows in this conversation.',
+  'Bilan du workflow': 'Workflow result',
+  'Les tests ont échoué : choisissez la suite.': 'Tests failed: choose how to proceed.',
+  'Suivre la branche d’échec des tests': 'Follow the failed-test branch',
+  'Tests en échec : utiliser la transition d’échec configurée.': 'Tests failed: use the configured failure transition.',
+  'Avancement bloqué : {reason}. Aucune opération n’a été renvoyée.':
+    'Progress blocked: {reason}. No operation was resent.',
+  Approuvé: 'Approved',
+  Refusé: 'Rejected',
+  'Sortie des tests': 'Test output',
+  'Historique des étapes': 'Step history',
+  'Décision humaine : {decision}': 'Human decision: {decision}',
+  'Code de sortie : {code}': 'Exit code: {code}',
   'Correction {cycle}/{max} : {reason}. Retour à la Revue.': 'Correction {cycle}/{max}: {reason}. Back to Review.',
   'Le plan de revue est prêt ({steps} étapes). Répondez **go** pour lancer la revue en lecture seule.':
     'The review plan is ready ({steps} steps). Reply **go** to start the read-only review.',

@@ -93,7 +93,7 @@ test('thread buttons open the correct workspace, deduplicate updates and disappe
   const show = content.props.showGraphs as unknown as () => Promise<void>;
   assert.deepEqual(sent, []); // No prompt on registration or render.
   await show();
-  assert.deepEqual(sent, [['/team-graphs', { activeTurnBehavior: 'steer' }]]);
+  assert.deepEqual(sent, [['Affiche les workflows de cette conversation.', { activeTurnBehavior: 'steer' }]]);
   for (const change of [
     { status: 'running' },
     { activeTurn: { id: 'turn' } },

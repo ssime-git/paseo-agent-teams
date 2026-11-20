@@ -89,6 +89,7 @@ const savedSchema = z
             role: z.enum(['user', 'assistant']),
             graphWorkspaceId: z.string().min(1).optional(),
             graphId: z.uuid().optional(),
+            graphOperationId: z.uuid().optional(),
             plannerQuestion: z
               .object({ id: z.string(), workspaceId: z.string(), clarificationId: z.string() })
               .optional(),
@@ -292,17 +293,24 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
                 active.assessment.request.questions.some(
                   (q) => !active.clarificationAnswers?.some((a) => a.questionId === q.id),
                 );
-              if (!active || (state.status !== 'waiting_human' && !pending)) return [];
-              const id = `graph-wait:${state.id}:${active.operationId}`;
+              const failedTests =
+                active?.testRun?.completion?.results.some((test) => test.exitCode !== 0 || test.timedOut) &&
+                !active.testRejection &&
+                !active.result;
+              const terminal = ['succeeded', 'failed', 'exhausted'].includes(state.status);
+              if (!active || (state.status !== 'waiting_human' && !pending && !failedTests && !terminal)) return [];
+              const topic = terminal ? 'graph-result' : failedTests ? 'graph-tests-failed' : 'graph-wait';
+              const id = `${topic}:${state.id}:${active.operationId}`;
               if (session.saved.transcript?.some((entry) => entry.id === id)) return [];
               return [
                 {
                   id,
                   role: 'assistant' as const,
-                  text: `${t('En attente de réponse')}\n\n${state.source.definition.name}\n\n${state.task}`,
+                  text: `${terminal ? t('Bilan du workflow') : failedTests ? t('Les tests ont échoué : choisissez la suite.') : t('En attente de réponse')}\n\n${state.source.definition.name}\n\n${state.task}`,
                   at: 0,
                   graphWorkspaceId: workspaceId,
                   graphId: state.id,
+                  graphOperationId: active.operationId,
                 },
               ];
             });
@@ -657,9 +665,18 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
                 .trim()
             : '';
         if (prompt.input.type === 'message' && !text) throw new Error(t('Décrivez votre mission.'));
-        if (prompt.input.type === 'command' && ['team-graphs', 'team-advance'].includes(prompt.input.name)) {
-          const advancing = prompt.input.name === 'team-advance';
-          const args = prompt.input.arguments.trim().split(/\s+/);
+        const graphDiscovery =
+          prompt.input.type === 'message' &&
+          /^(?:(?:affiche(?:r)?|montre(?:-moi)?) (?:les|mes) workflows(?: de cette conversation)?|show (?:the )?workflows(?: in this conversation)?)\s*[.!]*$/i.test(
+            text,
+          );
+        if (
+          graphDiscovery ||
+          (prompt.input.type === 'command' && ['team-graphs', 'team-advance'].includes(prompt.input.name))
+        ) {
+          const command = prompt.input.type === 'command' ? prompt.input : undefined;
+          const advancing = command?.name === 'team-advance';
+          const args = (command?.arguments ?? '').trim().split(/\s+/);
           let continuation: { id: string; expectedRevision: number } | undefined;
           if (advancing) {
             const parsed = z.object({ id: z.uuid(), expectedRevision: z.number().int().positive().safe() }).safeParse({
@@ -668,7 +685,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
             });
             if (!parsed.success) throw new Error(t('Usage : /team-advance UUID révision-attendue'));
             continuation = parsed.data;
-          } else if (prompt.input.arguments.trim()) throw new Error(t('Cette commande ne prend pas d’argument.'));
+          } else if (command?.arguments.trim()) throw new Error(t('Cette commande ne prend pas d’argument.'));
           const reportId = `${advancing ? 'advance' : 'graphs'}:${prompt.clientMessageId}`;
           if (!session.saved.transcript?.some((entry) => entry.id === reportId)) {
             // Resolve actual placement even before this conversation has a V1 mission.
@@ -705,7 +722,7 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
               {
                 id: prompt.clientMessageId,
                 role: 'user',
-                text: advancing ? `/team-advance ${prompt.input.arguments.trim()}` : '/team-graphs',
+                text: advancing ? `/team-advance ${command!.arguments.trim()}` : graphDiscovery ? text : '/team-graphs',
                 at,
               },
               {

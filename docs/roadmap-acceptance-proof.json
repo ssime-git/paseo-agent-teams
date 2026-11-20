@@ -1,0 +1,625 @@
+{
+  "version": 1,
+  "date": "2026-11-20T10:16:12.709Z",
+  "daemon": "Paseo 0.16.2",
+  "automatedChecks": {
+    "command": "npm run check",
+    "passed": 425,
+    "failed": 0
+  },
+  "scenario": "Real isolated models with explicitly scripted fixture decisions; not a production PR review or device test.",
+  "graph": {
+    "id": "b5e7c8dd-427f-4f4e-a8dc-dd599b2fc33d",
+    "definitionId": "ee696546-ba9f-4dea-b3fe-98fbd4cd9f48",
+    "definitionRevision": 1,
+    "language": "fr",
+    "maxActivations": 11,
+    "status": "succeeded",
+    "activations": [
+      {
+        "step": "clarify",
+        "operationId": "ce8fd56c-333d-43bf-bc47-df2d701c6885",
+        "provider": "claude/claude-sonnet-5-5",
+        "receipt": {
+          "agentId": "b4e4b477-76b9-4ede-8008-d344f833679f",
+          "attemptId": "cfb70db1-fdc4-4dff-b38c-25d77a3649f7",
+          "turnId": "foreground-turn-45fafc24-ef50-4400-a844-83a45968c2aa-1",
+          "outcome": "completed"
+        },
+        "promptHash": "ec189882dbf5fdc625721d2541eb30637024476aaf4b51db73899da4d50a83d2",
+        "clarification": {
+          "kind": "clarification",
+          "summary": "Deux choix nécessaires avant le plan",
+          "questions": [
+            {
+              "id": "greeting",
+              "title": "Quelle formule écrire dans le résultat ?",
+              "options": [
+                {
+                  "id": "bonjour",
+                  "label": "Bonjour",
+                  "tradeoff": "Formule française courte et vérifiable"
+                },
+                {
+                  "id": "salut",
+                  "label": "Salut",
+                  "tradeoff": "Formule informelle"
+                }
+              ],
+              "recommendedOptionId": "bonjour"
+            },
+            {
+              "id": "scope",
+              "title": "Quel périmètre conserver pour cette vérification avec une consigne volontairement longue afin de contrôler son affichage sur téléphone ?",
+              "options": [
+                {
+                  "id": "minimal",
+                  "label": "Un seul fichier, préserver les documents utilisateur",
+                  "tradeoff": "Limite les changements et facilite la vérification"
+                },
+                {
+                  "id": "large",
+                  "label": "Plusieurs fichiers",
+                  "tradeoff": "Élargit inutilement cet essai"
+                }
+              ],
+              "recommendedOptionId": "minimal"
+            }
+          ]
+        },
+        "answers": [
+          {
+            "questionId": "greeting",
+            "optionId": "bonjour"
+          },
+          {
+            "questionId": "scope",
+            "text": "Seulement RESULT.txt, préserve README.md et user-note.txt."
+          }
+        ],
+        "readOnlyUnchanged": true
+      },
+      {
+        "step": "clarify",
+        "operationId": "a99ac9e5-1cd1-497a-a8b7-e71bc3e3855a",
+        "provider": "claude/claude-sonnet-5-5",
+        "receipt": {
+          "agentId": "699c2179-9a79-40ed-b024-cdd6a5bf0d0b",
+          "attemptId": "d1ab67b1-a9ba-4b62-82fd-e2bff79286f4",
+          "turnId": "foreground-turn-c0bb1175-ae79-454f-9c35-ae2a20de6905-1",
+          "outcome": "completed"
+        },
+        "promptHash": "ed24ad42ec91e64d8027755c1c10425f8b58052360a14de46e0f4e838486f72a",
+        "outcome": "success",
+        "artifact": {
+          "contract": "plan",
+          "value": {
+            "intent": "implementation",
+            "summary": "Écrire Bonjour dans RESULT.txt en préservant les fichiers utilisateur",
+            "tasks": [
+              "Créer RESULT.txt avec Bonjour suivi d’un saut de ligne"
+            ],
+            "acceptance": [
+              "RESULT.txt vaut exactement Bonjour\\n",
+              "README.md et user-note.txt restent inchangés"
+            ],
+            "tests": [
+              {
+                "command": "node check.cjs",
+                "timeoutMs": 5000
+              }
+            ]
+          }
+        },
+        "readOnlyUnchanged": true,
+        "tests": [
+          {
+            "command": "git diff --check",
+            "exitCode": 0,
+            "timedOut": false
+          }
+        ]
+      },
+      {
+        "step": "review_plan",
+        "operationId": "1cc2bc68-82bf-413e-8dfe-0a3f335abb2c",
+        "provider": "claude/claude-haiku-5-5",
+        "receipt": {
+          "agentId": "f31bb20e-1567-465b-b18b-588670085784",
+          "attemptId": "61d5dcd4-f2b1-43d4-a7f0-c80923111a0d",
+          "turnId": "foreground-turn-130cef85-fe68-4a2d-9b62-90fda5e9290e-1",
+          "outcome": "completed"
+        },
+        "promptHash": "ce5235ace8adb4ecf95d4b53a813f7e740448309aea835ea3e85f0725d171dc2",
+        "outcome": "success",
+        "artifact": {
+          "contract": "plan",
+          "value": {
+            "intent": "implementation",
+            "summary": "Plan révisé par le Reviewer",
+            "tasks": [
+              "Vérifier que RESULT.txt n'existe pas déjà ; s'il existe, s'arrêter et demander avant d'écraser son contenu",
+              "Enregistrer les empreintes SHA-256 de README.md et user-note.txt avant toute modification (contrôle de préservation)",
+              "Créer RESULT.txt contenant exactement « Bonjour » suivi d'un saut de ligne LF (8 octets)",
+              "Ne modifier, déplacer ni supprimer aucun autre fichier, en particulier README.md et user-note.txt",
+              "Vérifier README.md et user-note.txt après la correction"
+            ],
+            "acceptance": [
+              "RESULT.txt vaut exactement « Bonjour\\n » (8 octets, sans BOM ni espace)",
+              "Les empreintes SHA-256 de README.md et user-note.txt sont identiques avant et après la correction",
+              "git status ne montre que RESULT.txt comme nouveau fichier ; user-note.txt reste non suivi et inchangé",
+              "node check.cjs réussit"
+            ],
+            "tests": [
+              {
+                "command": "node check.cjs",
+                "timeoutMs": 5000
+              }
+            ]
+          }
+        },
+        "readOnlyUnchanged": true,
+        "tests": [
+          {
+            "command": "git diff --check",
+            "exitCode": 0,
+            "timedOut": false
+          }
+        ]
+      },
+      {
+        "step": "approve_plan",
+        "operationId": "dd4161e7-e300-483f-af4a-925f36fd5b42",
+        "provider": "human/decision",
+        "outcome": "approve",
+        "humanDecision": {
+          "id": "8ba0ba7d-3ce8-4137-a7da-dc69698afb30",
+          "outcome": "approve",
+          "summary": "Accord explicite de la fixture isolée, sans livraison ou publication."
+        }
+      },
+      {
+        "step": "draft",
+        "operationId": "d1734778-f08f-48c5-9a11-fc4c472661c9",
+        "provider": "codex/gpt-6.1-sol",
+        "receipt": {
+          "agentId": "b5808c62-8c60-4d12-85dc-02eaecc303b8",
+          "attemptId": "817051f6-b26f-4bdd-8442-f9d538b7fd11",
+          "turnId": "codex-turn-430bfde2-bcdd-45d8-b4e6-4150f0be69cb-0",
+          "outcome": "completed"
+        },
+        "promptHash": "01a9dc3b6db5230cbf8b436a15d7ee0df7def6c0bc383bc92c1f884e003a43de",
+        "outcome": "failure",
+        "tests": [
+          {
+            "command": "node check.cjs",
+            "exitCode": 1,
+            "timedOut": false
+          }
+        ],
+        "explicitTestRejection": {
+          "id": "d1734778-f08f-48c5-9a11-fc4c472661c9",
+          "summary": "Tests failed: use the configured failure transition.",
+          "reason": "failed"
+        }
+      },
+      {
+        "step": "inspect",
+        "operationId": "ff83c2fa-e176-4285-a7da-82bca06ea594",
+        "provider": "claude/claude-haiku-5-5",
+        "receipt": {
+          "agentId": "3bce868e-3950-4d9c-bc84-6920137b610e",
+          "attemptId": "f75e36ae-6eea-4a67-be43-c42cebd0b775",
+          "turnId": "foreground-turn-98410375-82eb-4042-bcc5-884218b4af07-1",
+          "outcome": "completed"
+        },
+        "promptHash": "503eefee783476270917843349bd282625357f7ab01adaa45508f079c722ee7b",
+        "outcome": "failure",
+        "artifact": {
+          "contract": "review",
+          "value": {
+            "verdict": "fail",
+            "summary": "RESULT.txt ne vaut pas « Bonjour\\n » : il contient « draft\\n » (6 octets, vérifié avec od -c). Le test node check.cjs échoue (AssertionError, code de sortie 1). Je n'ai rien modifié.",
+            "issues": [
+              "RESULT.txt, ligne 1 : le contenu est « draft » au lieu de « Bonjour ». check.cjs attend exactement 'Bonjour\\n' et reçoit 'draft\\n'. Objection précise : remplacer le contenu par exactement « Bonjour » suivi d'un saut de ligne LF, puis relancer node check.cjs."
+            ]
+          }
+        },
+        "readOnlyUnchanged": true,
+        "tests": [
+          {
+            "command": "git diff --check",
+            "exitCode": 0,
+            "timedOut": false
+          }
+        ]
+      },
+      {
+        "step": "repair",
+        "operationId": "d93f2a64-f13d-4d2e-bab1-74445492d1d9",
+        "provider": "codex/gpt-6.1-sol",
+        "receipt": {
+          "agentId": "fa0e6caf-f195-41db-91d3-27d430bcb4d2",
+          "attemptId": "0abfcb42-5f7c-4a6a-b652-3712b5098eef",
+          "turnId": "codex-turn-99e464b9-8ff7-4e88-bb6b-b62efecbdead-0",
+          "outcome": "completed"
+        },
+        "promptHash": "cdc3324733fbdae301e8202d89671643f4b2d30ab99f9120c38bc003095ccf1c",
+        "outcome": "success",
+        "artifact": {
+          "contract": "build",
+          "value": {
+            "summary": "Correction effectuée ; node check.cjs réussit (code 0).",
+            "changes": [
+              "RESULT.txt contient exactement Bonjour suivi d’un saut de ligne LF (8 octets).",
+              "README.md et user-note.txt sont préservés, empreintes SHA-256 inchangées."
+            ],
+            "remaining": [],
+            "tests": [
+              {
+                "command": "node check.cjs",
+                "timeoutMs": 5000
+              }
+            ]
+          }
+        },
+        "tests": [
+          {
+            "command": "node check.cjs",
+            "exitCode": 0,
+            "timedOut": false
+          }
+        ]
+      },
+      {
+        "step": "inspect",
+        "operationId": "5e117695-282d-48c7-9c43-95f0f2f794ba",
+        "provider": "claude/claude-haiku-5-5",
+        "receipt": {
+          "agentId": "1241ed5b-dd10-4d4c-a39c-97a6ca325f96",
+          "attemptId": "d00b0b97-126c-465d-ba2f-f5dae3b69f4e",
+          "turnId": "foreground-turn-869f2f17-83e0-4f07-ad55-e9e4a7589d77-1",
+          "outcome": "completed"
+        },
+        "promptHash": "7b0743fcaead1fc24823870867c596afa36229e5509515d5d1709a1926f0d04b",
+        "outcome": "success",
+        "artifact": {
+          "contract": "review",
+          "value": {
+            "verdict": "pass",
+            "summary": "RESULT.txt contient exactement « Bonjour » suivi d’un saut de ligne LF (8 octets, vérifié par od -c : B o n j o u r \\n, sans BOM ni espace). git status ne montre que RESULT.txt et user-note.txt comme fichiers non suivis, sans modification de fichiers suivis. Je n’ai pas relancé node check.cjs (lecture seule) ni recalculé les empreintes SHA-256 de README.md et user-note.txt ; la préservation de ces fichiers repose sur git status et sur le rapport de réparation.",
+            "issues": []
+          }
+        },
+        "readOnlyUnchanged": true,
+        "tests": [
+          {
+            "command": "git diff --check",
+            "exitCode": 0,
+            "timedOut": false
+          }
+        ]
+      },
+      {
+        "step": "final_human",
+        "operationId": "b03599a2-8be3-4eb9-ab6d-4a0ec8730249",
+        "provider": "human/decision",
+        "outcome": "approve",
+        "humanDecision": {
+          "id": "08ca21cd-102d-4596-9e20-138e7815925f",
+          "outcome": "approve",
+          "summary": "Accord explicite de la fixture isolée, sans livraison ou publication."
+        }
+      }
+    ],
+    "finalGitStatus": "?? RESULT.txt\n?? user-note.txt",
+    "initialHead": "df94b551a44b428efc3b2d430c2d74c4de57106c",
+    "partialReplayAndConflict": true,
+    "restarts": [
+      "partial clarification",
+      "final human checkpoint",
+      "completed graph"
+    ]
+  },
+  "reviewer": {
+    "id": "35a83ccc-e992-46ec-a06a-9537330037f1",
+    "initialProvider": "claude/claude-haiku-5-5",
+    "replacement": {
+      "provider": "codex/gpt-6.1-sol",
+      "modeId": "read-only"
+    },
+    "invalidNativeResponseRejected": true,
+    "finalVersions": [
+      {
+        "version": 1,
+        "plan": {
+          "summary": "Plan initial",
+          "tasks": [
+            "Créer GUIDE.md sans modifier README.md"
+          ],
+          "acceptance": [
+            "README.md inchangé"
+          ],
+          "tests": [
+            {
+              "command": "git diff --check",
+              "timeoutMs": 5000
+            }
+          ]
+        },
+        "source": "planner",
+        "at": "2026-11-20T09:45:13.654Z",
+        "operationId": "7e7495d6-25bc-4165-acc0-b61dd02bdf9f",
+        "selection": {
+          "provider": "claude/claude-sonnet-5-5",
+          "modeId": "plan"
+        },
+        "agentId": "72951a60-811e-40c4-8411-49ba8b5cdeee"
+      },
+      {
+        "version": 2,
+        "plan": {
+          "summary": "Plan final natif Reviewer",
+          "tasks": [
+            "Créer GUIDE.md sans modifier README.md"
+          ],
+          "acceptance": [
+            "README.md inchangé"
+          ],
+          "tests": [
+            {
+              "command": "git diff --check -- README.md GUIDE.md",
+              "timeoutMs": 5000
+            }
+          ]
+        },
+        "source": "reviewer",
+        "at": "2026-11-20T09:52:49.805Z",
+        "operationId": "native:9b33c580-ba1c-47b2-a3e6-09fe43c657f3:ee9061c6-243f-4685-99f6-b45354009a4a:23",
+        "nativeSource": {
+          "epoch": "ee9061c6-243f-4685-99f6-b45354009a4a",
+          "seq": 23,
+          "turnId": "codex-turn-c9492e97-e3db-4345-a400-67b26126cef0-1"
+        },
+        "agentId": "9b33c580-ba1c-47b2-a3e6-09fe43c657f3"
+      }
+    ],
+    "testsApproved": false,
+    "nativeProposalProvenance": {
+      "epoch": "ee9061c6-243f-4685-99f6-b45354009a4a",
+      "seq": 23,
+      "turnId": "codex-turn-c9492e97-e3db-4345-a400-67b26126cef0-1"
+    },
+    "nativeSessionPromptCounts": {
+      "3cdd3142-5fe6-415c-9a51-f3fab5ace5a0": 2,
+      "9b33c580-ba1c-47b2-a3e6-09fe43c657f3": 2
+    },
+    "concurrentRequests": "one winner; separate two-client case below"
+  },
+  "presets": {
+    "legacy": {
+      "id": "c65bb53f-913b-4b6b-b7de-340b4a73813f",
+      "status": "awaiting_final",
+      "review": {
+        "verdict": "pass",
+        "summary": "RESULT.txt contient exactement « ok » suivi d'un saut de ligne (3 octets, vérifié avec od). Le test de lancement passe (exit 0). README.md est toujours non suivi et son mtime (11:07:40) précède celui de RESULT.txt (11:08:00), ce qui est cohérent avec un README non modifié. Aucun fichier modifié ni commit.",
+        "issues": [
+          "Preuve de README.md inchangé indirecte : pas de snapshot des octets d'origine, seulement le mtime et la taille (26 octets). Une comparaison de hash avec l'état initial renforcerait la vérification.",
+          "Pour la livraison (hors revue) : le dépôt n'a pas de commit (HEAD non né). Toute livraison sur main demande une décision humaine explicite (PR ou intégration) ; rien n'a été commité ni poussé."
+        ]
+      },
+      "tests": [
+        {
+          "command": "node -e 'require(\"node:assert/strict\").equal(require(\"node:fs\").readFileSync(\"RESULT.txt\",\"utf8\"),\"ok\\n\")'",
+          "exitCode": 0
+        }
+      ],
+      "deliveryApproved": false
+    },
+    "codeReview": {
+      "id": "fc79ee80-727e-43d9-ac46-1619d414186d",
+      "status": "exhausted",
+      "limit": 2,
+      "steps": [
+        {
+          "step": "code",
+          "outcome": "success",
+          "turnId": "codex-turn-ba0c1b81-9260-4a9b-b45b-7e3d40793921-0"
+        },
+        {
+          "step": "review",
+          "outcome": "failure",
+          "turnId": "foreground-turn-ac9e3b5a-25ae-4251-abfe-5fdd3d201f23-1"
+        }
+      ]
+    }
+  },
+  "migration": {
+    "type": "Synthetic historical V1 fixture loaded through real daemon RPC",
+    "id": "efa5e572-0742-4ef4-9387-86847a2b3679",
+    "operationPreserved": {
+      "id": "b906ec80-7e0f-4da4-9238-a7577e6e9988",
+      "role": "builder",
+      "phase": "building",
+      "state": "prepared",
+      "startedAt": "2020-01-01T00:00:00.000Z"
+    },
+    "approvalPolicy": "legacy",
+    "implicitOrchestration": false
+  },
+  "providers": {
+    "positiveRealModels": [
+      "claude/claude-sonnet-5-5",
+      "claude/claude-haiku-5-5",
+      "codex/gpt-6.1-sol"
+    ],
+    "detected": [
+      {
+        "id": "claude",
+        "models": 20,
+        "modes": [
+          "plan",
+          "default",
+          "acceptEdits",
+          "auto",
+          "bypassPermissions"
+        ]
+      },
+      {
+        "id": "codex",
+        "models": 10,
+        "modes": [
+          "auto",
+          "auto-review",
+          "full-access",
+          "read-only"
+        ]
+      },
+      {
+        "id": "copilot",
+        "models": 1,
+        "modes": [
+          "https://agentclientprotocol.com/protocol/session-modes#agent",
+          "https://agentclientprotocol.com/protocol/session-modes#plan",
+          "allow-all",
+          "__agent_teams_readonly__"
+        ]
+      },
+      {
+        "id": "opencode",
+        "models": 26,
+        "modes": [
+          "build",
+          "plan"
+        ]
+      },
+      {
+        "id": "pi",
+        "models": 1,
+        "modes": [
+          "__paseo_default_mode__",
+          "__agent_teams_readonly__"
+        ]
+      }
+    ],
+    "negativeAnalysis": [
+      {
+        "provider": "copilot",
+        "model": "__paseo_default_model__",
+        "mode": "https://agentclientprotocol.com/protocol/session-modes#agent",
+        "result": "Native read-only capability rejected before dispatch",
+        "operationId": "f08dd82f-126e-4c7d-ac5c-b702791fb3f8",
+        "dispatchBound": false
+      },
+      {
+        "provider": "opencode",
+        "model": "opencode/tidepool-alpha-free",
+        "mode": "build",
+        "result": "Native read-only capability rejected before dispatch",
+        "operationId": "522d80d8-a604-4b08-8c0d-1d322506a069",
+        "dispatchBound": false
+      },
+      {
+        "provider": "pi",
+        "model": "__paseo_default_model__",
+        "mode": "__paseo_default_mode__",
+        "result": "Native read-only capability rejected before dispatch",
+        "operationId": "82db1864-27cd-41e7-94b7-557f9471058d",
+        "dispatchBound": false
+      }
+    ]
+  },
+  "permission": {
+    "realNativeWriteFailed": true,
+    "requestId": "permission-23182dc6-bd2f-40bc-8b50-15acf8ffac4a",
+    "operationId": "ca7ce6c9-85eb-4f78-9898-c6fd5db47ff1",
+    "attemptPreserved": true,
+    "completionReceiptProven": false,
+    "observation": "uncertain",
+    "status": "running",
+    "filePreserved": true,
+    "scope": "Denied native turn remains uncertain; no success receipt fabricated or prompt resent."
+  },
+  "concurrentClients": {
+    "clients": 2,
+    "accepted": 1,
+    "status": "exhausted",
+    "activations": 1,
+    "nativeDispatches": 0,
+    "decision": {
+      "id": "72f2d780-cf66-4043-92f6-8a9a4def2276",
+      "outcome": "approve",
+      "summary": "Explicit fixture approval from client 0"
+    }
+  },
+  "browser": {
+    "question": [
+      {
+        "width": 1440,
+        "height": 1000,
+        "language": "fr",
+        "errors": [],
+        "overflow": false
+      },
+      {
+        "width": 390,
+        "height": 844,
+        "language": "fr",
+        "errors": [],
+        "overflow": false
+      },
+      {
+        "width": 1440,
+        "height": 1000,
+        "language": "en",
+        "errors": [],
+        "overflow": false
+      },
+      {
+        "width": 390,
+        "height": 844,
+        "language": "en",
+        "errors": [],
+        "overflow": false
+      }
+    ],
+    "final": [
+      {
+        "width": 1440,
+        "height": 1000,
+        "language": "fr",
+        "errors": [],
+        "overflow": false
+      },
+      {
+        "width": 390,
+        "height": 844,
+        "language": "fr",
+        "errors": [],
+        "overflow": false
+      },
+      {
+        "width": 1440,
+        "height": 1000,
+        "language": "en",
+        "errors": [],
+        "overflow": false
+      },
+      {
+        "width": 390,
+        "height": 844,
+        "language": "en",
+        "errors": [],
+        "overflow": false
+      }
+    ],
+    "physicalDevice": false,
+    "responseLanguageFrozen": "fr",
+    "screenshots": [
+      "screenshots/roadmap-web-fr.png",
+      "screenshots/roadmap-mobile-en.png",
+      "screenshots/roadmap-question-mobile-fr.png"
+    ]
+  },
+  "rawEvidenceDirectory": "/tmp/teams-roadmap-final"
+}

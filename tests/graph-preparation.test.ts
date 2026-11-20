@@ -16,6 +16,7 @@ async function setup(
   modeId = 'auto',
   access: 'write' | 'read-only' = 'write',
   provider = 'codex/model',
+  nativeOwner?: string,
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'teams-graph-prepare-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -36,6 +37,7 @@ async function setup(
     repo: (await repository(directory)).lock,
     task: 'Preserve this task',
     source,
+    ...(nativeOwner ? { admission: { ownerAgentId: nativeOwner, approvedDefinition: true as const } } : {}),
   });
   const operationId = randomUUID();
   const state = await store.reserve(graph.id, 'owner', 1, operationId);
@@ -199,4 +201,23 @@ test('lost native creation response and concurrent preparations reuse the same o
   assert.equal(bound.activations.length, 1);
   assert.equal(bound.activations[0].dispatch?.agentId, h.agentId);
   assert.equal(bound.revision, 3);
+});
+
+test('an admitted graph creates native children of its Team and preserves recovery when the parent is closed', async (t) => {
+  const h = await setup(t, 'auto', 'write', 'codex/model', 'native-owner');
+  await prepareGraphDispatch(h.api, h.store, h.input);
+  assert.equal(h.creates[0].parent, 'native-owner');
+  const closed = await setup(t, 'auto', 'write', 'codex/model', 'closed-owner');
+  const workspace = closed.api.workspaces.ref('owner');
+  closed.api.workspaces.ref = () => workspace;
+  const agents = workspace.agents;
+  agents.create = async (options) => {
+    closed.creates.push(options as unknown as Record<string, unknown>);
+    if (options.parent) throw Error('Caller agent closed-owner not found');
+    return { id: closed.agentId } as never;
+  };
+  await prepareGraphDispatch(closed.api, closed.store, closed.input);
+  assert.equal(closed.creates.length, 2);
+  assert.equal(closed.creates[1].parent, undefined);
+  assert.equal(closed.creates[0].idempotencyKey, closed.creates[1].idempotencyKey);
 });

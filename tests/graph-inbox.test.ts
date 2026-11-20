@@ -18,7 +18,12 @@ test('inline graph form keeps silence pending and sends explicit partial answers
     task: 'Choose a design',
     status: 'running',
     nextStepId: 'plan',
-    source: { definition: { name: 'My workflow', steps: [{ id: 'plan', instruction: 'Plan' }] } },
+    source: {
+      definition: {
+        name: 'My workflow',
+        steps: [{ id: 'plan', instruction: 'Plan', selection: { provider: 'claude/test', modeId: 'plan' } }],
+      },
+    },
     activations: [
       {
         operationId: 'operation',
@@ -140,4 +145,69 @@ test('inline graph form keeps silence pending and sends explicit partial answers
   assert.equal(tree.root.findAllByType('TextInput' as never).length, 0);
   assert.match(text(), /Cette demande a été traitée/);
   assert.equal(requests.filter((r) => r.name === 'teams.graph_response').length, beforeOldCard);
+});
+
+test('failed tests have an explicit failure-edge action and uncertain progress is reported without resending', async (t) => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  const { GraphInbox } = await loadResponseUi(t, 'client/graph-inbox.tsx', '__graphInboxFailure');
+  const calls: { name: string; input: Record<string, unknown> }[] = [];
+  let state = {
+    id: 'graph',
+    revision: 7,
+    task: 'Correct result',
+    status: 'running',
+    nextStepId: 'code',
+    source: {
+      definition: {
+        name: 'Correction',
+        steps: [{ id: 'code', instruction: 'Implement', selection: { provider: 'codex/model', modeId: 'auto' } }],
+      },
+    },
+    activations: [
+      {
+        operationId: 'operation',
+        stepId: 'code',
+        testRun: {
+          completion: {
+            results: [{ command: 'node check.cjs', exitCode: 1, timedOut: false, stdout: '', stderr: 'failed' }],
+          },
+        },
+        testRejection: undefined as unknown,
+      },
+    ],
+  };
+  (globalThis as Record<string, unknown>).__graphInboxFailure = {
+    rpc: (name: string) => async (input: Record<string, unknown>) => {
+      calls.push({ name, input });
+      if (name === 'teams.graph_list') return [structuredClone(state)];
+      if (name === 'teams.graph_advance') return { status: 'waiting', reason: 'uncertain', state };
+      state = { ...state, revision: 8, activations: [{ ...state.activations[0], testRejection: { id: 'operation' } }] };
+      return state;
+    },
+  };
+  t.after(() => {
+    delete (globalThis as Record<string, unknown>).__graphInboxFailure;
+  });
+  let tree!: ReturnType<typeof create>;
+  await act(async () => {
+    tree = create(
+      React.createElement(GraphInbox, {
+        agentId: 'owner',
+        item: { data: { workspaceId: 'workspace', graphId: 'graph', text: 'Report' } },
+        theme: { colors: {} },
+      }),
+    );
+  });
+  t.after(() => act(() => tree.unmount()));
+  const button = (label: string) =>
+    tree.root.findAllByType('Pressable' as never).find((n) => n.props.accessibilityLabel === label)!;
+  await act(async () => button('Suivre la branche d’échec des tests').props.onPress());
+  assert.equal(calls.filter((c) => c.name === 'teams.graph_advance').length, 0);
+  assert.equal(
+    (calls.find((c) => c.name === 'teams.graph_response')!.input.submission as { action: string }).action,
+    'reject_tests',
+  );
+  await act(async () => button('Continuer cette étape').props.onPress());
+  assert.match(JSON.stringify(tree.toJSON()), /Avancement bloqué : uncertain/);
+  assert.equal(calls.filter((c) => c.name === 'teams.graph_advance').length, 1);
 });

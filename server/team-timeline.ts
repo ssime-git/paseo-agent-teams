@@ -493,6 +493,7 @@ export interface TranscriptEntry {
   role: 'user' | 'assistant';
   graphWorkspaceId?: string;
   graphId?: string;
+  graphOperationId?: string;
   plannerQuestion?: { id: string; workspaceId: string; clarificationId: string };
   text: string;
   at: number;
@@ -524,9 +525,11 @@ export const transcriptItem = (entry: TranscriptEntry): ProviderTimelineItem =>
               workspaceId: entry.graphWorkspaceId,
               text: entry.text,
               ...(entry.graphId ? { graphId: entry.graphId } : {}),
-              ...(entry.graphId && entry.id.startsWith(`graph-wait:${entry.graphId}:`)
-                ? { operationId: entry.id.slice(`graph-wait:${entry.graphId}:`.length) }
-                : {}),
+              ...(entry.graphOperationId
+                ? { operationId: entry.graphOperationId }
+                : entry.graphId && entry.id.startsWith(`graph-wait:${entry.graphId}:`)
+                  ? { operationId: entry.id.slice(`graph-wait:${entry.graphId}:`.length) }
+                  : {}),
             },
           }
         : say(entry.id, entry.text);

@@ -1249,3 +1249,74 @@ test('a status turn restores completed review tasks without dispatching another 
   );
   assert.equal(s.calls.filter((c) => c.kind === 'action').length, 0);
 });
+
+test('failed graph tests and terminal results publish distinct operation-bound cards without advancing', async (t) => {
+  let notify!: (s: import('../shared/graph-checkpoint').GraphCheckpoint) => void;
+  const graph = {
+    id: '00000000-0000-4000-8000-000000000002',
+    status: 'running',
+    task: 'Bounded correction',
+    source: { definition: { name: 'Graph' } },
+    admission: { ownerAgentId: '00000000-0000-4000-8000-000000000001' },
+    activations: [
+      {
+        operationId: '00000000-0000-4000-8000-000000000003',
+        testRun: { completion: { results: [{ exitCode: 1, timedOut: false }] } },
+      },
+    ],
+  } as unknown as import('../shared/graph-checkpoint').GraphCheckpoint;
+  const s = await setup(t, 'fr', true, {
+    watchGraphs(listener) {
+      notify = listener;
+      return () => {};
+    },
+    async graphs() {
+      return [structuredClone(graph)];
+    },
+  });
+  await s.open();
+  const cards = () =>
+    s.events.filter(
+      (e) => e.type === 'timeline.item' && e.item.type === 'plugin' && e.item.kind === 'agent-teams-graphs',
+    );
+  assert.equal(cards().length, 1);
+  assert.match(JSON.stringify(cards()), /Les tests ont échoué/);
+  graph.status = 'succeeded';
+  notify(graph);
+  notify(graph);
+  await new Promise((r) => setTimeout(r, 1700));
+  assert.equal(cards().length, 2);
+  assert.match(JSON.stringify(cards().at(-1)), /Bilan du workflow/);
+  assert.match(JSON.stringify(cards().at(-1)), /00000000-0000-4000-8000-000000000003/);
+  assert.equal(s.calls.length, 0);
+  const saved = s.events.findLast((e) => e.type === 'session.persistence');
+  assert.ok(saved?.type === 'session.persistence');
+  await s.connection.send({ type: 'session.close', sessionId: 'session', requestId: 'close' });
+  s.events.length = 0;
+  await s.open(saved.persistence);
+  assert.equal(cards().length, 2);
+});
+
+test('natural workflow discovery needs no slash command and cannot create or advance a mission', async (t) => {
+  let reads = 0;
+  const s = await setup(t, 'fr', true, {
+    async graphs() {
+      reads++;
+      return [];
+    },
+  });
+  await s.open();
+  const baseline = reads;
+  for (const [id, text] of [
+    'Affiche les workflows de cette conversation.',
+    'Show workflows in this conversation.',
+    'Montre-moi les workflows',
+  ].entries()) {
+    const input = { type: 'message' as const, content: [{ type: 'text' as const, text }] };
+    await s.prompt('discovery-' + id, input);
+    await s.prompt('discovery-' + id, input);
+  }
+  assert.equal(reads - baseline, 3);
+  assert.equal(s.calls.length, 0);
+  assert.ok(!JSON.stringify(s.events).includes('/team-graphs'));
+});

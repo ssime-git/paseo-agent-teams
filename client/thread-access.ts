@@ -93,7 +93,9 @@ export function addThreadAccess(
                     );
                   // Explicit user command. Never use the SDK default, which interrupts
                   // a concurrently started turn. Team rejects steering while active.
-                  await owner.send('/team-graphs', { activeTurnBehavior: 'steer' });
+                  await owner.send(translate(language, 'Affiche les workflows de cette conversation.'), {
+                    activeTurnBehavior: 'steer',
+                  });
                 },
               }),
           },
