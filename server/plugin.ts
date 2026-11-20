@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { plannerQuestionReadRpc, plannerQuestionAnswerRpc } from '../shared/planner-question';
 import { ownedPlannerWorkflow } from './planner-question';
 import { createHash } from 'node:crypto';
@@ -247,6 +249,25 @@ export function contributeServer(server: PluginServerContext) {
         if (!agent?.agent.workspaceId || agent.agent.cwd !== cwd || agent.agent.provider !== TEAM_PROVIDER_ID)
           throw new TeamError('WORKSPACE_ACCESS_DENIED', 'Native Team owner unavailable');
         return agent.agent.workspaceId;
+      },
+      async remainingRoadmap(cwd) {
+        try {
+          const { stdout } = await promisify(execFile)('git', ['show', 'HEAD:docs/scheduled-roadmap.md'], {
+            cwd,
+            timeout: 2000,
+            maxBuffer: 2 * 1024 * 1024,
+          });
+          return stdout
+            .split(/^## Journal des passages/m, 1)[0]
+            .split('\n')
+            .flatMap((line) => {
+              const task = /^- \[ \] (.+)/.exec(line)?.[1];
+              return task ? [task.split(/\. (?:\*\*|Le SDK)/, 1)[0].slice(0, 350)] : [];
+            })
+            .slice(0, 12);
+        } catch {
+          return [];
+        }
       },
       watchGraphs: (listener) => store.graphs.onChange(listener),
       graphs: async (workspaceId, ownerAgentId) => {

@@ -253,12 +253,14 @@ export const en: Record<string, string> = {
   'Tour interrompu.': 'Turn interrupted.',
   'Plan v{version} validé. {builder} implémente.': 'Plan v{version} approved. {builder} is implementing.',
   'Plan validé. {builder} implémente.': 'Plan approved. {builder} is implementing.',
+  'Dans la feuille de route du dépôt': 'In the repository roadmap',
+  'Aucune mission dans cette conversation et aucun point ouvert trouvé dans la feuille de route du dépôt.':
+    'There is no mission in this conversation and no open item was found in the repository roadmap.',
   'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.':
     'The plan has no test command. Send `/team-approve-no-tests` to accept that explicitly, or ask for tests.',
   'Équipe en pause. Envoyez `/team-resume` pour reprendre.': 'Team paused. Send `/team-resume` to resume.',
   'Répondez ici, une réponse par ligne : `1. …`, `2. …`.': 'Answer here, one answer per line: `1. …`, `2. …`.',
   'Répondez directement ici.': 'Answer directly here.',
-  'aucune commande': 'no command',
   'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.':
     'The plan is ready ({steps} steps, tests: {tests}). Reply **go** to start {builder}, or describe what to change.',
   'Le plan est prêt (1 étape, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.':

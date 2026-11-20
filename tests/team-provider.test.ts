@@ -761,3 +761,32 @@ test('native restore recovers the core language setting from an older handle but
   assert.equal(config.config.settings.find((x) => x.id === 'responseLanguage')?.value, 'en');
   assert.equal(s.calls.filter((c) => c.kind === 'create').length, 1);
 });
+
+test('a repository status question answers directly without creating a mission and replays once', async (t) => {
+  const s = await setup(t, 'fr', true, { remainingRoadmap: async () => ['Valider le graphe personnalisé'] });
+  await s.open();
+  const input = {
+    type: 'message' as const,
+    content: [{ type: 'text' as const, text: "que reste t'il à implémenter" }],
+  };
+  await s.prompt('question', input);
+  await s.prompt('question', input);
+  assert.equal(s.calls.length, 0);
+  const answers = s.events.filter((e) => e.type === 'timeline.item' && e.item.type === 'assistant_message');
+  assert.equal(answers.length, 1);
+  assert.match(JSON.stringify(answers[0]), /Valider le graphe personnalisé/);
+  assert.equal(s.events.filter((e) => e.type === 'session.turn' && e.state === 'completed').length, 1);
+  await s.prompt('mission', { type: 'message', content: [{ type: 'text', text: 'Implement a feature' }] });
+  assert.deepEqual(
+    s.calls.map((call) => call.kind),
+    ['create'],
+  );
+  const before = structuredClone(s.workflow());
+  await s.prompt('status', { type: 'message', content: [{ type: 'text', text: "What's left to do?" }] });
+  assert.deepEqual(s.workflow(), before);
+  assert.deepEqual(
+    s.calls.map((call) => call.kind),
+    ['create'],
+  );
+  assert.match(JSON.stringify(s.events), /Le plan attend votre accord/);
+});

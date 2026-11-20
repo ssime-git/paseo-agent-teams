@@ -31,6 +31,7 @@ export interface TeamProviderBackend {
     cwd: string,
     workspaceId: string,
   ): Promise<{ workspaceId: string; choices: TeamProviderChoice[]; config: Config }>;
+  remainingRoadmap?(cwd: string): Promise<string[]>;
   ownerWorkspace(agentId: string, cwd: string): Promise<string>;
   advanceGraph?(input: z.infer<typeof graphAdvanceRpc.input>): Promise<z.infer<typeof graphAdvanceRpc.output>>;
   watchGraphs?(listener: (state: GraphCheckpoint) => void): () => void;
@@ -103,6 +104,20 @@ function record(saved: Saved, ...entries: TranscriptEntry[]) {
   ].slice(-TRANSCRIPT_LIMIT);
 }
 const approval = /^\s*(go|ok|okay|oui|yes|valide|validé|approve|approuvé|lgtm|vas-y|c'est bon|c’est bon)\s*[.!]*\s*$/i;
+
+function statusQuestion(text: string): boolean {
+  const normalized = text
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[-’']/g, ' ')
+    .replace(/[?!.]+$/, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  return /^(?:que reste t il (?:a (?:implementer|faire)|a faire sur ce projet)|qu est ce qu il reste a (?:faire|implementer)|ou en est (?:la mission|le projet|l equipe|on)|(?:what remains|what is left|what s left)(?: to (?:implement|do))?|what is the (?:team|workflow|project) status)$/.test(
+    normalized,
+  );
+}
 
 /** A native model selection backed by the existing V1 engine, never another orchestrator. */
 export function createTeamProvider(backend: TeamProviderBackend): ProviderRegistration {
@@ -655,12 +670,13 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           ? await backend.get(session.saved.workflowId, session.saved.workspaceId)
           : undefined;
         const at = w?.events.length ?? 0;
+        const askingStatus =
+          prompt.input.type === 'command' ? prompt.input.name === 'team-status' : statusQuestion(text);
         if (prompt.input.type === 'command') {
           const command = prompt.input.name;
           if (!commands.some((c) => c.name === command)) throw new Error('Unknown Team command');
           if (prompt.input.arguments.trim()) throw new Error(t('Cette commande ne prend pas d’argument.'));
-          if (!w) throw new Error(t('Décrivez d’abord votre mission.'));
-          if (command !== 'team-status')
+          if (w && !askingStatus)
             w = await backend.action({
               id: w.id,
               workspaceId: w.workspaceId,
@@ -669,11 +685,12 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
               action: command === 'team-pause' ? 'pause' : command === 'team-resume' ? 'resume' : 'approve',
               ...(command === 'team-approve-no-tests' ? { allowNoTests: true } : {}),
             });
-        } else if (!w) {
+          else if (!askingStatus) throw new Error(t('Décrivez d’abord votre mission.'));
+        } else if (!askingStatus && !w) {
           w = await backend.create(session.saved.workspaceId, text, session.saved.config, requestId, session.agentId);
           session.saved.workflowId = w.id;
           persist(sessionId, session.saved);
-        } else if (!(requestId in w.requests) && !(`create:${requestId}` in w.requests)) {
+        } else if (!askingStatus && w && !(requestId in w.requests) && !(`create:${requestId}` in w.requests)) {
           const pending = w.clarifications?.find((q) => !q.resolvedAt);
           const unanswered = pending?.request.questions.filter(
             (q) => !pending.answers.some((a) => a.questionId === q.id),
@@ -712,15 +729,26 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
           persist(sessionId, session.saved);
         }
         const item = transcriptItem(shown);
-        session.emitted.set(item.id, JSON.stringify(item));
-        emit({ type: 'timeline.item', sessionId, item });
-        if (prompt.input.type === 'command' && prompt.input.name === 'team-status' && w) {
+        if (!session.emitted.has(item.id)) {
+          session.emitted.set(item.id, JSON.stringify(item));
+          emit({ type: 'timeline.item', sessionId, item });
+        }
+        if (askingStatus) {
           const report = { id: `status:${prompt.clientMessageId}`, role: 'assistant' as const, at };
           if (!session.saved.transcript?.some((e) => e.id === report.id)) {
-            record(session.saved, {
-              ...report,
-              text: statusReport(w, { label: label(sessionId, w), activity: () => undefined, t }),
-            });
+            const remaining = !w ? await backend.remainingRoadmap?.(session.cwd) : undefined;
+            const text = w
+              ? statusReport(
+                  w,
+                  { label: label(sessionId, w), activity: () => undefined, t },
+                  prompt.input.type === 'message',
+                )
+              : remaining?.length
+                ? [t('Dans la feuille de route du dépôt'), '', ...remaining.map((task) => `- ${task}`)].join('\n')
+                : t(
+                    'Aucune mission dans cette conversation et aucun point ouvert trouvé dans la feuille de route du dépôt.',
+                  );
+            record(session.saved, { ...report, text });
             persist(sessionId, session.saved);
           }
         }
@@ -736,6 +764,10 @@ export function createTeamProvider(backend: TeamProviderBackend): ProviderRegist
         emit({ type: 'session.turn', sessionId, turnId, state: 'started' });
         try {
           await project(sessionId);
+          if (session.turn === turnId) {
+            emit({ type: 'session.turn', sessionId, turnId, state: 'completed' });
+            session.turn = undefined;
+          }
         } catch (error) {
           emit({ type: 'session.turn', sessionId, turnId, state: 'failed', error: { message: String(error) } });
           session.turn = undefined;

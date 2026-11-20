@@ -244,3 +244,19 @@ test('delivery has its own explicit question and the final summary includes veri
   w.events.push(event('closed'));
   assert.equal(stateNarrations(w, ctx).length, 0);
 });
+
+test('the current plan gets one approval instruction and an intervention never claims tests are missing', () => {
+  const w = workflowFixture();
+  w.plan = plan;
+  w.events.push(event('assistant', 'planner', 'p1', JSON.stringify(plan)), event('intervention'));
+  assert.equal(stateNarrations(w, ctx).length, 1);
+  assert.match(said(w)[0], /npm test.*\*\*go\*\*/);
+  assert.doesNotMatch(JSON.stringify(teamThread(w, ctx, [])), /ne prévoit aucune commande/);
+  const id = stateNarrations(w, ctx)[0].id;
+  w.events.push(event('assistant', 'planner', 'followup', 'A read-only reply'));
+  assert.equal(stateNarrations(w, ctx)[0].id, id);
+  w.plan = { ...plan, tests: [] };
+  assert.equal(stateNarrations(w, ctx).length, 1);
+  assert.match(said(w)[0], /team-approve-no-tests/);
+  assert.doesNotMatch(said(w)[0], /\*\*go\*\*/);
+});

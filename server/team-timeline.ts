@@ -243,16 +243,6 @@ export function projectTeamTimeline(w: Workflow, ctx: TeamTimelineContext): Anch
         );
         return;
       }
-      case 'intervention':
-        items.push(
-          say(
-            event.id,
-            ctx.t(
-              'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.',
-            ),
-          ),
-        );
-        return;
       case 'error':
       case 'invalid':
       case 'timeout':
@@ -304,18 +294,25 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
       ].join('\n'),
     });
   } else if (w.status === 'awaiting_plan' && w.plan) {
-    const tests = w.plan.tests.length
-      ? w.plan.tests.map((t) => `\`${t.command}\``).join(', ')
-      : ctx.t('aucune commande');
+    const tests = w.plan.tests.map((t) => `\`${t.command}\``).join(', ');
     const steps = w.plan.tasks.length;
+    const plannerResult = w.events.findLast(
+      (e) => e.kind === 'assistant' && e.role === 'planner' && !!result('planner', e.text),
+    );
+    const planVersion = w.planVersions?.at(-1)?.version;
+    const planKey = planVersion && planVersion > 1 ? `version:${planVersion}` : (plannerResult?.id ?? w.revision);
     out.push({
-      id: `plan:${last?.id ?? w.revision}`,
-      text: ctx.t(
-        steps > 1
-          ? 'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.'
-          : 'Le plan est prêt (1 étape, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.',
-        { steps, tests, builder: ctx.label('builder') },
-      ),
+      id: `plan:${planKey}`,
+      text: !tests
+        ? ctx.t(
+            'Le plan ne prévoit aucune commande de test. Envoyez `/team-approve-no-tests` pour l’accepter explicitement, ou demandez des tests.',
+          )
+        : ctx.t(
+            steps > 1
+              ? 'Le plan est prêt ({steps} étapes, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.'
+              : 'Le plan est prêt (1 étape, tests : {tests}). Répondez **go** pour lancer {builder}, ou décrivez ce qu’il faut changer.',
+            { steps, tests, builder: ctx.label('builder') },
+          ),
     });
   }
   if (w.status === 'permission' && w.operation)
@@ -359,7 +356,7 @@ export function stateNarrations(w: Workflow, ctx: TeamTimelineContext): { id: st
 }
 
 /** The answer to `/team-status`: who has control, what is awaited, the team and the correction count. */
-export function statusReport(w: Workflow, ctx: TeamTimelineContext) {
+export function statusReport(w: Workflow, ctx: TeamTimelineContext, concise = false) {
   const t = ctx.t;
   const role = w.operation?.role;
   const state = w.events.some((e) => e.kind === 'closed')
@@ -385,6 +382,10 @@ export function statusReport(w: Workflow, ctx: TeamTimelineContext) {
                       : role
                         ? t('{role} travaille.', { role: t(roleTitle[role]) })
                         : t('L’équipe prépare la prochaine étape.');
+  if (concise) {
+    const tasks = w.status === 'awaiting_plan' ? w.plan?.tasks.slice(0, 7) : undefined;
+    return [`**${state}**`, tasks?.length ? list(tasks) : ''].filter(Boolean).join('\n\n');
+  }
   const team = (['planner', 'builder', 'reviewer'] as const)
     .map((r) => `${t(roleTitle[r])} · ${ctx.label(r)}`)
     .join(' — ');
