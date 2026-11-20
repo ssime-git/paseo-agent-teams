@@ -1,4 +1,26 @@
-# Couverture restante au 7 novembre 2026
+# Couverture finale au 20 novembre 2026
+
+Les quatre axes et la validation transversale sont validés et livrés dans
+`953057c`. La tâche existante `f873454c` est en pause. La référence actuelle est
+[le dossier d’acceptation](roadmap-acceptance.md), avec ses
+[preuves transportables](roadmap-acceptance-proof.json) et captures versionnées.
+
+| Critère | Validation finale |
+| --- | --- |
+| Reviewer | Cinq tours natifs, réponse invalide refusée, changement de modèle, import/adoption concurrents et reprise conservant versions/provenance. |
+| Clarification | Réponse partielle mobile FR, redémarrage, réponse libre desktop EN, doublons/contradiction, contexte conservé sans lancement prématuré. |
+| Workflows | Presets V1 et Code ↔ Review exécutés ; graphe personnalisé unique jusqu’au bilan, tests échoués puis réussis, refus de revue et correction ; limites et deux clients distincts. |
+| Langue et interface | Web desktop et viewport mobile, FR/EN ; historique, cartes, résultats et décisions lisibles, aucun débordement ni erreur JavaScript. Aucun appareil physique revendiqué. |
+| Permissions et persistance | Write natif refusé, opération incertaine conservée sans faux reçu ; redémarrages isolés et migration V1 synthétique via daemon réel. Dix états principaux byte-identiques après reload du plugin. |
+| Providers | Claude/Codex réellement exécutés ; Copilot/OpenCode/Pi détectés et refusés avant analyse sans sandbox natif vérifié. |
+| Vérification et livraison | `npm run check` : 425 tests réussis. Code poussé sur main, plugin rechargé, daemon principal inchangé, daemon isolé arrêté. |
+
+Les limites spécifiques sont conservées dans le dossier d’acceptation. Les
+questions et priorités ci-dessous appartiennent au journal historique : elles
+ne sont plus le point de reprise courant. Les anciens chemins `/tmp` ne sont
+pas présentés comme des preuves relues ou comme de nouveaux essais.
+
+## État historique au 7 novembre 2026 — remplacé par la validation finale
 
 Cette matrice complète le journal `scheduled-roadmap.md`. Les essais réels cités
 ont été réalisés aux passages indiqués ; leur consultation ne constitue pas un
